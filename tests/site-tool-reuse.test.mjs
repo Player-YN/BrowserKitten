@@ -26,7 +26,7 @@ function sessionTools() {
 }
 
 test('prefix prefers ready-made site tools and does not dump the skill body', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v14-general-agent');
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v17-general-agent');
   const prefix = buildSessionAgentInstructions();
   assert.match(prefix, /你是"爪爪"/);
   assert.match(prefix, /不预设某种工具或路径总是更好/);
@@ -122,12 +122,12 @@ test('run and action descriptions list channels without a forced primary path', 
   assert.doesNotMatch(tools.action.description, /Prefer this for in-site/);
   assert.doesNotMatch(tools.action.description, /ready-made page controls beat/);
   assert.match(tools.action.description, /pointer/);
-  assert.match(tools.action.description, /RAW_ESCAPE_DENIED|NO_TARGET/);
+  assert.match(tools.action.description, /sys\.eval/);
+  assert.doesNotMatch(tools.action.description, /RAW_ESCAPE_DENIED|NO_TARGET|TAB_LEASED|FILE_CHOOSER/);
   assert.deepEqual(tools.action.parameters.required, ['op']);
   assert.ok(tools.action.parameters.properties.op.enum.includes('upload'));
   assert.ok(tools.action.parameters.properties.op.enum.includes('pointer'));
   assert.ok(tools.action.parameters.properties.tabId);
-  assert.match(tools.action.description, /JPEG|screenshot/);
   assert.doesNotMatch(tools.action.description, /must screenshot first|prefer structure/i);
   assert.ok(tools.run.parameters.properties.code);
 });

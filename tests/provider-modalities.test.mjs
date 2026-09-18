@@ -4,13 +4,18 @@ import {
   isChatProvider,
   isImageOnlyProvider,
   isImageProvider,
+  isSttOnlyProvider,
   listChatProviders,
   listImageProviders,
+  listSttProviders,
   resolveActiveImageProvider,
+  resolveActiveSttProvider,
   imageVendorLabel,
+  sttVendorLabel,
   normalizeProvider,
   applyProviderImageModel
 } from '../src/agent/llm.js';
+import { isLikelySttModel, sttModelsFromList } from '../src/agent/modelCatalog.js';
 
 test('image-only purpose is not a chat provider', () => {
   const image = normalizeProvider({
@@ -79,4 +84,46 @@ test('applyProviderImageModel does not change the chat model', () => {
   assert.equal(next.model, 'deepseek-v4-flash');
   assert.equal(next.image.model, 'google/gemini-2.5-flash-image');
   assert.equal(next.image.enabled, true);
+});
+
+test('stt-only purpose is not a chat or image provider', () => {
+  const stt = normalizeProvider({
+    id: 'stt1',
+    purpose: 'stt',
+    name: 'OpenAI',
+    baseURL: 'https://api.openai.com/v1',
+    apiKey: 'sk-stt',
+    model: 'whisper-1'
+  });
+  assert.equal(stt.purpose, 'stt');
+  assert.equal(isSttOnlyProvider(stt), true);
+  assert.equal(isChatProvider(stt), false);
+  assert.equal(isImageOnlyProvider(stt), false);
+  assert.equal(isImageProvider(stt), false);
+  assert.equal(sttVendorLabel(stt), 'OpenAI');
+  const chat = normalizeProvider({
+    id: 'c1',
+    name: 'DeepSeek',
+    baseURL: 'https://api.deepseek.com/v1',
+    model: 'deepseek-v4-flash'
+  });
+  const providers = [chat, stt];
+  assert.deepEqual(listChatProviders(providers).map((p) => p.id), ['c1']);
+  assert.deepEqual(listSttProviders(providers).map((p) => p.id), ['stt1']);
+  const none = resolveActiveSttProvider([chat], 'stt1');
+  assert.equal(none.activeSttProviderId, null);
+  const hit = resolveActiveSttProvider(providers, 'stt1');
+  assert.equal(hit.activeSttProviderId, 'stt1');
+  const fallback = resolveActiveSttProvider(providers, 'missing');
+  assert.equal(fallback.activeSttProviderId, 'stt1');
+});
+
+test('isLikelySttModel keeps whisper and drops chat ids', () => {
+  assert.equal(isLikelySttModel('whisper-1'), true);
+  assert.equal(isLikelySttModel('gpt-4o-mini-transcribe'), true);
+  assert.equal(isLikelySttModel('gpt-4o'), false);
+  assert.deepEqual(
+    sttModelsFromList([{ id: 'whisper-1' }, { id: 'gpt-4o' }, { id: 'tts-1' }]).map((m) => m.id),
+    ['whisper-1']
+  );
 });

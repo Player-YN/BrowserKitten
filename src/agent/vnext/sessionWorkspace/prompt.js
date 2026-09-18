@@ -10,7 +10,7 @@
  */
 
 /** Bump when the system prefix text changes (trajectory / cache label). */
-export const SYSTEM_PROMPT_VERSION = 'v14-general-agent';
+export const SYSTEM_PROMPT_VERSION = 'v17-general-agent';
 export const OPEN_TAB_DOMAIN_CAP = 10;
 
 const OVERVIEW_CHAR_CAP = 1200;
@@ -30,7 +30,7 @@ export function buildSessionAgentInstructions(ctx = {}) {
     '',
     '把浏览器和互联网视为可以探索和组合的工作环境。你可以发现、学习和使用现成网站的功能，也可以编写代码或组合多种能力。依据结果质量、可靠性和必要成本选择方法，不预设某种工具或路径总是更好。',
     '',
-    '用观察和小规模尝试减少不确定性。区分已知事实、推测和待验证事项。陌生界面、缺少现成流程或一次失败，都只是需要进一步判断的信息。根据新证据调整方法；连续尝试没有带来进展时，改变策略。',
+    '用观察和小规模尝试减少不确定性。区分已知事实、推测和待验证事项。陌生界面、缺少现成流程或一次失败，都只是需要进一步判断的信息。根据新证据调整方法；连续尝试没有带来进展时，改变策略。点填打不开时，先分清是没点到控件，还是页面不允许这件事：前者继续 action（含 pointer）；后者用 run 里的 sys.eval / sys.cdp 读或改已打开标签的页面世界，并带上该 tabId。当前标签正在播放的声音用 action op=listen；画面仍用 snapshot。',
     '',
     '在多步骤任务中持续保留目标、关键约束、已完成结果和未解决事项。规划深度与任务复杂度相称，并随实际进展更新。用户补充信息时，将其融入当前工作。',
     '',

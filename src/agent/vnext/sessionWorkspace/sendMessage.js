@@ -401,6 +401,8 @@ export async function sendMessage(store, input) {
     hostCanvas: typeof input.hostCanvas === 'function' ? input.hostCanvas : null,
     hostPageCapture: typeof input.hostPageCapture === 'function' ? input.hostPageCapture : null,
     hostPageAction: typeof input.hostPageAction === 'function' ? input.hostPageAction : null,
+    listenRuntime: input.listenRuntime || null,
+    settings: input.settings,
     hostFindTab: typeof input.hostFindTab === 'function' ? input.hostFindTab : null,
     hostSys: typeof input.hostSys === 'function' ? input.hostSys : null,
     activeTab: input.activeTab || pages.activeTab,

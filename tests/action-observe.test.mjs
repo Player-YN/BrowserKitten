@@ -356,7 +356,7 @@ test('skill and tool text do not prescribe a single live-page path', () => {
     sessionId: 's'
   });
   assert.match(tools.action.description, /pointer/);
-  assert.match(tools.action.description, /JPEG|screenshot/);
+  assert.match(tools.action.description, /sys\.eval/);
   assert.doesNotMatch(tools.action.description, /must screenshot first|prefer structure/i);
   assert.ok(tools.action.parameters.properties.tabId);
   assert.doesNotMatch(tools.run.description, /Do not use run for a pure click/);

@@ -435,6 +435,25 @@ export function isLikelyImageGenModel(id, raw) {
   return false;
 }
 
+export function isLikelySttModel(id, raw) {
+  const s = String(id || '').toLowerCase();
+  if (!s) return false;
+  if (/(whisper|speech-to-text|audio-transcri|transcribe)/i.test(s)) return true;
+  if (raw && typeof raw === 'object') {
+    const arch = String(
+      /** @type {any} */ (raw).architecture?.modality ||
+        /** @type {any} */ (raw).architecture?.output_modalities ||
+        ''
+    ).toLowerCase();
+    if (arch.includes('audio') && (arch.includes('text') || arch.includes('transcri'))) return true;
+  }
+  return false;
+}
+
+export function sttModelsFromList(models) {
+  return (Array.isArray(models) ? models : []).filter((m) => m && m.id && isLikelySttModel(m.id, m));
+}
+
 export function isLikelyNonChatModel(id, raw) {
   const s = String(id || '').toLowerCase();
   if (!s) return true;
@@ -928,6 +947,21 @@ export async function fetchImageGenModels(baseURL, apiKey, opts = {}) {
 
   const all = await fetchOpenAICompatibleModels(base, key, opts);
   return imageModelsFromList(all);
+}
+
+/**
+ * Speech-to-text catalog from GET /models (keep whisper / transcribe ids).
+ * @param {string} baseURL
+ * @param {string} apiKey
+ * @param {{ signal?: AbortSignal }} [opts]
+ * @returns {Promise<ModelEntry[]>}
+ */
+export async function fetchSttModels(baseURL, apiKey, opts = {}) {
+  const all = await fetchOpenAICompatibleModels(baseURL, apiKey, {
+    ...opts,
+    filterEmbeddings: false
+  });
+  return sttModelsFromList(all);
 }
 
 export async function fetchOpenAICompatibleModels(baseURL, apiKey, opts = {}) {

@@ -10,18 +10,25 @@ import {
   generateProviderId,
   isChatProvider,
   isImageOnlyProvider,
+  isSttOnlyProvider,
   listChatProviders,
   listImageProviders,
+  listSttProviders,
   imageVendorLabel,
+  sttVendorLabel,
   setActiveImageProviderId,
+  setActiveSttProviderId,
   PROVIDER_PRESETS,
   DEFAULT_BASE,
+  DEFAULT_STT_BASE,
+  DEFAULT_STT_MODEL,
   OPENROUTER_API_BASE,
   DEFAULT_IMAGE_PROTOCOL,
   DEFAULT_IMAGE_PATH,
   DEFAULT_IMAGE_MODEL,
   defaultImageConfig
 } from './agent/llm.js';
+import { putListenGrant } from './agent/vnext/host/tabListen.js';
 import {
   loadWebAcquireSettings,
   saveWebAcquireSettings,
@@ -151,7 +158,9 @@ import {
   shrinkModelList,
   chatModelsFromList,
   imageModelsFromList,
+  sttModelsFromList,
   fetchImageGenModels,
+  fetchSttModels,
   findCatalogModel,
   resolveContextWindow,
   effortLevelsForReasoning,
@@ -445,6 +454,7 @@ const SCRIPT_CONFIRM_TIMEOUT_MS = 120000;
 let currentActivePageMeta = null;
 /** @type {{ url: string, title: string, origin: string, host: string }|null} */
 let lastActivePage = null;
+let pendingListenGrant = null;
 /** Live http(s) tabs from SW (`workspace_list_open_tabs`). Not visitedPages. */
 let openMentionPages = [];
 let crossTabStore = new Map();
@@ -480,8 +490,11 @@ let settingsConfigUi = {
 };
 /** Which inference provider the image editor is attached to. */
 let settingsImageUi = { providerId: null, hasStoredKey: false, keyTail: '' };
+/** Dedicated speech-to-text vendor in the settings card. */
+let settingsSttUi = { providerId: null, hasStoredKey: false, keyTail: '' };
 /** Web-acquire editor vendor: tavily | brave | firecrawl */
 let settingsWebUi = { kind: 'tavily' };
+let settingsProbedSttModels = [];
 
 /** @deprecated legacy name kept as alias so old partial code paths never TDZ */
 const settingsProviderUi = settingsConfigUi;
@@ -6798,6 +6811,10 @@ function handleSessionWorkspaceEvent(request) {
       paintLiveTurnDisclosure();
       return;
     }
+    if (ev?.type === 'listen-grant-required') {
+      if (!sid || sid === foreground) showListenGrantBar(ev);
+      return;
+    }
     if (ev?.type === 'policy-blocked') {
       if (approvalBelongsToSession(sid, getWorkspaceSessionId())) approvalUi.showBlocked(ev);
       paintLiveTurnDisclosure();
@@ -7865,6 +7882,12 @@ function setupCoreEventListeners() {
 
   $('pageListenBtn')?.addEventListener('click', () => {
     void updateActivePageListeningBanner();
+  });
+  $('listenGrantBtn')?.addEventListener('click', () => {
+    void confirmListenGrant();
+  });
+  $('listenGrantDismiss')?.addEventListener('click', () => {
+    hideListenGrantBar();
   });
   $('moreBtn')?.addEventListener('click', () => openMoreSheet());
   $('sheetClose')?.addEventListener('click', () => closeMoreSheet());
@@ -10259,6 +10282,40 @@ function setPageListenState(state, host = '') {
               : '未在网页'
             : '…';
   }
+}
+
+function hideListenGrantBar() {
+  pendingListenGrant = null;
+  const bar = document.getElementById('listenGrantBar');
+  if (bar) bar.hidden = true;
+}
+
+function showListenGrantBar(ev = {}) {
+  const tabId = Number(ev.tabId || lastActivePage?.tabId || lastActivePage?.id);
+  const sessionId = String(ev.sessionId || getWorkspaceSessionId() || '');
+  if (!sessionId || !Number.isInteger(tabId) || tabId <= 0) return;
+  pendingListenGrant = { sessionId, tabId, title: ev.title || lastActivePage?.title || '' };
+  const bar = document.getElementById('listenGrantBar');
+  const copy = document.getElementById('listenGrantCopy');
+  if (copy) {
+    const host = lastActivePage?.host || pendingListenGrant.title;
+    copy.textContent = host ? `${t('listenGrantCopy')} · ${host}` : t('listenGrantCopy');
+  }
+  if (bar) bar.hidden = false;
+}
+
+async function confirmListenGrant() {
+  if (!pendingListenGrant) return;
+  try {
+    await putListenGrant(chrome.storage.session, pendingListenGrant.sessionId, pendingListenGrant.tabId);
+  } catch (e) {
+    showSidepanelToast(
+      (currentLang === 'en' ? 'Listen grant failed: ' : '听音授权失败: ') + (e?.message || e),
+      { error: true }
+    );
+    return;
+  }
+  hideListenGrantBar();
 }
 
 async function updateActivePageListeningBanner() {
@@ -12757,6 +12814,10 @@ function setImageEditorOpen(open) {
   setEditorOpen('imageEditor', 'addImageBtn', open);
 }
 
+function setSttEditorOpen(open) {
+  setEditorOpen('sttEditor', 'addSttBtn', open);
+}
+
 function setWebEditorOpen(open) {
   setEditorOpen('webAcquireEditor', 'addWebAcquireBtn', open);
 }
@@ -12842,6 +12903,7 @@ function renderInferenceVendorList(state) {
             const next = await loadProvidersState();
             renderInferenceVendorList(next);
             renderImageVendorList(next);
+            renderSttVendorList(next);
           })();
         },
         onDelete: () => confirmDeleteVendor(p.name || p.model || 'API', () => deleteInferenceVendor(p.id))
@@ -12877,6 +12939,40 @@ function renderImageVendorList(state) {
         },
         onDelete: () =>
           confirmDeleteVendor(imageVendorLabel(p), () => deleteImageVendor(p.id))
+      })
+    );
+  }
+}
+
+function renderSttVendorList(state) {
+  const list = document.getElementById('sttVendorList');
+  if (!list) return;
+  list.innerHTML = '';
+  const vendors = listSttProviders(state?.providers);
+  const activeSttId = state?.activeSttProviderId || null;
+  const line = document.getElementById('sttStatusLine');
+  if (line) {
+    line.hidden = vendors.length > 0;
+    line.textContent = t('sttEmptyHint');
+  }
+  for (const p of vendors) {
+    const host = vendorHostFromUrl(p.baseURL);
+    const bits = [p.model || DEFAULT_STT_MODEL, host, maskKeyTail(p.apiKey)].filter(Boolean);
+    list.appendChild(
+      renderVendorCard({
+        name: sttVendorLabel(p),
+        meta: bits.join(' · '),
+        active: p.id === activeSttId,
+        onSelect: () => {
+          void (async () => {
+            try {
+              await setActiveSttProviderId(p.id);
+            } catch (_) {}
+            openSttEditor(p);
+            renderSttVendorList(await loadProvidersState());
+          })();
+        },
+        onDelete: () => confirmDeleteVendor(sttVendorLabel(p), () => deleteSttVendor(p.id))
       })
     );
   }
@@ -12945,6 +13041,7 @@ async function refreshVendorBoards() {
   const state = await loadProvidersState();
   renderInferenceVendorList(state);
   renderImageVendorList(state);
+  renderSttVendorList(state);
   await fillWebAcquireForm();
   await renderWebVendorList();
   refreshAgentStatusBadge();
@@ -12954,6 +13051,7 @@ async function refreshVendorBoards() {
 
 function openInferenceEditor(provider) {
   setImageEditorOpen(false);
+  setSttEditorOpen(false);
   setWebEditorOpen(false);
   if (provider) {
     fillSettingsForm(provider);
@@ -13014,6 +13112,7 @@ function fillImageForm(provider) {
 
 function openImageEditor(provider) {
   setInferenceEditorOpen(false);
+  setSttEditorOpen(false);
   setWebEditorOpen(false);
   settingsImageUi.providerId = provider?.id || null;
   if (provider?.image?.enabled || provider?.image?.model) {
@@ -13053,6 +13152,7 @@ function setWebEditorKind(kind) {
 function openWebEditor(kind) {
   setInferenceEditorOpen(false);
   setImageEditorOpen(false);
+  setSttEditorOpen(false);
   setWebEditorKind(kind || 'tavily');
   setWebEditorOpen(true);
   const focusId =
@@ -13226,6 +13326,305 @@ async function deleteImageVendor(providerId) {
   }
 }
 
+function applySttPreset(presetId) {
+  const base = document.getElementById('providerSttBaseInput');
+  const key = document.getElementById('providerSttKeyInput');
+  const model = document.getElementById('providerSttModelInput');
+  document.querySelectorAll('#sttPresetRow [data-stt-preset]').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-stt-preset') === presetId);
+  });
+  if (presetId === 'openai') {
+    if (base) base.value = DEFAULT_STT_BASE;
+    if (model) model.value = DEFAULT_STT_MODEL;
+    if (key && !settingsSttUi.hasStoredKey) key.placeholder = 'sk-...';
+  } else if (presetId === 'openai-compatible') {
+    if (base && !base.value.trim()) base.value = '';
+    if (model && !model.value.trim()) model.value = DEFAULT_STT_MODEL;
+    if (key && !settingsSttUi.hasStoredKey) key.placeholder = 'sk-... / any key';
+  }
+}
+
+function fillSttForm(provider) {
+  const base = document.getElementById('providerSttBaseInput');
+  const key = document.getElementById('providerSttKeyInput');
+  const model = document.getElementById('providerSttModelInput');
+  settingsSttUi.hasStoredKey = !!provider?.apiKey;
+  settingsSttUi.keyTail = provider?.apiKey ? String(provider.apiKey).slice(-4) : '';
+  if (base) base.value = String(provider?.baseURL || DEFAULT_STT_BASE).replace(/\/$/, '');
+  if (model) model.value = String(provider?.model || DEFAULT_STT_MODEL);
+  if (key) {
+    key.value = '';
+    key.placeholder = settingsSttUi.hasStoredKey
+      ? `已配置 (…${settingsSttUi.keyTail})`
+      : 'sk-...';
+  }
+  const looksOpenAi = /openai\.com/i.test(String(provider?.baseURL || ''));
+  document.querySelectorAll('#sttPresetRow [data-stt-preset]').forEach((btn) => {
+    const id = btn.getAttribute('data-stt-preset');
+    btn.classList.toggle('active', looksOpenAi ? id === 'openai' : id === 'openai-compatible');
+  });
+}
+
+function openSttEditor(provider) {
+  setInferenceEditorOpen(false);
+  setImageEditorOpen(false);
+  setWebEditorOpen(false);
+  settingsSttUi.providerId = provider?.id || null;
+  if (provider && isSttOnlyProvider(provider)) {
+    fillSttForm(provider);
+    void hydrateSettingsSttCatalog(provider);
+  } else {
+    fillSttForm({
+      baseURL: DEFAULT_STT_BASE,
+      model: DEFAULT_STT_MODEL,
+      apiKey: ''
+    });
+    applySttPreset('openai');
+    settingsProbedSttModels = [];
+    renderSettingsSttCatalog();
+    paintSttProbeResult(null);
+  }
+  setSttEditorOpen(true);
+  document.getElementById('providerSttKeyInput')?.focus();
+}
+
+function paintSttProbeResult(result) {
+  const el = document.getElementById('sttProbeResult');
+  if (!el) return;
+  if (!result) {
+    el.hidden = true;
+    el.textContent = '';
+    el.classList.remove('is-ok', 'is-err');
+    return;
+  }
+  el.hidden = false;
+  el.classList.toggle('is-ok', result.ok === true);
+  el.classList.toggle('is-err', result.ok !== true);
+  if (result.ok && result.count > 0) {
+    el.textContent = t('apiProbeSttOk').replace('{n}', String(result.count));
+    if (result.fromCache) el.textContent += settingsLangEn() ? ' (cached)' : '（已缓存）';
+  } else if (result.ok) {
+    el.textContent = t('apiProbeSttNone');
+  } else {
+    el.textContent = t('apiProbeFail').replace('{err}', String(result.error || 'error'));
+  }
+}
+
+function renderSettingsSttCatalog() {
+  const box = document.getElementById('providerSttCatalog');
+  const filter = document.getElementById('providerSttModelFilter');
+  const current = document.getElementById('providerSttModelInput')?.value?.trim() || '';
+  const models = Array.isArray(settingsProbedSttModels) ? settingsProbedSttModels : [];
+  if (!box) return;
+  if (!models.length) {
+    box.hidden = true;
+    if (filter) filter.hidden = true;
+    return;
+  }
+  if (filter) filter.hidden = false;
+  box.hidden = false;
+  const query = String(filter?.value || '').trim();
+  const shrunk = shrinkModelList(models, { query, limit: 40, preferIds: [current] });
+  box.replaceChildren();
+  for (const m of shrunk.items) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'api-model-catalog-item' + (m.id === current ? ' is-on' : '');
+    btn.textContent = m.name && m.name !== m.id ? `${m.name} · ${m.id}` : m.id;
+    btn.title = m.id;
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('providerSttModelInput');
+      if (input) input.value = m.id;
+      renderSettingsSttCatalog();
+    });
+    box.appendChild(btn);
+  }
+  if (shrunk.truncated) {
+    const more = document.createElement('div');
+    more.className = 'api-model-catalog-more';
+    more.textContent = settingsLangEn()
+      ? `${shrunk.total} transcription models · showing ${shrunk.items.length}`
+      : `共 ${shrunk.total} 个转写模型 · 显示 ${shrunk.items.length} 个`;
+    box.appendChild(more);
+  }
+}
+
+async function resolveSttProbeCreds() {
+  let baseURL = document.getElementById('providerSttBaseInput')?.value?.trim() || '';
+  let apiKey = document.getElementById('providerSttKeyInput')?.value?.trim() || '';
+  const hostId = settingsSttUi.providerId;
+  if ((!baseURL || !apiKey) && hostId) {
+    try {
+      const state = await loadProvidersState();
+      const p = (state.providers || []).find((x) => x.id === hostId);
+      if (!baseURL) baseURL = String(p?.baseURL || '');
+      if (!apiKey) apiKey = String(p?.apiKey || '');
+    } catch (_) {}
+  }
+  return { baseURL: String(baseURL || '').replace(/\/$/, ''), apiKey };
+}
+
+async function hydrateSettingsSttCatalog(provider) {
+  const { baseURL } = await resolveSttProbeCreds();
+  const base = baseURL || String(provider?.baseURL || '').trim();
+  if (!base) {
+    settingsProbedSttModels = [];
+    renderSettingsSttCatalog();
+    paintSttProbeResult(null);
+    return;
+  }
+  try {
+    const cached = await loadCachedModelsForBase(base);
+    const stt = sttModelsFromList(cached.models || []);
+    if (stt.length) {
+      settingsProbedSttModels = stt;
+      const dl = document.getElementById('providerSttModelSuggestions');
+      if (dl) {
+        dl.innerHTML = '';
+        for (const m of stt.slice(0, 40)) {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          dl.appendChild(opt);
+        }
+      }
+      renderSettingsSttCatalog();
+      paintSttProbeResult({ ok: true, count: stt.length, fromCache: true });
+      return;
+    }
+  } catch (_) {}
+  settingsProbedSttModels = [];
+  renderSettingsSttCatalog();
+  paintSttProbeResult(null);
+}
+
+async function onProbeSttModelsClick() {
+  const btn = document.getElementById('providerSttProbeBtn');
+  const { baseURL, apiKey } = await resolveSttProbeCreds();
+  if (!baseURL) {
+    paintSttProbeResult({
+      ok: false,
+      error: settingsLangEn() ? 'Enter transcription Base URL.' : '请填写转写 Base URL。'
+    });
+    return;
+  }
+  if (!apiKey) {
+    paintSttProbeResult({
+      ok: false,
+      error: settingsLangEn() ? 'API key required.' : '需要 API Key。'
+    });
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = settingsLangEn() ? 'Probing…' : '探测中…';
+  }
+  let probe;
+  try {
+    const models = await fetchSttModels(baseURL, apiKey);
+    probe = { ok: true, models, count: models.length };
+  } catch (e) {
+    probe = { ok: false, models: [], count: 0, error: e instanceof Error ? e.message : String(e) };
+  }
+  try {
+    if (probe.ok) {
+      try {
+        await cacheModelsForBase(baseURL, probe.models);
+      } catch (_) {}
+      settingsProbedSttModels = probe.models;
+      const dl = document.getElementById('providerSttModelSuggestions');
+      if (dl) {
+        dl.innerHTML = '';
+        for (const m of probe.models.slice(0, 40)) {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          dl.appendChild(opt);
+        }
+      }
+      renderSettingsSttCatalog();
+      paintSttProbeResult({ ok: true, count: probe.models.length });
+      const input = document.getElementById('providerSttModelInput');
+      if (input && !input.value.trim() && probe.models[0]?.id) input.value = probe.models[0].id;
+    } else {
+      settingsProbedSttModels = [];
+      renderSettingsSttCatalog();
+      paintSttProbeResult(probe);
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = t('apiProbeSttBtn');
+    }
+  }
+}
+
+async function saveSttEditor(opts = {}) {
+  const baseURL = document.getElementById('providerSttBaseInput')?.value?.trim() || '';
+  const typedKey = document.getElementById('providerSttKeyInput')?.value?.trim() || '';
+  const model =
+    document.getElementById('providerSttModelInput')?.value?.trim() || DEFAULT_STT_MODEL;
+  if (!baseURL) {
+    showSidepanelToast(settingsLangEn() ? 'Enter transcription Base URL.' : '请填写转写 Base URL。', {
+      error: true
+    });
+    document.getElementById('providerSttBaseInput')?.focus();
+    return false;
+  }
+  const state = await loadProvidersState();
+  const host = (state.providers || []).find((p) => p.id === settingsSttUi.providerId) || null;
+  const prevKey = host && isSttOnlyProvider(host) ? String(host.apiKey || '').trim() : '';
+  const apiKey = typedKey || prevKey;
+  if (!apiKey) {
+    showSidepanelToast(settingsLangEn() ? 'Enter a transcription API key.' : '请填写转写 API Key。', {
+      error: true
+    });
+    document.getElementById('providerSttKeyInput')?.focus();
+    return false;
+  }
+  try {
+    const id = host?.id || generateProviderId();
+    await upsertProvider(
+      {
+        id,
+        purpose: 'stt',
+        name: sttVendorLabel({ baseURL, name: host?.name }),
+        baseURL,
+        apiKey,
+        model,
+        createdAt: host?.createdAt || Date.now()
+      },
+      { makeActive: false }
+    );
+    settingsSttUi.providerId = id;
+    settingsSttUi.hasStoredKey = true;
+    settingsSttUi.keyTail = apiKey.slice(-4);
+    if (!opts.keepOpen) setSttEditorOpen(false);
+    await refreshVendorBoards();
+    return true;
+  } catch (e) {
+    showSidepanelToast(
+      (settingsLangEn() ? 'Save failed: ' : '保存失败: ') + (e?.message || e),
+      { error: true }
+    );
+    return false;
+  }
+}
+
+async function deleteSttVendor(providerId) {
+  try {
+    await deleteProvider(providerId);
+    if (settingsSttUi.providerId === providerId) {
+      settingsSttUi.providerId = null;
+      setSttEditorOpen(false);
+    }
+    await refreshVendorBoards();
+  } catch (e) {
+    showSidepanelToast(
+      (settingsLangEn() ? 'Delete failed: ' : '删除失败: ') + (e?.message || e),
+      { error: true }
+    );
+  }
+}
+
 async function deleteWebVendor(kind) {
   try {
     const cfg = await loadWebAcquireSettings();
@@ -13255,6 +13654,7 @@ async function deleteWebVendor(kind) {
 async function refreshSettingsForm() {
   setInferenceEditorOpen(false);
   setImageEditorOpen(false);
+  setSttEditorOpen(false);
   setWebEditorOpen(false);
   setSkillEditorOpen(false);
   await refreshVendorBoards();
@@ -13561,6 +13961,7 @@ async function saveDebugSettings() {
 async function saveAllSettings() {
   const infEd = document.getElementById('inferenceEditor');
   const imgEd = document.getElementById('imageEditor');
+  const sttEd = document.getElementById('sttEditor');
   const webEd = document.getElementById('webAcquireEditor');
   try {
     if (infEd && !infEd.hidden) {
@@ -13569,6 +13970,10 @@ async function saveAllSettings() {
     }
     if (imgEd && !imgEd.hidden) {
       const ok = await saveImageEditor({ keepOpen: true });
+      if (!ok) return false;
+    }
+    if (sttEd && !sttEd.hidden) {
+      const ok = await saveSttEditor({ keepOpen: true });
       if (!ok) return false;
     }
     if (webEd && !webEd.hidden) {
@@ -13643,6 +14048,33 @@ function setupAgentSettingsModal() {
   document.getElementById('saveImageEditorBtn')?.addEventListener('click', () => {
     void saveImageEditor();
   });
+
+  document.getElementById('addSttBtn')?.addEventListener('click', () => {
+    openSttEditor(null);
+  });
+  document.getElementById('cancelSttEditorBtn')?.addEventListener('click', () => {
+    setSttEditorOpen(false);
+  });
+  document.getElementById('saveSttEditorBtn')?.addEventListener('click', () => {
+    void saveSttEditor();
+  });
+  document.getElementById('providerSttProbeBtn')?.addEventListener('click', () => {
+    void onProbeSttModelsClick();
+  });
+  const sttFilter = document.getElementById('providerSttModelFilter');
+  if (sttFilter && !sttFilter.dataset.wired) {
+    sttFilter.dataset.wired = '1';
+    sttFilter.addEventListener('input', () => renderSettingsSttCatalog());
+  }
+  const sttPresetRow = document.getElementById('sttPresetRow');
+  if (sttPresetRow) {
+    sttPresetRow.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('[data-stt-preset]');
+      if (!btn || !sttPresetRow.contains(btn)) return;
+      const id = btn.getAttribute('data-stt-preset');
+      if (id) applySttPreset(id);
+    });
+  }
 
   document.getElementById('addWebAcquireBtn')?.addEventListener('click', () => {
     openWebEditor('tavily');

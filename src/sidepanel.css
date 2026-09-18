@@ -55,7 +55,8 @@ button, textarea, select, input {
 
 /* Empty chrome: zero layout when [hidden] (flex authors must not override) */
 .drafts-bar[hidden],
-.history-bar[hidden] {
+.history-bar[hidden],
+.listen-grant-bar[hidden] {
   display: none !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -64,6 +65,28 @@ button, textarea, select, input {
   max-height: 0 !important;
   overflow: hidden !important;
   pointer-events: none !important;
+}
+
+.listen-grant-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+  background: var(--bg-elevated, var(--bg-panel));
+  font-size: 12px;
+}
+
+.listen-grant-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-muted, var(--text));
+}
+
+.listen-grant-btn,
+.listen-grant-dismiss {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 /* Selection expand body: collapsed by default, hover slides open */

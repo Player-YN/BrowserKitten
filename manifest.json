@@ -22,7 +22,8 @@
     "tabGroups",
     "webNavigation",
     "userScripts",
-    "debugger"
+    "debugger",
+    "tabCapture"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -6,6 +6,8 @@
  * never list in 交付物, never download.
  */
 
+import { attachToolFailureHint } from './toolReceipt.js';
+
 export const PREVIEW_MAX_FRAMES = 8;
 /** Live tldraw toImage must not block the tool loop (headless / watermark / busy tab). */
 export const PREVIEW_TIMEOUT_MS = 12000;
@@ -124,7 +126,7 @@ export async function requestCanvasPreview(hostCanvas, opts = {}) {
 }
 
 function factsJsonForModel(output = {}) {
-  const json = { ...output };
+  const json = attachToolFailureHint({ ...output });
   delete json.modelParts;
   delete json.imageBase64;
   delete json.base64;

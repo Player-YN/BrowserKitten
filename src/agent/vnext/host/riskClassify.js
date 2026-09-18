@@ -83,7 +83,7 @@ const PAYMENT_URL_RE =
 const PAYMENT_HOST_RE =
   /(^|\.)(paypal\.|stripe\.|checkout\.shopify|alipay\.|alipayobjects\.|pay\.weixin|checkout\.)/i;
 
-const ACTION_READ = new Set(['snapshot', 'wait', 'resolve_name', 'resolve_intent']);
+const ACTION_READ = new Set(['snapshot', 'wait', 'resolve_name', 'resolve_intent', 'listen']);
 const ACTION_FILL = new Set(['fill', 'fill_form', 'select', 'scroll']);
 const ACTION_MUTATE = new Set(['click', 'fill', 'fill_form', 'select', 'press', 'scroll', 'upload', 'pointer']);
 
@@ -260,11 +260,12 @@ function classifyAction(input = {}) {
   };
 
   if (ACTION_READ.has(op) || !op) {
+    const listen = op === 'listen';
     return verdict({
       risk: RISK_READ,
-      reason: op === 'wait' ? 'action:wait' : 'action:snapshot',
-      summary: op === 'wait' ? '读取页面等待条件' : '读取页面快照',
-      signals: ['action-read'],
+      reason: listen ? 'action:listen' : op === 'wait' ? 'action:wait' : 'action:snapshot',
+      summary: listen ? '听取当前标签声音' : op === 'wait' ? '读取页面等待条件' : '读取页面快照',
+      signals: listen ? ['action-read', 'action-listen'] : ['action-read'],
       target: base
     });
   }

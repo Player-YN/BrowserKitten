@@ -19,6 +19,7 @@ import {
   uploadOwnerKey
 } from './uploadChannel.js';
 import { captureVisibleJpeg } from './pageScreenshot.js';
+import { handleWorkspaceTabListen } from './tabListen.js';
 import {
   shouldAttachPageScreenshot,
   screenshotToModelParts,
@@ -958,6 +959,9 @@ async function executeWorkspacePageAction(request) {
     };
   }
   const op = String(request?.op || '').trim().toLowerCase();
+  if (op === 'listen') {
+    return handleWorkspaceTabListen({ ...request, tabId, url: resolved.url });
+  }
   try {
     await ensurePageActionScripts(tabId);
   } catch (error) {

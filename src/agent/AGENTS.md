@@ -86,7 +86,7 @@ Guest FS（`fs.js`）：
 
 清单：`canvasInventory.js` 的 `SESSION_TOOL_NAMES`（含 `task`）。`toolSchedule.js` 原样返回该列表。
 
-System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v14-general-agent'`：通用执行 Agent 身份与工作方式；world 不在 prefix）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
+System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v17-general-agent'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；当前标签声音走 `action op=listen`；world 不在 prefix）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
 
 交付物打开：`openClassify.js` 负责 kind；`artifactCapability.js` 是家族 × 打开面 × 徽标的单一映射。主 chip 是 `docs` / `data` / `web` / `media` / `files`；`design`/`slides` 只兼容旧数据。未知 HTML/JS 不得在 extension origin 执行。仅文件名的 `.html` 保持中性，不假装 proven site/doc；首次打开分类后可持久化 `capability` hint。site 本波 = 可编辑/可渲染的静态 HTML+CSS + 宿主 postMessage bridge（`src/sandbox/siteFrame.*`），**不是**任意 guest JS。
 
@@ -95,10 +95,10 @@ System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v14-general-agent'`：
 | id | 定义 | 现状 |
 |----|------|------|
 | `inspect` | `sessionWorkspace/tools.js` | 只读查找：`view` = groups / group / item / artifacts / files / skill / workbook / range / html / sys |
-| `acquire` | 同上 | 把未知公开网带进会话：search / fetch / map / crawl / image / note。已打开或需登录/验证码的 URL 走 `run` + `sys.fetch as:"page"` |
+| `acquire` | 同上 | 把未知公开网带进会话：search / fetch / map / crawl / image / note / transcribe。已打开或需登录/验证码的 URL 走 `run` + `sys.fetch as:"page"`。`transcribe` 读 guest path / artifactId / 公开音频 URL，走设置里的转写 API（`purpose:'stt'`） |
 | `run` | 同上 | 访客机：sandbox JS/TS + fs + `sys`。`op` 是登记 ABI（persist / scratch / register workbook\|document\|html）。日常改画布走 sheet / doc / web |
 | `clarify` | 同上 | 模型主动提问或 plan 卡。删除/模糊提交的门是宿主 `answerApproval`，不依赖模型调用 clarify |
-| `action` | 同上 | 本轮 `activeTab` 的显式 `tabId` live-page（snapshot 后同代 mutate）。无 tabId → `NEED_EXPLICIT_TAB`。运输见 [../AGENTS.md](../AGENTS.md) |
+| `action` | 同上 | 本轮 `activeTab` 的显式 `tabId` live-page（snapshot 后同代 mutate）。`op=listen` 听当前标签声音（需侧栏授权），画面仍用 snapshot。无 tabId → `NEED_EXPLICIT_TAB`。运输见 [../AGENTS.md](../AGENTS.md) |
 | `task` | `sessionWorkspace/taskTool.js` | 可选 durable 进度：`inspect` / `plan` / `checkpoint` / `wait` / `complete` / `schedule`。`wait`/`complete` 成功即 yield。`schedule` 只建未来/周期任务 |
 | `sheet` | `sessionWorkspace/officeTools.js` | Univer 表：`act` = read / write / snapshot |
 | `doc` | 同上 | Univer 文档：`act` = read / write |
@@ -106,7 +106,7 @@ System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v14-general-agent'`：
 
 Office 无对应 canvas 时返回 `NO_CANVAS`（工具仍在 schema 里）。没有 Design/Slides（tldraw）。网站复刻走 `web act=clone`。
 
-BYOK：`llm.js` → `pagewand_providers`。`run`：`vnext/adapters`（QuickJS / esbuild-wasm / AI SDK loader）+ `src/sandbox/`。Offscreen 经 `sandboxClient.js` postMessage；channel `pawwork-code-sandbox-v1`。`fs` 与 `sys` 都是同一条 RPC。
+BYOK：`llm.js` → `pagewand_providers`。推理 / 生图 / 转写各有独立 active id（`pagewand_active_provider_id` · `pagewand_active_image_provider_id` · `pagewand_active_stt_provider_id`）。转写供应商 `purpose:'stt'`，POST `{base}/audio/transcriptions`。`run`：`vnext/adapters`（QuickJS / esbuild-wasm / AI SDK loader）+ `src/sandbox/`。Offscreen 经 `sandboxClient.js` postMessage；channel `pawwork-code-sandbox-v1`。`fs` 与 `sys` 都是同一条 RPC。
 
 ## Skills（playbook）
 
@@ -122,7 +122,8 @@ BYOK：`llm.js` → `pagewand_providers`。`run`：`vnext/adapters`（QuickJS / 
 
 | 字段 | 用途 |
 |------|------|
-| `op` | `snapshot` \| `fill_form` \| `click` \| `fill` \| `select` \| `press` \| `scroll` \| `wait` \| `upload` |
+| `op` | `snapshot` \| `fill_form` \| `click` \| `fill` \| `select` \| `press` \| `scroll` \| `wait` \| `upload` \| `pointer` \| `listen` |
+| `listen` / `seconds` | `listen=start\|stop\|clip`。`clip` 默认 20 秒、宿主封顶 120。听音不需要 `rev` |
 | `ref` | 最近一次 snapshot 的不透明控件 id，如 `f0.a12` |
 | `rev` | 不透明快照标识；所有 mutate 必填，不要自行拼接 |
 | `name` | 无障碍名回退（label / aria-label / placeholder） |

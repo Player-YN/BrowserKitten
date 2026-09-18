@@ -108,6 +108,12 @@
       </div>
     </header>
 
+    <div id="listenGrantBar" class="listen-grant-bar" hidden>
+      <span class="listen-grant-copy" id="listenGrantCopy" data-i18n="listenGrantCopy">Agent 要听此标签正在播放的声音</span>
+      <button type="button" class="btn btn-primary listen-grant-btn" id="listenGrantBtn" data-i18n="listenGrantBtn">允许听此标签</button>
+      <button type="button" class="btn btn-secondary listen-grant-dismiss" id="listenGrantDismiss" data-i18n="listenGrantDismiss">稍后</button>
+    </div>
+
     <!-- Pinned under topbar: pick / shot / group / clipboard (does not scroll away) -->
     <section class="selection-bar is-empty" id="selectionBar" aria-label="Selection summary" aria-expanded="false">
       <div class="sel-toolbar" id="selToolbar">
@@ -701,6 +707,40 @@
             <div class="api-editor-actions">
               <button type="button" class="btn btn-secondary" id="cancelImageEditorBtn" data-i18n="cancel">取消</button>
               <button type="button" class="btn btn-primary" id="saveImageEditorBtn" data-i18n="saveImageBtn">保存生图 API</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-api-card" id="settingsSttCard" aria-labelledby="settingsSttTitle">
+          <h4 class="settings-api-card-title" id="settingsSttTitle" data-i18n="settingsSttTitle">转写</h4>
+          <p class="settings-hint" id="sttStatusLine" data-i18n="sttEmptyHint">尚未添加转写 API。</p>
+          <div id="sttVendorList" class="api-vendor-list"></div>
+          <button type="button" class="api-add-btn" id="addSttBtn" data-i18n="addSttBtn">＋ 添加转写 API</button>
+          <div id="sttEditor" class="api-vendor-editor" hidden>
+            <div class="provider-presets-row" id="sttPresetRow" role="group" aria-label="转写模板">
+              <button type="button" class="provider-preset-chip" data-stt-preset="openai">OpenAI</button>
+              <button type="button" class="provider-preset-chip" data-stt-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+            </div>
+            <label class="settings-label" for="providerSttBaseInput">Base URL</label>
+            <input type="text" id="providerSttBaseInput" class="modal-input" placeholder="https://api.openai.com/v1" autocomplete="off" />
+            <label class="settings-label" for="providerSttKeyInput">API Key</label>
+            <input type="password" id="providerSttKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" />
+            <label class="settings-label" for="providerSttModelInput" data-i18n="settingsSttModel">模型</label>
+            <div class="chat-model-input-row">
+              <input type="text" id="providerSttModelInput" class="modal-input" placeholder="whisper-1" autocomplete="off" list="providerSttModelSuggestions" />
+              <button type="button" id="providerSttProbeBtn" class="btn btn-secondary settings-mini-btn" data-i18n="apiProbeSttBtn" data-i18n-title="apiProbeSttBtnHint">探测</button>
+            </div>
+            <p class="settings-hint" id="sttProbeResult" hidden></p>
+            <input type="search" id="providerSttModelFilter" class="modal-input" data-i18n-placeholder="modelPickerSearchStt" placeholder="搜索转写模型…" autocomplete="off" hidden />
+            <div id="providerSttCatalog" class="api-model-catalog" hidden role="listbox"></div>
+            <datalist id="providerSttModelSuggestions">
+              <option value="whisper-1"></option>
+              <option value="gpt-4o-mini-transcribe"></option>
+              <option value="gpt-4o-transcribe"></option>
+            </datalist>
+            <div class="api-editor-actions">
+              <button type="button" class="btn btn-secondary" id="cancelSttEditorBtn" data-i18n="cancel">取消</button>
+              <button type="button" class="btn btn-primary" id="saveSttEditorBtn" data-i18n="saveSttBtn">保存转写 API</button>
             </div>
           </div>
         </section>

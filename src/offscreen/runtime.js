@@ -18,6 +18,22 @@ globalThis.__PAWWORK_CODE_SANDBOX_RUN__ = (opts) => sandboxClient.run(opts);
 let servicePromise = SessionWorkspaceService.create();
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.target === 'pawwork-offscreen' && message?.action === 'tab_listen_abort') {
+    void (async () => {
+      try {
+        const service = await servicePromise;
+        await service._listenRuntime?.abort({
+          tabId: message.tabId,
+          sessionId: message.sessionId,
+          executionId: message.executionId
+        });
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: error?.message || String(error) });
+      }
+    })();
+    return true;
+  }
   if (message?.target !== 'pawwork-offscreen' || message?.action !== 'workspace_rpc_execute') return false;
   void (async () => {
     try {

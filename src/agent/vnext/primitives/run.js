@@ -3,7 +3,6 @@
  */
 
 import { runCode } from '../adapters/codeRuntime.js';
-import { SYS_MODEL_HINT } from '../sessionWorkspace/browserSys.js';
 
 /**
  * @param {object} ctx
@@ -54,12 +53,13 @@ export function createRunTool(ctx) {
   return {
     name: 'run',
     description:
-      'Execute JavaScript in the task sandbox with workspace fs and sys (browser ABI). No chrome/window/document. ' +
-      SYS_MODEL_HINT,
+      'Guest JS/TS sandbox with fs (/context read-only, /artifacts durable, /scratch this turn) and sys (no chrome/window/document). ' +
+      'sys.eval / sys.cdp program an already-open tab when action cannot change page policy. ISA: inspect view=sys. ' +
+      'Failed calls return {ok:false, code, error, hint}.',
     parameters: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'JavaScript source to execute. ' + SYS_MODEL_HINT },
+        code: { type: 'string', description: 'JavaScript or TypeScript source to execute. ISA: inspect view=sys.' },
         entry: { type: 'string', description: 'Optional entry function name' },
         entryFile: { type: 'string', description: 'Optional virtual project entry filename' },
         files: {

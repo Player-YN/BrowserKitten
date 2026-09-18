@@ -1,4 +1,5 @@
 import { handleWorkspacePageAction, invalidatePageActionTarget } from './agent/vnext/host/pageActionHost.js';
+import { dropListenGrantsForTab } from './agent/vnext/host/tabListen.js';
 import { assertWorkspaceRpc, workspaceSenderRole } from './agent/vnext/host/workspaceRpcContract.js';
 import { createWorkspaceRpcTransport } from './agent/vnext/host/workspaceRpcTransport.js';
 // Static import only — dynamic import() is disallowed on ServiceWorkerGlobalScope
@@ -63,8 +64,8 @@ async function ensurePawWorkOffscreen() {
   if (pawworkOffscreenCreating) return pawworkOffscreenCreating;
   pawworkOffscreenCreating = chrome.offscreen.createDocument({
     url: PAWWORK_OFFSCREEN_URL,
-    reasons: ['WORKERS', 'BLOBS'],
-    justification: 'Run the browser-resident Web Workspace agent and materialize selected content independently of the side panel.'
+    reasons: ['WORKERS', 'BLOBS', 'USER_MEDIA', 'AUDIO_PLAYBACK'],
+    justification: 'Run the browser-resident Web Workspace agent, tab-audio listen, and materialize selected content independently of the side panel.'
   }).finally(() => { pawworkOffscreenCreating = null; });
   return pawworkOffscreenCreating;
 }
@@ -1790,6 +1791,7 @@ function watchMentionableOpenTabs() {
   tabsApi.onCreated?.addListener(() => scheduleOpenTabsBroadcast());
   tabsApi.onRemoved?.addListener((tabId) => {
     invalidatePageActionTarget(tabId);
+    void abortTabListen(tabId);
     void removeTabLease(tabId).catch(error => console.warn('[browser] tab cleanup failed', error));
     scheduleOpenTabsBroadcast();
   });
@@ -1811,8 +1813,26 @@ for (const event of ['onBeforeNavigate', 'onCommitted', 'onHistoryStateUpdated',
 }
 chrome.tabs.onReplaced?.addListener((_added, removed) => {
   invalidatePageActionTarget(removed);
+  void abortTabListen(removed);
   void removeTabLease(removed).catch(error => console.warn('[browser] replaced tab cleanup failed', error));
 });
+
+async function abortTabListen(tabId) {
+  try {
+    await dropListenGrantsForTab(chrome.storage.session, tabId);
+  } catch (error) {
+    console.warn('[listen] drop grant failed', error);
+  }
+  try {
+    await chrome.runtime.sendMessage({
+      target: 'pawwork-offscreen',
+      action: 'tab_listen_abort',
+      tabId
+    });
+  } catch {
+    /* offscreen may be asleep */
+  }
+}
 
 
 /**

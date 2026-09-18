@@ -43,6 +43,7 @@ body {
 }
 
 .topbar,
+.listen-grant-bar,
 .composer,
 .attachment-preview-bar {
   flex-shrink: 0;

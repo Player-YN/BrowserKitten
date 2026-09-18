@@ -44,6 +44,7 @@ import {
   resolveContextWindow
 } from '../../modelCatalog.js';
 import { loadLlmSettings } from '../../llm.js';
+import { createListenRuntime } from '../sessionWorkspace/listenRuntime.js';
 import {
   getDurableSkillStore,
   hydrateDurableSkillsFromChrome,
@@ -130,6 +131,7 @@ export class SessionWorkspaceService {
     this._releaseTabLeasesFn = typeof opts.releaseTabLeases === 'function' ? opts.releaseTabLeases : null;
     this._journal = opts.journal
       || (opts.memoryJournal === true ? createCallJournal(createMemoryCallJournal()) : createUnavailableCallJournal());
+    this._listenRuntime = opts.listenRuntime || createListenRuntime();
     this._ensurePolicyAdapters();
     const recovered = recoverInterruptedTasks(store);
     this._startupPersist = recovered.length ? this._persist() : Promise.resolve();
@@ -1682,8 +1684,9 @@ export class SessionWorkspaceService {
       }
 
       let contextWindow;
+      let settings;
       try {
-        const settings = await loadLlmSettings();
+        settings = await loadLlmSettings();
         const cached = await loadCachedModelsForBase(settings.apiBase);
         const hit = findCatalogModel(cached.models || [], settings.model);
         contextWindow = resolveContextWindow(settings.model, hit);
@@ -1736,6 +1739,8 @@ export class SessionWorkspaceService {
             sessionId,
             controller.signal
           ),
+        listenRuntime: this._listenRuntime,
+        settings,
         hostFindTab: (url) =>
           chrome.runtime.sendMessage({
             target: 'pawwork-background',
@@ -1886,6 +1891,7 @@ export class SessionWorkspaceService {
     } finally {
       try {
         const endingId = this._activeBySession.get(sessionId)?.executionId;
+        await this._listenRuntime?.abort({ sessionId, executionId: endingId });
         await this._releaseTabLeases(sessionId, endingId);
         await this._cleanupExecutionPolicy(sessionId, endingId);
       } catch {
@@ -1922,6 +1928,7 @@ export class SessionWorkspaceService {
       });
       slot.controller.abort(createUserStopError());
       abortSessionClarifies(slot.sessionId);
+      await this._listenRuntime?.abort({ sessionId: slot.sessionId, executionId: slot.executionId });
       await this._cleanupExecutionPolicy(slot.sessionId, slot.executionId);
     }
     if (executionId && slots.length === 0) {
