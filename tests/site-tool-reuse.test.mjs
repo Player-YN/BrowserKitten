@@ -26,7 +26,7 @@ function sessionTools() {
 }
 
 test('prefix prefers ready-made site tools and does not dump the skill body', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v17-general-agent');
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v18-media-evidence');
   const prefix = buildSessionAgentInstructions();
   assert.match(prefix, /你是"爪爪"/);
   assert.match(prefix, /不预设某种工具或路径总是更好/);

@@ -109,6 +109,10 @@ export function createSessionGuestFs(store, opts) {
       return blob.bytes;
     },
 
+    readFileMimeType(guestPath) {
+      return store.getBlob(nodeKey(hostPath(guestPath)))?.mimeType || '';
+    },
+
     exists(guestPath) {
       try {
         const hp = hostPath(guestPath);

@@ -4,11 +4,17 @@
  */
 
 export const LISTEN_GRANT_PREFIX = 'pagewand_listen_grant:';
+export const RECORD_GRANT_PREFIX = 'pagewand_record_grant:';
 export const DEFAULT_LISTEN_SECONDS = 20;
 export const MAX_LISTEN_SECONDS = 120;
 
-export function listenGrantKey(sessionId, tabId) {
-  return `${LISTEN_GRANT_PREFIX}${String(sessionId || '')}:${Number(tabId)}`;
+export function listenGrantKey(sessionId, tabId, kind = 'audio') {
+  return `${kind === 'video' ? RECORD_GRANT_PREFIX : LISTEN_GRANT_PREFIX}${String(sessionId || '')}:${Number(tabId)}`;
+}
+
+export function clampRecordSeconds(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.min(30, Math.max(1, Math.round(n))) : 8;
 }
 
 export function normalizeListenVerb(value) {
@@ -25,20 +31,20 @@ export function clampListenSeconds(value) {
   return Math.min(MAX_LISTEN_SECONDS, Math.max(1, Math.round(n)));
 }
 
-export async function readListenGrant(sessionStorage, sessionId, tabId) {
+export async function readListenGrant(sessionStorage, sessionId, tabId, kind = 'audio') {
   if (!sessionStorage?.get) return false;
-  const key = listenGrantKey(sessionId, tabId);
+  const key = listenGrantKey(sessionId, tabId, kind);
   const res = await sessionStorage.get([key]);
   return !!(res && res[key]);
 }
 
-export async function putListenGrant(sessionStorage, sessionId, tabId) {
+export async function putListenGrant(sessionStorage, sessionId, tabId, kind = 'audio') {
   const sid = String(sessionId || '');
   const id = Number(tabId);
   if (!sid || !Number.isInteger(id) || id <= 0) {
     throw new Error('listen grant needs sessionId and tabId');
   }
-  const key = listenGrantKey(sid, id);
+  const key = listenGrantKey(sid, id, kind);
   await sessionStorage.set({
     [key]: { at: Date.now(), sessionId: sid, tabId: id }
   });
@@ -56,7 +62,7 @@ export async function dropListenGrantsForTab(sessionStorage, tabId) {
     bag = {};
   }
   const keys = Object.keys(bag).filter(
-    (k) => k.startsWith(LISTEN_GRANT_PREFIX) && k.endsWith(suffix)
+    (k) => (k.startsWith(LISTEN_GRANT_PREFIX) || k.startsWith(RECORD_GRANT_PREFIX)) && k.endsWith(suffix)
   );
   if (keys.length && sessionStorage.remove) await sessionStorage.remove(keys);
   return keys.length;
@@ -94,7 +100,8 @@ export async function assertListenTabVisible(chromeLike, tabId) {
 export async function handleWorkspaceTabListen(request, deps = {}) {
   const chromeLike = deps.chromeLike || globalThis.chrome;
   const sessionStorage = deps.sessionStorage || chromeLike?.storage?.session;
-  const verb = normalizeListenVerb(request?.listen);
+  const kind = request?.op === 'record' ? 'video' : 'audio';
+  const verb = kind === 'video' ? 'clip' : normalizeListenVerb(request?.listen);
   if (!verb) {
     return {
       ok: false,
@@ -114,15 +121,18 @@ export async function handleWorkspaceTabListen(request, deps = {}) {
   const visible = await assertListenTabVisible(chromeLike, tabId);
   if (!visible.ok) return visible;
 
-  const granted = await readListenGrant(sessionStorage, request.sessionId, tabId);
+  const granted = await readListenGrant(sessionStorage, request.sessionId, tabId, kind);
   if (!granted) {
     return {
       ok: false,
       code: 'NEED_CAPTURE_GRANT',
+      captureKind: kind,
       error: 'side-panel capture grant required',
       tabId,
       title: visible.tab?.title || '',
-      hint: 'wait for the side-panel capture grant, then action op=listen listen=start again'
+      hint: kind === 'video'
+        ? 'wait for the side-panel video capture grant, then retry action op=record'
+        : 'wait for the side-panel capture grant, then retry action op=listen'
     };
   }
 
@@ -146,10 +156,11 @@ export async function handleWorkspaceTabListen(request, deps = {}) {
   return {
     ok: true,
     listen: verb,
+    captureKind: kind,
     tabId,
     streamId: String(streamId),
     audible: visible.audible === true,
-    seconds: clampListenSeconds(request.seconds),
+    seconds: kind === 'video' ? clampRecordSeconds(request.seconds) : clampListenSeconds(request.seconds),
     title: visible.tab?.title || ''
   };
 }

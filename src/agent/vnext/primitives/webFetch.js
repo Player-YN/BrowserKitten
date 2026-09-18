@@ -3,7 +3,7 @@
  * Binary URLs and missing keys fall through to the caller’s raw GET.
  */
 
-const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|svg|ico|zip|pdf|woff2?|ttf|mp3|mp4|webm|mov|gz|tar|xlsx|pptx|docx)(\?|$)/i;
+const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|svg|ico|zip|pdf|woff2?|ttf|mp3|wav|m4a|aac|ogg|oga|flac|mp4|mpeg|mpga|webm|mov|gz|tar|xlsx|pptx|docx)(\?|$)/i;
 
 export function shouldTryFirecrawl(url) {
   try {

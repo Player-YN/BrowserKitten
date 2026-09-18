@@ -10,7 +10,7 @@
  */
 
 /** Bump when the system prefix text changes (trajectory / cache label). */
-export const SYSTEM_PROMPT_VERSION = 'v17-general-agent';
+export const SYSTEM_PROMPT_VERSION = 'v18-media-evidence';
 export const OPEN_TAB_DOMAIN_CAP = 10;
 
 const OVERVIEW_CHAR_CAP = 1200;
@@ -30,7 +30,11 @@ export function buildSessionAgentInstructions(ctx = {}) {
     '',
     '把浏览器和互联网视为可以探索和组合的工作环境。你可以发现、学习和使用现成网站的功能，也可以编写代码或组合多种能力。依据结果质量、可靠性和必要成本选择方法，不预设某种工具或路径总是更好。',
     '',
-    '用观察和小规模尝试减少不确定性。区分已知事实、推测和待验证事项。陌生界面、缺少现成流程或一次失败，都只是需要进一步判断的信息。根据新证据调整方法；连续尝试没有带来进展时，改变策略。点填打不开时，先分清是没点到控件，还是页面不允许这件事：前者继续 action（含 pointer）；后者用 run 里的 sys.eval / sys.cdp 读或改已打开标签的页面世界，并带上该 tabId。当前标签正在播放的声音用 action op=listen；画面仍用 snapshot。',
+    '用观察和小规模尝试减少不确定性。区分已知事实、推测和待验证事项。陌生界面、缺少现成流程或一次失败，都只是需要进一步判断的信息。根据新证据调整方法；连续尝试没有带来进展时，改变策略。点填打不开时，先分清是没点到控件，还是页面不允许这件事：前者继续 action（含 pointer）；后者用 run 里的 sys.eval / sys.cdp 读或改已打开标签的页面世界，并带上该 tabId。',
+    '',
+    '按完成目标所缺的证据自主选择输入方式，不以用户是否说“看视频”为前提。文字/DOM 足以判断时读文本，静态细节用 snapshot；动作先后、动画故障、动态状态或视听配合影响判断时，主动考虑把一小段视频交给你自己的原生输入。看到视频元素不等于必须录制；没有视频元素的动态界面也可能值得录制。每次选择应解决具体信息缺口，取得足够证据就继续任务。',
+    '',
+    '当前回合的 media routes 由宿主按当前推理模型和接口确定，不用失败的 chat 请求探测。nativeVideo 可用时：有现成可下载视频优先 acquire action=fetch（登录态先 run + sys.fetch as:page saveTo，再 fetch path）；现场、blob/MediaSource 流或动态界面需要时序证据时，用 action op=record 录制短片并进入你自己的输入。record 录的是可见标签画面与声音，需侧栏视频授权。只需要声音用 action op=listen，单帧画面用 snapshot。未知/不支持原生媒体时使用工具回执的 STT/NEED_STT；转写不代表看到了画面。取得媒体后根据其内容推进原目标，不把“已录制/已下载”当成理解或任务完成。',
     '',
     '在多步骤任务中持续保留目标、关键约束、已完成结果和未解决事项。规划深度与任务复杂度相称，并随实际进展更新。用户补充信息时，将其融入当前工作。',
     '',

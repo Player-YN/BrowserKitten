@@ -13,6 +13,8 @@
  * `pagewand_active_stt_provider_id` (OpenAI-compatible POST /audio/transcriptions).
  */
 
+import { normalizeMediaOverrides } from './chatMedia.js';
+
 export const DEFAULT_BASE = 'https://api.deepseek.com/v1';
 
 /** Canonical OpenRouter OpenAI-compatible origin (chat + dedicated POST /images). */
@@ -323,6 +325,8 @@ export function normalizeProvider(p) {
   if (purpose === 'image' || purpose === 'chat' || purpose === 'stt') out.purpose = purpose;
   const image = normalizeImageConfig(/** @type {any} */ (p).image);
   if (image) out.image = image;
+  const overrides = normalizeMediaOverrides(p.chatMediaOverrides);
+  if (Object.keys(overrides).length) out.chatMediaOverrides = overrides;
   const lastProbe = normalizeLastProbe(/** @type {any} */ (p).lastProbe);
   if (lastProbe) out.lastProbe = lastProbe;
   return out;
@@ -609,6 +613,9 @@ export async function upsertProvider(provider, opts = {}) {
   const idx = providers.findIndex((p) => p.id === next.id);
   // Preserve existing API key when UI sends empty (user left field blank = keep)
   if (idx >= 0) {
+    if (provider.chatMediaOverrides === undefined && providers[idx].chatMediaOverrides) {
+      next.chatMediaOverrides = providers[idx].chatMediaOverrides;
+    }
     if (!next.apiKey && providers[idx].apiKey) {
       next.apiKey = providers[idx].apiKey;
     }
@@ -698,6 +705,7 @@ export async function loadLlmSettings() {
       apiKey: active.apiKey || '',
       apiBase: (active.baseURL || DEFAULT_BASE).replace(/\/$/, ''),
       model: active.model || 'deepseek-v4-flash',
+      chatMediaOverrides: active.chatMediaOverrides,
       providerId: active.id,
       providerName: active.name || 'Provider',
       providers,

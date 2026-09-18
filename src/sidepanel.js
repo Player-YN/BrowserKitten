@@ -1,3 +1,4 @@
+import { createChatMediaSettings } from './sidepanel/chatMediaSettings.js';
 // Bundled agent entry (Vercel AI SDK + tools). Rebuild: npm run build:agent
 import {
   loadLlmSettings,
@@ -10294,12 +10295,19 @@ function showListenGrantBar(ev = {}) {
   const tabId = Number(ev.tabId || lastActivePage?.tabId || lastActivePage?.id);
   const sessionId = String(ev.sessionId || getWorkspaceSessionId() || '');
   if (!sessionId || !Number.isInteger(tabId) || tabId <= 0) return;
-  pendingListenGrant = { sessionId, tabId, title: ev.title || lastActivePage?.title || '' };
+  pendingListenGrant = { sessionId, tabId, captureKind: ev.captureKind === 'video' ? 'video' : 'audio', title: ev.title || lastActivePage?.title || '' };
   const bar = document.getElementById('listenGrantBar');
   const copy = document.getElementById('listenGrantCopy');
   if (copy) {
     const host = lastActivePage?.host || pendingListenGrant.title;
-    copy.textContent = host ? `${t('listenGrantCopy')} · ${host}` : t('listenGrantCopy');
+    const key = pendingListenGrant.captureKind === 'video' ? 'recordGrantCopy' : 'listenGrantCopy';
+    copy.dataset.i18n = key;
+    copy.textContent = host ? `${t(key)} · ${host}` : t(key);
+  }
+  const button = document.getElementById('listenGrantBtn');
+  if (button) {
+    button.dataset.i18n = pendingListenGrant.captureKind === 'video' ? 'recordGrantBtn' : 'listenGrantBtn';
+    button.textContent = t(button.dataset.i18n);
   }
   if (bar) bar.hidden = false;
 }
@@ -10307,7 +10315,7 @@ function showListenGrantBar(ev = {}) {
 async function confirmListenGrant() {
   if (!pendingListenGrant) return;
   try {
-    await putListenGrant(chrome.storage.session, pendingListenGrant.sessionId, pendingListenGrant.tabId);
+    await putListenGrant(chrome.storage.session, pendingListenGrant.sessionId, pendingListenGrant.tabId, pendingListenGrant.captureKind);
   } catch (e) {
     showSidepanelToast(
       (currentLang === 'en' ? 'Listen grant failed: ' : '听音授权失败: ') + (e?.message || e),
@@ -12173,6 +12181,7 @@ function guessPresetId(p) {
  * @param {object|null} provider
  * @param {{ isNew?: boolean }} [opts]
  */
+let chatMediaSettingsUi;
 function fillSettingsForm(provider, opts = {}) {
   const isNew = !!opts.isNew;
   const baseInput = document.getElementById('apiBaseInput');
@@ -12190,6 +12199,8 @@ function fillSettingsForm(provider, opts = {}) {
   if (baseInput) baseInput.value = provider?.baseURL != null ? provider.baseURL : isNew ? '' : baseURL;
   if (modelInput) modelInput.value = provider?.model != null ? provider.model : isNew ? '' : model;
 
+  chatMediaSettingsUi ||= createChatMediaSettings({ t });
+  chatMediaSettingsUi.load(provider);
   settingsConfigUi.providerId = provider?.id || null;
   settingsConfigUi.providerName = provider?.name || 'Provider';
   settingsConfigUi.createdAt = provider?.createdAt || null;
@@ -12261,6 +12272,7 @@ function applyInferencePreset(presetId) {
     }
   }
 
+  chatMediaSettingsUi?.sync();
   setActivePresetChip(id);
 
   // Focus API key so user can type immediately
@@ -12366,6 +12378,7 @@ function renderSettingsModelCatalog() {
     btn.addEventListener('click', () => {
       const input = document.getElementById('providerModelInput');
       if (input) input.value = m.id;
+      chatMediaSettingsUi?.sync();
       void persistComposerModel(m.id, settingsConfigUi.providerId);
       ensureModelOption(m.id);
       renderSettingsModelCatalog();
@@ -12574,6 +12587,7 @@ async function onRefreshChatModelsClick() {
       const modelInput = document.getElementById('providerModelInput');
       if (modelInput && !modelInput.value.trim() && probe.models[0]?.id) {
         modelInput.value = probe.models[0].id;
+        chatMediaSettingsUi?.sync();
       }
       syncReasoningSwitch();
       await refreshVendorBoards();
@@ -13196,6 +13210,7 @@ async function saveInferenceEditor(opts = {}) {
         baseURL: form.baseURL,
         apiKey: form.apiKey,
         model: form.model,
+        chatMediaOverrides: form.chatMediaOverrides,
         createdAt: settingsConfigUi.createdAt || Date.now()
       },
       { makeActive: true }
@@ -13721,7 +13736,7 @@ function readSettingsForm() {
     if (image && 'apiKey' in image) delete image.apiKey;
   }
 
-  return { name, baseURL, apiKey, model, image };
+  return { name, baseURL, apiKey, model, image, chatMediaOverrides: chatMediaSettingsUi?.read() || {} };
 }
 
 function maskKeyPlaceholder(key, emptyPh) {

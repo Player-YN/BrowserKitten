@@ -18,7 +18,7 @@ function fixture() {
         if (options.documentId !== state.documentId) throw new Error('No such document');
         if (message.op === 'snapshot') {
           if (state.failObserve && state.clicks) throw new Error('page unloading');
-          return { ok: true, controls: [{ ref: 'a1', name: 'Save' }], frameUrl: state.url };
+          return { ok: true, controls: [{ ref: 'a1', name: 'Save' }], frameUrl: state.url, mediaElements: state.mediaElements || [] };
         }
         if (message.op === 'resolve_name') return { matches: [{ ref: 'a1', name: 'Save' }] };
         state.clicks++;
@@ -123,4 +123,16 @@ test('form receipt loss propagates unknown at the top level without resubmission
   const out = await mutate({ op: 'fill_form', rev: snap.rev, fields: [{ ref: 'f0.a1', value: 'x' }] });
   assert.equal(out.ok, false); assert.equal(out.code, 'ACTION_OUTCOME_UNKNOWN');
   assert.equal(out.outcome, 'unknown'); assert.equal(out.partial, true); assert.equal(state.clicks, 1);
+});
+
+
+test('snapshot transports bounded media evidence with frame/document identity', async () => {
+  const state = fixture();
+  state.mediaElements = Array.from({ length: 9 }, () => ({ kind: 'video', paused: false, sourceKind: 'stream' }));
+  const snap = await handleWorkspacePageAction(request({ op: 'snapshot' }));
+  assert.equal(snap.ok, true);
+  assert.equal(snap.mediaElements.length, 6);
+  assert.equal(snap.mediaElements[0].frameId, 0);
+  assert.equal(snap.mediaElements[0].documentId, 'doc-a');
+  assert.equal(snap.mediaElements[0].sourceKind, 'stream');
 });

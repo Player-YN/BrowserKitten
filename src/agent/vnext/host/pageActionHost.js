@@ -569,6 +569,7 @@ async function snapshotPageActionFrames(tabId, { scope = 'all' } = {}) {
   if (scope === 'top' && !frames.some((fr) => Number(fr.frameId) === 0)) frames.unshift({ frameId: 0 });
   const controls = [];
   const framesOut = [];
+  const mediaElements = [];
   let canvasCount = 0;
   for (const fr of frames) {
     try {
@@ -581,6 +582,9 @@ async function snapshotPageActionFrames(tabId, { scope = 'all' } = {}) {
       });
       controls.push(...list);
       canvasCount += Number(raw.canvasCount) || 0;
+      for (const media of (Array.isArray(raw.mediaElements) ? raw.mediaElements : []).slice(0, 6)) {
+        if (mediaElements.length < 6) mediaElements.push({ ...media, frameId: fr.frameId, documentId: target.documentId });
+      }
       framesOut.push({ ...target, title: raw.title || '', count: list.length, canvasCount: Number(raw.canvasCount) || 0 });
     } catch (error) {
       if (error?.code === 'TARGET_CHANGED') throw error;
@@ -603,6 +607,7 @@ async function snapshotPageActionFrames(tabId, { scope = 'all' } = {}) {
     controls: capped,
     frames: framesOut,
     canvasCount,
+    mediaElements,
     page,
     after: { url: root.url, documentId: root.documentId, count: capped.length }
   };
@@ -642,6 +647,7 @@ function attachFreshSnapshot(result, snap) {
     count: snap.count,
     frames: snap.frames,
     canvasCount: snap.canvasCount,
+    mediaElements: snap.mediaElements,
     page: page || result.page,
     after: result.after || snap.after
   };
@@ -959,7 +965,7 @@ async function executeWorkspacePageAction(request) {
     };
   }
   const op = String(request?.op || '').trim().toLowerCase();
-  if (op === 'listen') {
+  if (op === 'listen' || op === 'record') {
     return handleWorkspaceTabListen({ ...request, tabId, url: resolved.url });
   }
   try {
@@ -1165,4 +1171,3 @@ async function executeWorkspacePageAction(request) {
   const snap = await observeAfterAction(tabId);
   return maybeAttachScreenshot(attachFreshSnapshot(raw, snap), request, tabId);
 }
-

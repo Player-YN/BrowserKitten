@@ -36,6 +36,7 @@ import {
   writeActiveCaptureGroupId,
   findOrCreateNamedGroup
 } from '../sessionWorkspace/groups.js';
+import { resolveChatMediaCapabilities } from '../../chatMedia.js';
 import { createPageWandLanguageModel } from '../../provider.js';
 import { runSelectionSuggest } from '../sessionWorkspace/selectionSuggest.js';
 import {
@@ -203,7 +204,9 @@ export class SessionWorkspaceService {
   async resolveLanguageModel(opts = {}) {
     try {
       const built = await createPageWandLanguageModel({
-        reasoning: opts.reasoning || null
+        reasoning: opts.reasoning || null,
+        settings: opts.settings,
+        mediaCapabilities: opts.mediaCapabilities
       });
       this.model = built.model;
       return built.model;
@@ -1668,31 +1671,16 @@ export class SessionWorkspaceService {
 
     const currentSlot = this._activeBySession.get(sessionId);
     if (currentSlot) currentSlot.taskId = durableTask?.taskId || null;
+      // One immutable settings/catalog snapshot for model construction AND media routing.
+      // Changing model/provider between turns recomputes this, without a chat probe.
+      const settings = await loadLlmSettings();
+      const cached = await loadCachedModelsForBase(settings.apiBase);
+      const hit = findCatalogModel(cached.models || [], settings.model);
+      const contextWindow = resolveContextWindow(settings.model, hit);
+      const mediaCapabilities = resolveChatMediaCapabilities(settings, cached.models || []);
       const injectedCallModel = callModel || this.callModel || null;
-      let resolvedModel = model || null;
-      // Product path: always re-read API settings (user may configure after offscreen boot)
-      if (!injectedCallModel && !resolvedModel) {
-        resolvedModel = await this.resolveLanguageModel({ reasoning });
-      } else if (!injectedCallModel && resolvedModel) {
-        // Prefer fresh settings over a stale boot-time model
-        try {
-          resolvedModel = await this.resolveLanguageModel({ reasoning });
-        } catch {
-          // keep existing this.model if re-resolve fails mid-session
-          resolvedModel = this.model || resolvedModel;
-        }
-      }
-
-      let contextWindow;
-      let settings;
-      try {
-        settings = await loadLlmSettings();
-        const cached = await loadCachedModelsForBase(settings.apiBase);
-        const hit = findCatalogModel(cached.models || [], settings.model);
-        contextWindow = resolveContextWindow(settings.model, hit);
-      } catch {
-        contextWindow = resolveContextWindow(resolvedModel?.modelId);
-      }
+      const resolvedModel = injectedCallModel ? (model || null) :
+        await this.resolveLanguageModel({ reasoning, settings, mediaCapabilities });
 
       let taskYielded = false;
       const previousDueAt = durableTask?.dueAt || null;
@@ -1741,6 +1729,7 @@ export class SessionWorkspaceService {
           ),
         listenRuntime: this._listenRuntime,
         settings,
+        mediaCapabilities,
         hostFindTab: (url) =>
           chrome.runtime.sendMessage({
             target: 'pawwork-background',

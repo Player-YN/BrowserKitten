@@ -114,8 +114,8 @@ test('listen is ACTION_READ and schema includes listen', () => {
   assert.match(tools.action.description, /listen/);
 });
 
-test('prompt v17 mentions listen', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v17-general-agent');
+test('prompt v18 mentions listen', () => {
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v18-media-evidence');
   assert.match(buildSessionAgentInstructions(), /op=listen/);
 });
 
@@ -225,4 +225,90 @@ test('seconds are clamped and acquire transcribe is unchanged', () => {
   assert.equal(clampListenSeconds(999), MAX_LISTEN_SECONDS);
   const tools = createSessionTools(sessionEnv());
   assert.ok(tools.acquire.parameters.properties.action.enum.includes('transcribe'));
+});
+
+test('record is read-only, uses an independent video grant and clamps to a short clip', async () => {
+  const storage = memorySessionStorage();
+  await putListenGrant(storage, 's', 7); // audio consent must not become screen consent
+  const request = { op: 'record', sessionId: 's', tabId: 7, seconds: 999 };
+  const deps = { chromeLike: chromeLike(), sessionStorage: storage };
+  const denied = await handleWorkspaceTabListen(request, deps);
+  assert.equal(denied.code, 'NEED_CAPTURE_GRANT');
+  assert.equal(denied.captureKind, 'video');
+  await putListenGrant(storage, 's', 7, 'video');
+  const allowed = await handleWorkspaceTabListen(request, deps);
+  assert.equal(allowed.ok, true); assert.equal(allowed.seconds, 30);
+  assert.equal(allowed.captureKind, 'video');
+  const defaults = await handleWorkspaceTabListen({ ...request, seconds: undefined }, deps);
+  assert.equal(defaults.seconds, 8);
+  assert.equal(classifyRisk({ channel: 'action', op: 'record' }).risk, RISK_READ);
+  assert.equal(await dropListenGrantsForTab(storage, 7), 2);
+});
+
+test('record captures video + audio, delivers WebM to current model, and releases tracks', async () => {
+  const { resolveChatMediaCapabilities } = await import('../src/agent/chatMedia.js');
+  const settings = { apiBase: 'https://openrouter.ai/api/v1', model: 'google/gemini-2.5-flash' };
+  const hooks = fakeRecorderHooks();
+  let constraints, stopped = 0, waited = 0, request;
+  hooks.getUserMedia = async (input) => { constraints = input; return { getTracks: () => [{ stop() { stopped++; } }] }; };
+  const env = sessionEnv({ settings, mediaCapabilities: resolveChatMediaCapabilities(settings),
+    listenRuntime: createListenRuntime(hooks),
+    hostPageAction: async (input) => { request = input; return { ok: true, streamId: 's', tabId: 7 }; },
+    sleep: async ms => { waited = ms; }
+  });
+  const tools = createSessionTools(env);
+  assert.ok(tools.action.parameters.properties.op.enum.includes('record'));
+  assert.ok(tools.action.description.length <= 700);
+  const result = await tools.action.execute({ op: 'record', tabId: 7 });
+  assert.equal(request.op, 'record');
+  assert.equal(waited, 8000);
+  assert.equal(constraints.video.mandatory.chromeMediaSource, 'tab');
+  assert.equal(constraints.audio.mandatory.chromeMediaSource, 'tab');
+  assert.equal(constraints.video.mandatory.maxFrameRate, 12);
+  assert.equal(result.media.route, 'native');
+  assert.equal(result.media.kind, 'video');
+  assert.match(result.modelParts[0].mediaType, /^video\/webm/);
+  assert.match(result.path, /record_/);
+  assert.equal(stopped, 1);
+  const facts = JSON.parse(tools.action.toModelOutput({ output: result }).value[0].text);
+  assert.equal(facts.op, 'record');
+  assert.match(facts.scope, /tab picture/);
+});
+
+test('record rejects unknown native video before capture; audio remains audio-only', async () => {
+  let calls = 0, constraints;
+  const blocked = await executeListenAction(sessionEnv({ hostPageAction: async () => { calls++; } }), { op: 'record' }, 7);
+  assert.equal(blocked.code, 'VIDEO_INPUT_UNAVAILABLE'); assert.equal(calls, 0);
+  const hooks = fakeRecorderHooks();
+  hooks.getUserMedia = async c => { constraints = c; return { getTracks: () => [] }; };
+  const runtime = createListenRuntime(hooks);
+  await runtime.start({ sessionId: 's', streamId: 's' });
+  assert.equal(constraints.video, false);
+  await runtime.abort({ sessionId: 's' });
+});
+
+test('pending capture is reserved, cancelled on abort, and cannot leak tracks', async () => {
+  let resolveStream, stops = 0;
+  const hooks = fakeRecorderHooks();
+  hooks.getUserMedia = () => new Promise(resolve => { resolveStream = resolve; });
+  const runtime = createListenRuntime(hooks);
+  const first = runtime.start({ sessionId: 's', streamId: 's', captureKind: 'video', tabId: 7 });
+  const second = await runtime.start({ sessionId: 's', streamId: 's' });
+  assert.equal(second.code, 'CAPTURE_BUSY');
+  await runtime.abort({ tabId: 7 });
+  resolveStream({ getTracks: () => [{ stop() { stops++; } }] });
+  assert.equal((await first).code, 'ABORTED');
+  assert.equal(stops, 1);
+  assert.equal(runtime.isListening('s'), false);
+});
+
+test('snapshot media clues reach the model and prompt chooses evidence without video keywords', () => {
+  const tools = createSessionTools(sessionEnv());
+  const mediaElements = [{ kind: 'video', sourceKind: 'stream', paused: false, frameId: 2 }];
+  const facts = tools.action.toModelOutput({ output: { ok: true, op: 'snapshot', mediaElements } }).value;
+  assert.deepEqual(facts.mediaElements, mediaElements);
+  const prompt = buildSessionAgentInstructions();
+  assert.match(prompt, /不以用户是否说“看视频”为前提/);
+  assert.match(prompt, /动作先后、动画故障/);
+  assert.match(prompt, /op=record/);
 });

@@ -119,7 +119,7 @@ test('task-card trajectory user entry serializes sessionAudit and shows thought 
 });
 
 test('SYSTEM_PROMPT_VERSION bumps when prefix tells truthful status', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v17-general-agent');
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v18-media-evidence');
   const text = buildSessionAgentInstructions();
   assert.match(text, /你是"爪爪"/);
   assert.match(text, /通用执行 Agent/);

@@ -65,7 +65,7 @@ async function ensurePawWorkOffscreen() {
   pawworkOffscreenCreating = chrome.offscreen.createDocument({
     url: PAWWORK_OFFSCREEN_URL,
     reasons: ['WORKERS', 'BLOBS', 'USER_MEDIA', 'AUDIO_PLAYBACK'],
-    justification: 'Run the browser-resident Web Workspace agent, tab-audio listen, and materialize selected content independently of the side panel.'
+    justification: 'Run the browser-resident Web Workspace agent, tab audio/video capture, and materialize selected content independently of the side panel.'
   }).finally(() => { pawworkOffscreenCreating = null; });
   return pawworkOffscreenCreating;
 }

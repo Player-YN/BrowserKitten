@@ -24,6 +24,7 @@ import {
 import { run as runCodePrimitive } from '../primitives/run.js';
 import { acquire as acquirePrimitive } from '../primitives/acquire.js';
 import { generateSessionImage } from './imageGen.js';
+import { routeMediaInput } from './mediaInput.js';
 import { transcribeSessionAudio } from './transcribe.js';
 import { executeListenAction } from './listenAction.js';
 import { guessMimeFromName } from './artifactValidate.js';
@@ -709,9 +710,10 @@ export function createSessionTools(env) {
   };
 
   const acquire = {
+    toModelOutput: sessionToolToModelOutput,
     name: 'acquire',
     description:
-      'Bring unknown public web into this session (search, fetch, map, crawl, note, image, transcribe). Anonymous — no user cookies. Do not use for a URL the user already has open, or that needs their login, cookies, captcha, Referer, or this-machine IP: that is run + sys.fetch as:"page". action=fetch url accepts a public http(s) URL or a bound page alias (页面N / pageN / wi_…). transcribe reads a guest path, artifactId, or public audio URL via the Settings transcription API.',
+      'Bring unknown public web into this session (search, fetch, map, crawl, note, image, transcribe). Anonymous — no user cookies. Do not use for a URL the user already has open, or that needs their login, cookies, captcha, Referer, or this-machine IP: that is run + sys.fetch as:"page". action=fetch url accepts a public http(s) URL or a bound page alias (页面N / pageN / wi_…). Downloadable public audio/video: fetch delivers supported media to your own input, otherwise STT/NEED_STT; do not listen to the file again. fetch path reads already-saved media (e.g. sys.fetch). transcribe explicitly uses the separate STT API.',
     parameters: {
       type: 'object',
       properties: {
@@ -740,7 +742,7 @@ export function createSessionTools(env) {
         },
         aspect_ratio: { type: 'string' },
         model: { type: 'string', description: 'Optional image or transcription model override' },
-        path: { type: 'string', description: 'Guest audio/video path for transcribe (/scratch or /artifacts)' },
+        path: { type: 'string', description: 'Saved media path for fetch (own model input) or transcribe (STT); /scratch or /artifacts' },
         artifactId: { type: 'string', description: 'Session artifact to transcribe' },
         language: { type: 'string', description: 'Optional BCP-47 language hint for transcribe' }
       },
@@ -750,6 +752,12 @@ export function createSessionTools(env) {
       if (signal?.aborted) return { ok: false, error: 'aborted' };
       const action = String(input.action || 'note');
       fs.mkdirp('/scratch/sources');
+
+      if (action === 'fetch' && input.path) {
+        const path = String(input.path);
+        if (!fs.exists(path)) return { ok: false, code: 'ENOENT', path };
+        return routeMediaInput({ ...env, store, fs, sessionId, signal, fetchImpl }, { ok: true, action, path, bytes: fs.readFileBytes(path).length });
+      }
 
       if (action === 'transcribe') {
         return transcribeSessionAudio({
@@ -855,6 +863,9 @@ export function createSessionTools(env) {
           out.pathUsed = 'fetch';
           if (fetchMeta.itemId) out.itemId = fetchMeta.itemId;
           if (fetchMeta.via) out.via = fetchMeta.via;
+        }
+        if (action === 'fetch' && out.ok && out.path) {
+          return routeMediaInput({ ...env, store, fs, sessionId, signal, fetchImpl }, out);
         }
         return out;
       }
@@ -1581,19 +1592,17 @@ export function createSessionTools(env) {
   const action = {
     name: 'action',
     description:
-      'Operate the live Chrome tab for this turn (tabId; does not steal OS focus). ' +
-      'Use for snapshot, form/pointer mutate, wait, upload, and listen; already-open or login-bound pages use this tool, not acquire. ' +
-      'Mutations need the latest rev from snapshot or the previous mutate result. ' +
-      'Tab audio is op=listen listen=start|stop|clip; the picture stays snapshot. ' +
-      'Page policy (no-select, no-copy, custom widgets that ignore click) is run + sys.eval on this tab (ISA: inspect view=sys), not another click. ' +
-      'Failed calls return {ok:false, code, error, hint}.',
+      'Operate a live Chrome tab (tabId). snapshot returns controls, JPEG and media playback/source hints. ' +
+      'Use record for short tab video+audio when temporal visual evidence helps the goal and nativeVideo is available; it delivers video to your own input (8s default, max 30s; separate capture grant). ' +
+      'For audio alone use listen=start|stop|clip; downloadable media uses acquire fetch. ' +
+      'Form/pointer/upload mutations need latest rev. Page policy blocks use run + sys.eval/sys.cdp (inspect view=sys). Errors: {ok:false,code,error,hint}.',
     parameters: {
       type: 'object',
       properties: {
         op: {
           type: 'string',
-          enum: ['snapshot', 'fill_form', 'click', 'fill', 'select', 'press', 'scroll', 'wait', 'upload', 'pointer', 'listen'],
-          description: 'Live-tab op. snapshot reads both channels on a new page (structure always; JPEG when new/empty/asked). File chooser: op=upload with path, not fill. Visual click: op=pointer with x,y and method. Tab audio: listen=start|stop|clip.'
+          enum: ['snapshot', 'fill_form', 'click', 'fill', 'select', 'press', 'scroll', 'wait', 'upload', 'pointer', 'listen', 'record'],
+          description: 'Live-tab op. snapshot reads both channels on a new page (structure always; JPEG when new/empty/asked). File chooser: op=upload with path, not fill. Visual click: op=pointer with x,y and method. Audio only: listen=start|stop|clip. Temporal visual evidence: record + seconds, including dynamic UI without a video element; no rev.'
         },
         tabId: {
           type: 'number',
@@ -1667,7 +1676,7 @@ export function createSessionTools(env) {
           enum: ['start', 'stop', 'clip'],
           description: 'listen: start/stop tab audio, or clip seconds then stop. Default clip.'
         },
-        seconds: { type: 'number', description: 'listen=clip duration (default 20, host-cap 120)' }
+        seconds: { type: 'number', description: 'Duration: record defaults to 8s, max 30s; listen=clip defaults to 20s, max 120s' }
       },
       required: ['op']
     },
@@ -1680,7 +1689,7 @@ export function createSessionTools(env) {
       if (!op) {
         return { ok: false, error: 'op is required', code: 'BAD_INPUT' };
       }
-      if (op === 'listen') {
+      if (op === 'listen' || op === 'record') {
         const result = await executeListenAction(
           {
             store,
@@ -1691,6 +1700,8 @@ export function createSessionTools(env) {
             fetchImpl,
             onEvent,
             settings: env.settings,
+            mediaCapabilities: env.mediaCapabilities,
+            audioToWav: env.audioToWav,
             hostPageAction: host,
             listenRuntime: env.listenRuntime,
             sleep: env.sleep,

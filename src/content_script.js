@@ -3882,6 +3882,21 @@ ${fragment}
     });
     let canvasCount = 0;
     try { canvasCount = document.querySelectorAll('canvas').length; } catch (_) {}
+    // Small evidence inventory, not media bytes or a host-selected workflow.
+    const mediaElements = [];
+    try {
+      for (const el of Array.from(document.querySelectorAll('video,audio')).slice(0, 6)) {
+        const src = String(el.currentSrc || el.src || '');
+        mediaElements.push({
+          kind: el.tagName.toLowerCase(), visible: isElementVisible(el),
+          paused: el.paused, ended: el.ended, readyState: el.readyState,
+          currentTime: Number.isFinite(el.currentTime) ? Math.round(el.currentTime * 10) / 10 : null,
+          duration: Number.isFinite(el.duration) ? Math.round(el.duration * 10) / 10 : null,
+          sourceKind: /^https?:/.test(src) ? 'http-candidate' : src.startsWith('blob:') || el.srcObject ? 'stream' : 'unknown',
+          ...(/^https?:/.test(src) && src.length <= 2000 ? { src } : {})
+        });
+      }
+    } catch (_) {}
     return {
       ok: true,
       op: 'snapshot',
@@ -3889,7 +3904,8 @@ ${fragment}
       title: document.title,
       count: controls.length,
       controls,
-      canvasCount
+      canvasCount,
+      mediaElements
     };
   }
 

@@ -156,6 +156,9 @@ export function actionResultToModelFacts(result) {
   if (compact.screenshot && compact.screenshot.attached) facts.screenshot = { attached: true };
   if (Array.isArray(compact.results)) facts.results = compact.results;
   if (compact.partial) facts.partial = compact.partial;
+  for (const key of ['listen', 'listening', 'path', 'mediaType', 'bytes', 'audible', 'text', 'transcriptPath', 'model', 'media', 'mediaElements', 'stt', 'captureKind', 'scope', 'durationMs', 'truncated']) {
+    if (result[key] != null) facts[key] = result[key];
+  }
   return facts;
 }
 

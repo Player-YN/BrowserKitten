@@ -109,7 +109,7 @@ async function fetchSource(ctx, input, fetchImpl) {
   const fileName = sanitizeName(input.filename || deriveName(parsed, contentType));
   await ensureSourcesDir(ctx.fs);
   const path = `/work/sources/${Date.now().toString(36)}_${fileName}`;
-  await ctx.fs.writeFile(path, bytes);
+  await ctx.fs.writeFile(path, bytes, { mimeType: contentType });
   const textLike = /^text\/|json|xml|javascript|markdown/i.test(contentType);
   const preview = textLike ? new TextDecoder().decode(bytes.slice(0, 6000)) : null;
   return {

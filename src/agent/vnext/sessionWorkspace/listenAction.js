@@ -2,8 +2,9 @@
  * action op=listen — host grant/streamId, then offscreen record + existing STT.
  */
 
-import { transcribeSessionAudio, resolveSttRuntimeConfig } from './transcribe.js';
-import { clampListenSeconds, normalizeListenVerb } from '../host/tabListen.js';
+import { routeMediaInput } from './mediaInput.js';
+import { resolveChatMediaCapabilities, canSendChatMedia } from '../../chatMedia.js';
+import { clampListenSeconds, clampRecordSeconds, normalizeListenVerb } from '../host/tabListen.js';
 
 function sleepMs(ms, signal) {
   const wait = Math.max(0, Number(ms) || 0);
@@ -33,47 +34,21 @@ async function finalizeListen(env, hostOut, verb) {
   const fs = env.fs;
   if (!fs) return { ok: false, code: 'NEED_PAGE', error: 'guest fs unavailable' };
   fs.mkdirp('/scratch/sources');
-  const path = `/scratch/sources/listen_${Date.now().toString(36)}.webm`;
+  const video = env.captureKind === 'video';
+  const path = `/scratch/sources/${video ? 'record' : 'listen'}_${Date.now().toString(36)}.webm`;
   fs.writeFile(path, stopped.bytes || new Uint8Array(0), {
     mimeType: stopped.mimeType || 'audio/webm'
   });
-  const settings = env.settings || {};
-  const cfg = resolveSttRuntimeConfig(settings);
-  const base = {
+  return routeMediaInput(env, {
     ok: true,
-    listen: verb,
+    ...(video ? { op: 'record', captureKind: 'video', scope: 'visible tab picture and tab audio', durationMs: stopped.durationMs, truncated: stopped.truncated === true } : { listen: verb }),
     listening: false,
     path,
+    mediaType: stopped.mimeType || 'audio/webm',
     bytes: stopped.bytes?.byteLength || 0,
     tabId: hostOut.tabId,
     audible: hostOut.audible === true
-  };
-  if (!cfg.enabled) {
-    return {
-      ...base,
-      stt: {
-        ok: false,
-        code: 'NEED_STT',
-        hint: 'add a transcription API in Settings'
-      }
-    };
-  }
-  const tr = await transcribeSessionAudio({
-    store: env.store,
-    fs,
-    sessionId: env.sessionId,
-    path,
-    settings,
-    fetchImpl: env.fetchImpl,
-    signal: env.signal
   });
-  if (!tr.ok) {
-    return {
-      ...base,
-      stt: { ok: false, code: tr.code, error: tr.error, hint: tr.hint }
-    };
-  }
-  return { ...base, text: tr.text, transcriptPath: tr.path, model: tr.model };
 }
 
 /**
@@ -82,7 +57,16 @@ async function finalizeListen(env, hostOut, verb) {
  * @param {number|undefined} tabId
  */
 export async function executeListenAction(env, input = {}, tabId) {
-  const verb = normalizeListenVerb(input.listen);
+  const video = input.op === 'record';
+  const verb = video ? 'clip' : normalizeListenVerb(input.listen);
+  if (video) {
+    const caps = env.mediaCapabilities || resolveChatMediaCapabilities(env.settings);
+    if (!canSendChatMedia(caps, 'video/webm')) {
+      return { ok: false, op: 'record', code: 'VIDEO_INPUT_UNAVAILABLE',
+        hint: 'Current model/transport cannot receive video. Use snapshot for visual facts, listen for audio, or fetch an existing file for STT (speech only). Do not probe chat.' };
+    }
+  }
+  env = { ...env, captureKind: video ? 'video' : 'audio' };
   if (!verb) {
     return {
       ok: false,
@@ -97,7 +81,7 @@ export async function executeListenAction(env, input = {}, tabId) {
   }
   const hostOut = await host({
     sessionId: env.sessionId,
-    op: 'listen',
+    op: video ? 'record' : 'listen',
     listen: verb,
     seconds: input.seconds,
     tabId,
@@ -109,6 +93,7 @@ export async function executeListenAction(env, input = {}, tabId) {
       try {
         env.onEvent({
           type: 'listen-grant-required',
+          captureKind: env.captureKind,
           sessionId: env.sessionId,
           tabId: hostOut.tabId ?? tabId,
           title: hostOut.title || env.activeTab?.title || ''
@@ -139,7 +124,8 @@ export async function executeListenAction(env, input = {}, tabId) {
     streamId: hostOut.streamId,
     tabId: hostOut.tabId,
     sessionId: env.sessionId,
-    executionId: env.execution?.executionId
+    executionId: env.execution?.executionId,
+    captureKind: env.captureKind
   });
   if (started?.ok === false) return started;
   if (verb === 'start') {
@@ -152,7 +138,7 @@ export async function executeListenAction(env, input = {}, tabId) {
     };
   }
 
-  const seconds = clampListenSeconds(input.seconds ?? hostOut.seconds);
+  const seconds = video ? clampRecordSeconds(input.seconds ?? hostOut.seconds) : clampListenSeconds(input.seconds ?? hostOut.seconds);
   const wait = typeof env.sleep === 'function' ? env.sleep : sleepMs;
   try {
     await wait(seconds * 1000, env.signal);

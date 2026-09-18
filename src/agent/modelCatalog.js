@@ -24,7 +24,7 @@
  *   mandatory: boolean
  * }} ModelReasoningInfo
  *
- * @typedef {{ id: string, name?: string, image?: boolean, reasoning?: ModelReasoningInfo, contextWindow?: number }} ModelEntry
+ * @typedef {{ id: string, name?: string, image?: boolean, inputModalities?: string[], reasoning?: ModelReasoningInfo, contextWindow?: number }} ModelEntry
  */
 
 /** Gateway effort order (highest first), matching OpenRouter reasoning.effort. */
@@ -522,6 +522,10 @@ export function parseModelsResponse(payload, opts = {}) {
     seen.add(id);
     /** @type {ModelEntry} */
     const entry = { id };
+    const inputs = rawObj?.architecture?.input_modalities ?? rawObj?.input_modalities;
+    if (Array.isArray(inputs)) {
+      entry.inputModalities = [...new Set(inputs.map((m) => String(m).trim().toLowerCase()).filter(Boolean))];
+    }
     if (image) entry.image = true;
     if (name) entry.name = name;
     const reasoning = parseModelReasoning(typeof item === 'object' ? item : undefined);

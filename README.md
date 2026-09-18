@@ -58,3 +58,5 @@ python3 scripts/verify_extension.py extension --source .
 ```
 
 源码包无需 `.git` 即可打包；运行包根目录直接包含 manifest.json。不改存储键、不迁移 IDB 数据；更新前先停止任务并保留原目录，采用原路径替换/补丁的方式更新，避免误删原扩展数据。
+
+音视频如何进入当前推理模型、Agent 如何自主选择视频证据，以及设置与手测步骤，见 [当前模型媒体输入](docs/CHAT_MEDIA_INPUT.md)。

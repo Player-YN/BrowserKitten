@@ -118,3 +118,7 @@ Content script：
 - 权限与命令见根 AGENTS.md / `manifest.json`。`userScripts` 给 `sys.eval` / page `fetch`；`debugger` 给 `sys.cdp`。Chrome 135+ 的 `userScripts.execute` 需要扩展卡片 **允许运行用户脚本**（或更早的开发者模式）。CDP 挂上时 Chrome 会显示调试横幅；F12 已打开会 `CDP_BUSY`。`eval` / page `fetch` / `cdp` 不注入扩展预览页。`sys` 是系统调用表，不是产品功能列表（[agent/AGENTS.md](agent/AGENTS.md)）。
 - 区域截图：Alt+Shift+C → content script 框选 → SW `captureVisibleTab` 裁剪 → 剪贴板 + 对话附件。
 - `llm_proxy_fetch`：侧栏/设置探测模型时走 SW，避免页面 CORS。
+
+### 媒体观察
+
+`action snapshot` 附 `mediaElements`（最多 6 项，含 frame/document 的媒体播放和源线索）；它只提示可用证据，不自动选择路径。`action op=record` 经 SW tabCapture → offscreen 录制可见标签画面+声音（默认 8 秒，最大 30 秒），只在当前模型可接收原生视频时执行。`pagewand_record_grant:{sessionId}:{tabId}` 是独立侧栏视频授权，听音 grant 不覆盖它。两种采集共用生命周期清理，但 listen 保持 `video:false`。详见 [CHAT_MEDIA_INPUT.md](../docs/CHAT_MEDIA_INPUT.md)。

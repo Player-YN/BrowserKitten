@@ -266,7 +266,7 @@ export async function sendMessage(store, input) {
     tabOverview,
     taskContinuation,
     taskContext
-  });
+  }) + `\nCurrent chat media input (host-resolved before send): ${JSON.stringify(input.mediaCapabilities || {})}`;
 
   let thoughtBuf = '';
   /** Live tool + host path for trajectory export (not the chat bubble). */
@@ -403,6 +403,7 @@ export async function sendMessage(store, input) {
     hostPageAction: typeof input.hostPageAction === 'function' ? input.hostPageAction : null,
     listenRuntime: input.listenRuntime || null,
     settings: input.settings,
+    mediaCapabilities: input.mediaCapabilities,
     hostFindTab: typeof input.hostFindTab === 'function' ? input.hostFindTab : null,
     hostSys: typeof input.hostSys === 'function' ? input.hostSys : null,
     activeTab: input.activeTab || pages.activeTab,

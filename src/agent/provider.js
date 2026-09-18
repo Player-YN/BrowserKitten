@@ -5,6 +5,8 @@
 
 import { createOpenAICompatible } from './vnext/adapters/vendor/ai-sdk-loader.mjs';
 import { loadLlmSettings, DEFAULT_BASE } from './llm.js';
+import { loadCachedModelsForBase } from './modelCatalog.js';
+import { resolveChatMediaCapabilities, canSendChatMedia, MAX_CHAT_MEDIA_BYTES } from './chatMedia.js';
 import { isAbortLike, toAbortError } from './vnext/host/userStop.js';
 
 const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
@@ -83,7 +85,7 @@ function filePartToDataUrl(part) {
   return `data:${mediaType};base64,${raw}`;
 }
 
-function extractImagesFromToolContent(content) {
+function extractImagesFromToolContent(content, capabilities) {
   const images = [];
   const texts = [];
   if (typeof content !== 'string') {
@@ -106,17 +108,31 @@ function extractImagesFromToolContent(content) {
       continue;
     }
     if (p.type === 'file' || p.type === 'file-data' || p.type === 'image') {
+      const mime = String(p.mediaType || p.mimeType || '').split(';')[0].trim().toLowerCase();
+      if (/^(audio|video)\//.test(mime)) {
+        lifted = true; // Never leave rejected media base64 in tool text.
+        const raw = (typeof p.data === 'object' ? p.data?.data : p.data) || '';
+        const data = typeof raw === 'string' ? raw.replace(/^data:[^,]+,/, '') : '';
+        if (data && data.length <= Math.ceil(MAX_CHAT_MEDIA_BYTES / 3) * 4 && canSendChatMedia(capabilities, mime)) {
+          images.push(mime.startsWith('audio/')
+            ? { type: 'input_audio', input_audio: { data, format: mime === 'audio/wav' ? 'wav' : 'mp3' } }
+            : { type: 'video_url', video_url: { url: `data:${mime};base64,${data}` } });
+        } else texts.push('[Media omitted: current chat model/transport/size does not permit this input. Use the saved file with STT; no media was perceived.]');
+        continue;
+      }
       const url = filePartToDataUrl(p);
       if (url) {
-        images.push({ type: 'image_url', image_url: { url } });
+        if (canSendChatMedia(capabilities, mime || 'image/jpeg')) images.push({ type: 'image_url', image_url: { url } });
+        else texts.push('[Image omitted: current model declares image input unsupported.]');
         lifted = true;
       }
     }
   }
   if (!lifted) return { content, images: [] };
   return {
-    content: texts.join('\n') || '{"ok":true,"hasImage":true}',
-    images
+    content: texts.join('\n') || '{"ok":true,"hasMedia":true}',
+    images,
+    changed: lifted
   };
 }
 
@@ -127,7 +143,7 @@ function extractImagesFromToolContent(content) {
  * @param {object[]} messages
  * @returns {object[]}
  */
-export function liftToolResultImages(messages) {
+export function liftToolResultImages(messages, capabilities) {
   if (!Array.isArray(messages) || messages.length === 0) return messages;
   const out = [];
   let pending = [];
@@ -138,7 +154,7 @@ export function liftToolResultImages(messages) {
       content: [
         {
           type: 'text',
-          text: 'Bound image pixels from inspect. Describe these pictures, not their URLs.'
+          text: 'Media from the preceding tool results. Analyze the attached content; follow each result’s source and scope.'
         },
         ...pending
       ]
@@ -147,8 +163,8 @@ export function liftToolResultImages(messages) {
   };
   for (const msg of messages) {
     if (msg && msg.role === 'tool') {
-      const extracted = extractImagesFromToolContent(msg.content);
-      out.push(extracted.images.length ? { ...msg, content: extracted.content } : msg);
+      const extracted = extractImagesFromToolContent(msg.content, capabilities);
+      out.push(extracted.changed ? { ...msg, content: extracted.content } : msg);
       if (extracted.images.length) pending.push(...extracted.images);
       continue;
     }
@@ -193,7 +209,8 @@ export function stripUnsupportedFieldsFromRequestInit(init = {}, reasoning = nul
     }
     const keepReasoning = opts.keepReasoning === true;
     body.messages = liftToolResultImages(
-      body.messages.map((m) => sanitizeOpenAiMessage(m, { keepReasoning }))
+      body.messages.map((m) => sanitizeOpenAiMessage(m, { keepReasoning })),
+      opts.mediaCapabilities?.model === body.model ? opts.mediaCapabilities : undefined
     );
     const cfg = openRouterReasoningBody(reasoning);
     if (cfg) body.reasoning = cfg;
@@ -235,7 +252,7 @@ export function applyChatReasoningToInit(init = {}, reasoning) {
  * @returns {Promise<{ model: import('ai').LanguageModel, settings: object, modelId: string }>}
  */
 export async function createPageWandLanguageModel(opts = {}) {
-  const settings = await loadLlmSettings();
+  const settings = opts.settings || await loadLlmSettings();
   if (!settings.apiKey) {
     const err = new Error('NO_API_KEY');
     err.code = 'NO_API_KEY';
@@ -247,12 +264,15 @@ export async function createPageWandLanguageModel(opts = {}) {
   const providerName =
     (settings.providerName && String(settings.providerName).trim()) || 'pagewand';
 
+  const mediaCapabilities = opts.mediaCapabilities || resolveChatMediaCapabilities(
+    { ...settings, model: modelId }, (await loadCachedModelsForBase(baseURL)).models
+  );
   const provider = createOpenAICompatible({
     name: providerName,
     apiKey: settings.apiKey,
     baseURL,
     includeUsage: true,
-    fetch: createExtensionFetch({ reasoning: opts.reasoning || null })
+    fetch: createExtensionFetch({ reasoning: opts.reasoning || null, mediaCapabilities })
   });
 
   return {
@@ -274,7 +294,8 @@ export function createExtensionFetch(opts = {}) {
     const url = typeof input === 'string' ? input : input?.url || '';
     const keepReasoning = /openrouter\.ai/i.test(String(url));
     const cleanedInit = stripUnsupportedFieldsFromRequestInit(init, opts.reasoning || null, {
-      keepReasoning
+      keepReasoning,
+      mediaCapabilities: opts.mediaCapabilities
     });
     try {
       const res = await fetch(input, cleanedInit);

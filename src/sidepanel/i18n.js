@@ -5,6 +5,16 @@
 
 export const I18N = {
   zh: {
+    chatMediaTitle: '当前模型的媒体输入',
+    chatMediaHint: '仅保存到此 Base URL 和模型。自动使用模型目录或已知声明；未知音视频走转写，不用 chat 试错。自建网关请按文档确认支持的输入与传输格式。视频转写只包含语音。',
+    chatMedia_image: '图片输入',
+    chatMedia_audio: '音频输入',
+    chatMedia_video: '视频输入',
+    chatMedia_transport: '媒体传输协议（自建网关）',
+    chatMediaAuto: '自动',
+    chatMediaYes: '支持（按接口文档确认）',
+    chatMediaNo: '不支持',
+
     brandName: '爪爪',
     brandEn: '完全解放版',
     brandSub: '完全解放版',
@@ -416,6 +426,8 @@ export const I18N = {
     webAcquireProbeBtn: '探测',
     webAcquireProbeOk: '✓ {name} 可用',
     webAcquireProbeCredits: '✓ Firecrawl 可用 · 剩余 {n} credits',
+    recordGrantCopy: 'Agent 要录制此标签的画面与声音，交给当前推理模型理解',
+    recordGrantBtn: '允许录制此标签',
     listenGrantCopy: 'Agent 要听此标签正在播放的声音',
     listenGrantBtn: '允许听此标签',
     listenGrantDismiss: '稍后',
@@ -423,6 +435,16 @@ export const I18N = {
     cancel: '取消'
   },
   en: {
+    chatMediaTitle: 'Media input for this model',
+    chatMediaHint: 'Saved only for this Base URL and model. Auto uses catalog or known declarations; unknown audio/video uses STT, never a chat probe. For custom gateways, confirm inputs and wire formats in their docs. Video transcription covers speech only.',
+    chatMedia_image: 'Image input',
+    chatMedia_audio: 'Audio input',
+    chatMedia_video: 'Video input',
+    chatMedia_transport: 'Media transport (custom gateways)',
+    chatMediaAuto: 'Auto',
+    chatMediaYes: 'Supported (confirmed in API docs)',
+    chatMediaNo: 'Unsupported',
+
     brandName: 'Liberated',
     brandEn: 'Liberated',
     brandSub: '爪爪',
@@ -834,6 +856,8 @@ export const I18N = {
     webAcquireProbeBtn: 'Probe',
     webAcquireProbeOk: '✓ {name} reachable',
     webAcquireProbeCredits: '✓ Firecrawl reachable · {n} credits left',
+    recordGrantCopy: 'Record this tab’s picture and audio for the current reasoning model',
+    recordGrantBtn: 'Allow tab recording',
     listenGrantCopy: 'The agent wants to hear audio playing in this tab',
     listenGrantBtn: 'Allow listen',
     listenGrantDismiss: 'Later',
