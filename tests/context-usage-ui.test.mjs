@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { I18N } from '../src/sidepanel/i18n.js';
 import {
   contextPartRows,
+  createContextUsageUi,
   estimateContextParts,
   formatContextChip,
   formatContextHeadline,
@@ -134,6 +135,81 @@ test('composer trigger is icon-only: copy goes to aria-label, not a visible titl
   } finally {
     if (prevDocument === undefined) delete globalThis.document;
     else globalThis.document = prevDocument;
+  }
+});
+
+test('open popover leaves the composer so chat history cannot cover it', () => {
+  const prevDocument = globalThis.document;
+  const prevWindow = globalThis.window;
+  const listeners = [];
+  function el(id) {
+    return {
+      id,
+      hidden: true,
+      parentElement: null,
+      dataset: {},
+      style: {},
+      classList: {
+        add() {},
+        remove() {},
+        toggle() {}
+      },
+      attrs: {},
+      setAttribute(name, value) { this.attrs[name] = value; },
+      removeAttribute() {},
+      addEventListener() {},
+      contains(node) { return node === this; },
+      getBoundingClientRect() { return { top: 420, right: 300, bottom: 442, left: 278, width: 22, height: 22 }; },
+      focus() {}
+    };
+  }
+  const home = el('composerContext');
+  const button = el('contextUsageBtn');
+  const popover = el('contextUsagePopover');
+  home.appendChild = () => { popover.parentElement = home; };
+  home.appendChild(popover);
+  const body = {
+    appendChild(node) {
+      node.parentElement = body;
+      return node;
+    }
+  };
+  globalThis.window = {
+    innerHeight: 800,
+    innerWidth: 360,
+    addEventListener() {},
+    matchMedia() { return { matches: false }; }
+  };
+  globalThis.document = {
+    body,
+    getElementById(id) {
+      if (id === 'composerContext') return home;
+      return null;
+    },
+    querySelector: () => null,
+    addEventListener(type, fn) { listeners.push([type, fn]); },
+    createElement: () => ({ className: '', dataset: {}, textContent: '', append() {} })
+  };
+  try {
+    const ui = createContextUsageUi({
+      t: zh,
+      getButton: () => button,
+      getPopover: () => popover,
+      gather: () => ({ contextWindow: 128000, lastUsage: {}, messages: [] })
+    });
+    ui.open();
+    assert.equal(popover.parentElement, body);
+    assert.equal(popover.hidden, false);
+    assert.equal(popover.style.position, 'fixed');
+    assert.equal(popover.style.zIndex, '10050');
+    ui.close();
+    assert.equal(popover.parentElement, home);
+    assert.equal(popover.hidden, true);
+  } finally {
+    if (prevDocument === undefined) delete globalThis.document;
+    else globalThis.document = prevDocument;
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
   }
 });
 

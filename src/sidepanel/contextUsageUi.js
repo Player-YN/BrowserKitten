@@ -252,6 +252,7 @@ export function createContextUsageUi(deps) {
   let openTimer = 0;
   let closeTimer = 0;
   let open = false;
+  let homeParent = null;
 
   function els() {
     if (typeof deps.getEls === 'function') return deps.getEls() || {};
@@ -286,14 +287,26 @@ export function createContextUsageUi(deps) {
     open = next === true;
     if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (!pop) return;
+    const home = homeParent || document.getElementById('composerContext') || pop.parentElement;
     if (open) {
       render();
+      // Composer uses overflow:hidden + backdrop-filter, which clips position:fixed
+      // descendants and loses to #panelScroll. Same escape as group/model menus.
+      if (!homeParent && pop.parentElement && pop.parentElement !== document.body) {
+        homeParent = pop.parentElement;
+      }
+      if (document.body && pop.parentElement !== document.body) {
+        document.body.appendChild(pop);
+      }
       pop.hidden = false;
       pop.classList.add('is-open');
       if (btn) positionAboveTrigger(btn, pop);
     } else {
       pop.hidden = true;
       pop.classList.remove('is-open');
+      if (home && pop.parentElement === document.body && home !== document.body) {
+        home.appendChild(pop);
+      }
     }
   }
 

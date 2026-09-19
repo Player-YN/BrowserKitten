@@ -4887,6 +4887,8 @@ body[data-theme='light'] .topbar {
 
 .context-usage-popover {
   display: none;
+  position: fixed;
+  z-index: 10050;
   width: min(280px, calc(100vw - 16px));
   padding: 10px 12px 12px;
   border-radius: var(--radius-sm, 10px);
