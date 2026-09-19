@@ -164,6 +164,7 @@ import {
   fetchSttModels,
   findCatalogModel,
   resolveContextWindow,
+  isMissingModelsCatalogError,
   effortLevelsForReasoning,
   GATEWAY_REASONING_EFFORTS,
   pushRecentModel,
@@ -973,7 +974,9 @@ async function refreshReasoningCatalog(force = false) {
       catalogModels = await refreshAndCacheModels(base, key);
     }
   } catch (err) {
-    console.warn('[reasoning] catalog probe failed', err);
+    if (!isMissingModelsCatalogError(err)) {
+      console.warn('[reasoning] catalog probe failed', String(err?.message || err));
+    }
   }
   syncReasoningSwitch();
 }
@@ -6201,10 +6204,7 @@ function gatherContextUsageInput(lastUsage = {}) {
   const sess = sessions.find((s) => s.id === sid) || sessions.find((s) => s.id === activeSessionId);
   const merged = { ...(sess?.contextUsage || {}), ...lastUsage };
   const hit = findCatalogModel(catalogModels, selectedModel);
-  const windowN =
-    Number(merged.contextWindow) > 2048
-      ? Math.round(Number(merged.contextWindow))
-      : resolveContextWindow(selectedModel, hit);
+  const windowN = resolveContextWindow(selectedModel, hit, { allowDefault: false }) || 0;
   return {
     lastUsage: merged,
     contextWindow: windowN,

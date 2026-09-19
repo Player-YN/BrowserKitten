@@ -72,10 +72,7 @@ function displayPct(ratio) {
 export function projectContextUsage(input = {}) {
   const parts = estimateContextParts(input);
   const last = input.lastUsage && typeof input.lastUsage === 'object' ? input.lastUsage : {};
-  const windowN = Math.max(
-    0,
-    Math.round(num(input.contextWindow) || num(last.contextWindow) || 0)
-  );
+  const windowN = Math.max(0, Math.round(num(input.contextWindow) || 0));
   const lastTokens = Math.max(0, Math.round(num(last.promptTokens)));
   const lastSource = String(last.source || '');
   let source = 'unknown';

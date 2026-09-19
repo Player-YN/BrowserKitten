@@ -160,34 +160,48 @@ export function parseContextWindow(raw) {
   return null;
 }
 
-/**
- * Last-resort guess from model id when the catalog has no window.
- * Prefer advertised values; these are only adaptive fallbacks.
- * @param {string} [modelId]
- * @returns {number}
- */
-export function guessContextWindow(modelId) {
+function familyContextWindow(modelId) {
   const s = String(modelId || '').toLowerCase();
-  if (!s) return DEFAULT_CONTEXT_WINDOW;
+  if (!s) return null;
   if (s.includes('gemini')) return 1_000_000;
   if (s.includes('claude')) return 200_000;
   if (s.includes('grok')) return 131_072;
   if (/gpt-4\.1|o3|o4-mini/.test(s)) return 1_000_000;
   if (s.includes('deepseek')) return 128_000;
   if (s.includes('gpt-4o') || s.includes('gpt-4')) return 128_000;
-  return DEFAULT_CONTEXT_WINDOW;
+  return null;
 }
 
 /**
- * Adaptive window: catalog row → id guess → 128k.
+ * Last-resort guess from model id when the catalog has no window.
+ * Unknown ids use the compacting default; UI should call resolveContextWindow(..., { allowDefault: false }).
  * @param {string} [modelId]
- * @param {ModelEntry|null|undefined} [entry]
  * @returns {number}
  */
-export function resolveContextWindow(modelId, entry) {
+export function guessContextWindow(modelId) {
+  return familyContextWindow(modelId) ?? DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
+ * Adaptive window: catalog row → known family → optional 128k compacting default.
+ * @param {string} [modelId]
+ * @param {ModelEntry|null|undefined} [entry]
+ * @param {{ allowDefault?: boolean }} [opts]
+ * @returns {number|null}
+ */
+export function resolveContextWindow(modelId, entry, opts = {}) {
   const advertised = Number(entry?.contextWindow);
   if (Number.isFinite(advertised) && advertised >= 2048) return Math.round(advertised);
-  return guessContextWindow(modelId || entry?.id);
+  const family = familyContextWindow(modelId || entry?.id);
+  if (family) return family;
+  return opts.allowDefault === false ? null : DEFAULT_CONTEXT_WINDOW;
+}
+
+/** GET /models 404/405: vendor has no catalog. Not an auth or server failure. */
+export function isMissingModelsCatalogError(error) {
+  const status = Number(error?.status);
+  if (status === 404 || status === 405) return true;
+  return /\bHTTP\s*40[45]\b/.test(String(error?.message || error || ''));
 }
 
 /**
@@ -911,7 +925,9 @@ async function proxyOrDirectGetJson(url, headers) {
             throw new Error(String(res.text).slice(0, 400));
           }
         }
-        throw new Error(modelsErrorMessage(json, res.status));
+        const err = new Error(modelsErrorMessage(json, res.status));
+        err.status = Number(res.status) || 0;
+        throw err;
       }
       if (res && res.error) {
         // Extension-level proxy failure → try direct
@@ -939,7 +955,9 @@ async function proxyOrDirectGetJson(url, headers) {
     throw new Error(`Models bad JSON (HTTP ${r.status}): ${text.slice(0, 300)}`);
   }
   if (!r.ok) {
-    throw new Error(modelsErrorMessage(json, r.status));
+    const err = new Error(modelsErrorMessage(json, r.status));
+    err.status = r.status;
+    throw err;
   }
   return json;
 }
@@ -1251,7 +1269,15 @@ export async function toggleFavoriteModel(modelId, force) {
  * @returns {Promise<ModelEntry[]>}
  */
 export async function refreshAndCacheModels(baseURL, apiKey) {
-  const models = await fetchOpenAICompatibleModels(baseURL, apiKey);
-  await cacheModelsForBase(baseURL, models);
-  return models;
+  try {
+    const models = await fetchOpenAICompatibleModels(baseURL, apiKey);
+    await cacheModelsForBase(baseURL, models);
+    return models;
+  } catch (error) {
+    if (isMissingModelsCatalogError(error)) {
+      const cached = await loadCachedModelsForBase(baseURL);
+      return Array.isArray(cached.models) ? cached.models : [];
+    }
+    throw error;
+  }
 }

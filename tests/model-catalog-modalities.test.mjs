@@ -6,7 +6,11 @@ import {
   normalizeCatalogInputModalities,
   modelsEndpointURL,
   parseCatalogInputModalities,
-  parseModelsResponse
+  parseModelsResponse,
+  resolveContextWindow,
+  isMissingModelsCatalogError,
+  refreshAndCacheModels,
+  DEFAULT_CONTEXT_WINDOW
 } from '../src/agent/modelCatalog.js';
 
 test('normalizes only documented media names from explicit input arrays', () => {
@@ -130,4 +134,43 @@ test('catalog cache requires an exact normalized base URL before exposing media 
     bag.pagewand_model_catalog_cache[key].baseURL = 'https://gateway.example/v2';
     assert.deepEqual(await loadCachedModelsForBase(source), { models: [], fetchedAt: null });
   } finally { globalThis.chrome = previous; }
+});
+
+test('context window: catalog then family; unknown is not displayed as 128k', () => {
+  assert.equal(resolveContextWindow('alias', { contextWindow: 64000 }), 64000);
+  assert.equal(resolveContextWindow('anthropic/claude-sonnet-4'), 200_000);
+  assert.equal(resolveContextWindow('mystery-model'), DEFAULT_CONTEXT_WINDOW);
+  assert.equal(resolveContextWindow('mystery-model', null, { allowDefault: false }), null);
+  assert.equal(isMissingModelsCatalogError({ status: 404, message: 'HTTP 404' }), true);
+  assert.equal(isMissingModelsCatalogError({ message: 'HTTP404' }), true);
+  assert.equal(isMissingModelsCatalogError({ status: 401, message: 'HTTP 401' }), false);
+});
+
+test('refreshAndCacheModels keeps stale rows when GET /models is 404', async () => {
+  const previousChrome = globalThis.chrome;
+  const previousFetch = globalThis.fetch;
+  const bag = {};
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get(keys, callback) {
+          callback(Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map((key) => [key, bag[key]])));
+        },
+        set(values, callback) {
+          Object.assign(bag, structuredClone(values));
+          callback();
+        }
+      }
+    }
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: 'missing' }), { status: 404 });
+  try {
+    const base = 'https://no-catalog.example/v1';
+    await cacheModelsForBase(base, [{ id: 'kept-model' }]);
+    const models = await refreshAndCacheModels(base, 'sk-test');
+    assert.equal(models.some((m) => m.id === 'kept-model'), true);
+  } finally {
+    globalThis.chrome = previousChrome;
+    globalThis.fetch = previousFetch;
+  }
 });

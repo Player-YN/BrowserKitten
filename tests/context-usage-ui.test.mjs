@@ -213,6 +213,27 @@ test('open popover leaves the composer so chat history cannot cover it', () => {
   }
 });
 
+test('unknown model window is omitted instead of a fake 128K', () => {
+  const p = projectContextUsage({
+    contextWindow: 0,
+    lastUsage: { source: 'estimate', promptTokens: 1200, contextWindow: 128000 },
+    messages: [{ role: 'user', content: 'hi' }]
+  });
+  assert.equal(p.window, 0);
+  assert.match(formatContextHeadline(p, en), /About .+ tokens \(estimate\)/);
+  assert.doesNotMatch(formatContextHeadline(p, en), /128/);
+});
+
+test('catalog window is shown when gather resolved it', () => {
+  const p = projectContextUsage({
+    contextWindow: 200000,
+    lastUsage: { source: 'estimate', promptTokens: 1000, contextWindow: 128000 },
+    messages: [{ role: 'user', content: 'hi' }]
+  });
+  assert.equal(p.window, 200000);
+  assert.match(formatContextHeadline(p, en), /200[,.]?000/);
+});
+
 test('unknown usage headline does not claim a full bar', () => {
   const p = projectContextUsage({
     lastUsage: { source: 'none', promptTokens: 0 },

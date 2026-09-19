@@ -3632,8 +3632,11 @@ body[data-theme='light'] .topbar {
   gap: 8px;
 }
 .composer.has-bind-hint,
-.composer.is-compacting-context {
+.composer.is-compacting-context,
+.composer:has(.context-usage-popover.is-open),
+.composer:has(#contextUsageBtn[aria-expanded='true']) {
   overflow: visible;
+  z-index: 40;
 }
 
 .sheet-sel-row {
