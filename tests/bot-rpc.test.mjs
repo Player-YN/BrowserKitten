@@ -13,6 +13,12 @@ test('RPC allowlist names actual service methods, not reflection or prototype me
   }
 });
 test('scheduler methods are internal, preview is artifact-only, malformed params rejected', () => {
+  assert.equal(assertWorkspaceRpc('getChatMediaStatus', {}, 'ui').retrySafe, true);
+  assert.equal(assertWorkspaceRpc('requestChatMediaCheck', {}, 'ui').retrySafe, false);
+  for (const method of ['getChatMediaStatus', 'requestChatMediaCheck']) {
+    assert.throws(() => assertWorkspaceRpc(method, {}, 'preview'), { code: 'RPC_DENIED' });
+    assert.throws(() => assertWorkspaceRpc(method, {}, 'untrusted'), { code: 'RPC_DENIED' });
+  }
   for (const name of ['runDueTasks', 'getTaskSchedule', 'getBrowserRuntimeState']) {
     assert.throws(() => assertWorkspaceRpc(name, {}, 'ui'), { code: 'RPC_DENIED' });
     assertWorkspaceRpc(name, {}, 'background');

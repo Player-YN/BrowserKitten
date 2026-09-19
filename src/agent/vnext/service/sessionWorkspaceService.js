@@ -36,7 +36,7 @@ import {
   writeActiveCaptureGroupId,
   findOrCreateNamedGroup
 } from '../sessionWorkspace/groups.js';
-import { resolveChatMediaCapabilities } from '../../chatMedia.js';
+import { MediaCapabilityChecks } from '../../mediaCapabilityChecks.js';
 import { createPageWandLanguageModel } from '../../provider.js';
 import { runSelectionSuggest } from '../sessionWorkspace/selectionSuggest.js';
 import {
@@ -133,6 +133,7 @@ export class SessionWorkspaceService {
     this._journal = opts.journal
       || (opts.memoryJournal === true ? createCallJournal(createMemoryCallJournal()) : createUnavailableCallJournal());
     this._listenRuntime = opts.listenRuntime || createListenRuntime();
+    this.mediaChecks = opts.mediaChecks || new MediaCapabilityChecks();
     this._ensurePolicyAdapters();
     const recovered = recoverInterruptedTasks(store);
     this._startupPersist = recovered.length ? this._persist() : Promise.resolve();
@@ -201,12 +202,21 @@ export class SessionWorkspaceService {
   /**
    * @param {{ reasoning?: { enabled?: boolean, effort?: string } }} [opts]
    */
+  async getChatMediaStatus() {
+    return this.mediaChecks.status();
+  }
+
+  async requestChatMediaCheck(params = {}) {
+    return this.mediaChecks.request({ force: params.force === true });
+  }
+
   async resolveLanguageModel(opts = {}) {
     try {
       const built = await createPageWandLanguageModel({
         reasoning: opts.reasoning || null,
         settings: opts.settings,
-        mediaCapabilities: opts.mediaCapabilities
+        mediaCapabilities: opts.mediaCapabilities,
+        mediaContext: opts.mediaContext
       });
       this.model = built.model;
       return built.model;
@@ -1671,16 +1681,16 @@ export class SessionWorkspaceService {
 
     const currentSlot = this._activeBySession.get(sessionId);
     if (currentSlot) currentSlot.taskId = durableTask?.taskId || null;
-      // One immutable settings/catalog snapshot for model construction AND media routing.
-      // Changing model/provider between turns recomputes this, without a chat probe.
+      // Connection settings remain fixed for the turn; each hop refreshes cached evidence only.
       const settings = await loadLlmSettings();
       const cached = await loadCachedModelsForBase(settings.apiBase);
       const hit = findCatalogModel(cached.models || [], settings.model);
       const contextWindow = resolveContextWindow(settings.model, hit);
-      const mediaCapabilities = resolveChatMediaCapabilities(settings, cached.models || []);
+      const mediaContext = await this.mediaChecks.context(settings, cached.models || []);
+      const mediaCapabilities = mediaContext.current;
       const injectedCallModel = callModel || this.callModel || null;
       const resolvedModel = injectedCallModel ? (model || null) :
-        await this.resolveLanguageModel({ reasoning, settings, mediaCapabilities });
+        await this.resolveLanguageModel({ reasoning, settings, mediaCapabilities, mediaContext });
 
       let taskYielded = false;
       const previousDueAt = durableTask?.dueAt || null;
@@ -1730,6 +1740,7 @@ export class SessionWorkspaceService {
         listenRuntime: this._listenRuntime,
         settings,
         mediaCapabilities,
+        mediaContext,
         hostFindTab: (url) =>
           chrome.runtime.sendMessage({
             target: 'pawwork-background',

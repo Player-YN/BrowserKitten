@@ -1,7 +1,8 @@
-/** Input declarations are evidence, not probes. Unknown audio/video fail closed.
+/** Input declarations and cached checks are evidence. Unknown audio/video fail closed.
  * A model declaration and a supported wire transport are both required.
  */
 import { normalizeModelsBaseURL, classifyChatVisionCapability } from './modelCatalog.js';
+import { mergeMediaEvidence } from './mediaCapabilityStore.js';
 
 export const MAX_CHAT_MEDIA_BYTES = 16 * 1024 * 1024;
 export const INPUT_MODALITIES = ['text', 'image', 'audio', 'video'];
@@ -30,15 +31,18 @@ export function normalizeMediaOverrides(raw) {
 const GEMINI_AV = /^(?:google\/)?gemini-(?:2\.0-flash(?:-001)?|2\.5-(?:flash|pro)(?:-preview-\d\d-\d\d)?)$/;
 const OPENAI_AUDIO = /^(?:openai\/)?(?:gpt-4o(?:-mini)?-audio-preview(?:-\d{4}-\d{2}-\d{2})?|gpt-audio(?:-mini)?(?:-\d{4}-\d{2}-\d{2})?)$/;
 
-export function resolveChatMediaCapabilities(settings = {}, models = []) {
+export function resolveChatMediaCapabilities(settings = {}, models = [], evidence = null, now = Date.now()) {
   const model = String(settings.model || '').trim();
-  const base = String(settings.apiBase || '').replace(/\/+$/, '');
+  const base = normalizeModelsBaseURL(settings.apiBase || '');
   // No suffix matching: vendor-a/foo must not inherit vendor-b/foo's capabilities.
   const entry = models.find((m) => m?.id === model);
   const override = settings.chatMediaOverrides?.[mediaModelKey(base, model)] || {};
   const declared = Array.isArray(entry?.inputModalities) ? entry.inputModalities : null;
-  const knownAV = GEMINI_AV.test(model);
-  const vision = classifyChatVisionCapability(model);
+  let hostname = '';
+  try { hostname = new URL(base).hostname; } catch { /* unknown endpoint */ }
+  const official = ['api.openai.com', 'api.deepseek.com', 'generativelanguage.googleapis.com', 'openrouter.ai'].includes(hostname);
+  const knownAV = ['generativelanguage.googleapis.com', 'openrouter.ai'].includes(hostname) && GEMINI_AV.test(model);
+  const vision = official ? classifyChatVisionCapability(model) : 'unknown';
   const inputs = {};
   for (const kind of INPUT_MODALITIES) {
     let state = 'unknown', source = 'unknown';
@@ -47,9 +51,9 @@ export function resolveChatMediaCapabilities(settings = {}, models = []) {
       state = vision === 'vision' ? 'supported' : 'unsupported'; source = 'builtin';
     }
     if (kind === 'audio' || kind === 'video') {
-      if (knownAV || (kind === 'audio' && OPENAI_AUDIO.test(model))) {
+      if (knownAV || (kind === 'audio' && ['api.openai.com', 'openrouter.ai'].includes(hostname) && OPENAI_AUDIO.test(model))) {
         state = 'supported'; source = 'builtin';
-      } else if (vision === 'text-only' || /^(?:openai\/)?gpt-4o(?:-mini)?$/.test(model)) {
+      } else if (vision === 'text-only' || (official && /^(?:openai\/)?gpt-4o(?:-mini)?$/.test(model))) {
         state = 'unsupported'; source = 'builtin';
       }
     }
@@ -69,10 +73,11 @@ export function resolveChatMediaCapabilities(settings = {}, models = []) {
           (u.hostname === 'generativelanguage.googleapis.com' && /^\/v1(?:beta)?\/openai$/.test(u.pathname))) transport = 'openai-audio';
     } catch { /* custom gateways require an explicit transport declaration */ }
   }
-  const caps = { model, base, inputs, transport, maxBytes: MAX_CHAT_MEDIA_BYTES };
+  const caps = mergeMediaEvidence({ model, base, inputs, transport, maxBytes: MAX_CHAT_MEDIA_BYTES }, evidence, now);
   caps.routes = {
     nativeAudio: canSendChatMedia(caps, 'audio/wav'),
     nativeVideo: canSendChatMedia(caps, 'video/webm'),
+    videoAudio: caps.videoAudio,
     file: 'acquire action=fetch url or path',
     liveVideo: 'action op=record seconds=8 (tab picture + audio; max 30s; video grant)',
     liveAudio: 'action op=listen (audio only)',
@@ -85,6 +90,8 @@ export function resolveChatMediaCapabilities(settings = {}, models = []) {
 export function canSendChatMedia(caps, mimeType) {
   const mime = String(mimeType || '').split(';')[0].trim().toLowerCase();
   const kind = mime.split('/')[0];
+  if (caps?.inputs?.[kind]?.rejectedFormats?.includes(mime)) return false;
+  if (caps?.inputs?.[kind]?.source === 'verified' && !caps.inputs[kind].formats?.includes(mime)) return false;
   if (kind === 'image') return caps?.inputs?.image?.state !== 'unsupported';
   if (caps?.inputs?.[kind]?.state !== 'supported') return false;
   if (kind === 'audio') return ['openai-audio', 'openrouter'].includes(caps.transport) && ['audio/wav', 'audio/mpeg'].includes(mime);

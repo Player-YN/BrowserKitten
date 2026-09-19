@@ -8,6 +8,7 @@ import { loadLlmSettings, DEFAULT_BASE } from './llm.js';
 import { loadCachedModelsForBase } from './modelCatalog.js';
 import { resolveChatMediaCapabilities, canSendChatMedia, MAX_CHAT_MEDIA_BYTES } from './chatMedia.js';
 import { isAbortLike, toAbortError } from './vnext/host/userStop.js';
+import { classifyMediaRejection, requestMediaFormats } from './mediaRejection.js';
 
 const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
 
@@ -272,7 +273,8 @@ export async function createPageWandLanguageModel(opts = {}) {
     apiKey: settings.apiKey,
     baseURL,
     includeUsage: true,
-    fetch: createExtensionFetch({ reasoning: opts.reasoning || null, mediaCapabilities })
+    fetch: createExtensionFetch({ reasoning: opts.reasoning || null, mediaCapabilities,
+      mediaContext: opts.mediaContext, noRetry: opts.noRetry === true })
   });
 
   return {
@@ -295,12 +297,19 @@ export function createExtensionFetch(opts = {}) {
     const keepReasoning = /openrouter\.ai/i.test(String(url));
     const cleanedInit = stripUnsupportedFieldsFromRequestInit(init, opts.reasoning || null, {
       keepReasoning,
-      mediaCapabilities: opts.mediaCapabilities
+      mediaCapabilities: opts.mediaContext?.current || opts.mediaCapabilities
     });
     try {
       const res = await fetch(input, cleanedInit);
+      if (opts.mediaContext && [400, 415, 422].includes(res.status)) {
+        try {
+          const mime = classifyMediaRejection(res.status, (await res.clone().text()).slice(0, 16000), requestMediaFormats(cleanedInit));
+          if (mime) await opts.mediaContext.reject(mime);
+        } catch { /* evidence persistence must not replace the actual request error */ }
+      }
       return keepReasoning ? liftOpenRouterReasoningResponse(res) : res;
     } catch (directErr) {
+      if (opts.noRetry) throw directErr;
       if (isAbortLike(directErr, cleanedInit?.signal)) throw toAbortError(directErr);
       console.warn('[PageWand] direct fetch failed, trying background proxy:', directErr?.message);
       return proxyFetchAsResponse(input, cleanedInit, directErr);

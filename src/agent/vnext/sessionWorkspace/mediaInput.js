@@ -51,8 +51,10 @@ export async function routeMediaInput(env, receipt) {
     (/^(audio|video|image)\//.test(storedMime || '') ? storedMime : ''), receipt.path);
   const kind = mime.split('/')[0];
   if (!['audio', 'video', 'image'].includes(kind)) return receipt;
-  const caps = env.mediaCapabilities || resolveChatMediaCapabilities(env.settings);
+  const caps = env.mediaContext ? await env.mediaContext.wait(kind, env.signal) :
+    env.mediaCapabilities || resolveChatMediaCapabilities(env.settings);
   const media = { kind, model: caps.model, capability: caps.inputs[kind], transport: caps.transport, route: 'unavailable' };
+  if (kind === 'video') media.soundtrack = caps.videoAudio || 'unknown';
   const out = { ...receipt, mediaType: mime, media };
   if (env.signal?.aborted) return { ...out, ok: false, code: 'ABORTED' };
   let reason = caps.inputs[kind]?.state === 'supported' ? 'MEDIA_TRANSPORT_UNSUPPORTED' : 'MEDIA_CAPABILITY_UNKNOWN_OR_UNSUPPORTED';

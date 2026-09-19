@@ -12199,7 +12199,8 @@ function fillSettingsForm(provider, opts = {}) {
   if (baseInput) baseInput.value = provider?.baseURL != null ? provider.baseURL : isNew ? '' : baseURL;
   if (modelInput) modelInput.value = provider?.model != null ? provider.model : isNew ? '' : model;
 
-  chatMediaSettingsUi ||= createChatMediaSettings({ t });
+  chatMediaSettingsUi ||= createChatMediaSettings({ t, workspaceRpc, loadProvidersState,
+    getProviderId: () => settingsConfigUi.providerId });
   chatMediaSettingsUi.load(provider);
   settingsConfigUi.providerId = provider?.id || null;
   settingsConfigUi.providerName = provider?.name || 'Provider';
@@ -12822,6 +12823,7 @@ function setEditorOpen(editorId, addBtnId, open) {
 
 function setInferenceEditorOpen(open) {
   setEditorOpen('inferenceEditor', 'addInferenceBtn', open);
+  chatMediaSettingsUi?.sync();
 }
 
 function setImageEditorOpen(open) {
@@ -13674,6 +13676,9 @@ async function refreshSettingsForm() {
   setSkillEditorOpen(false);
   await refreshVendorBoards();
   const state = await loadProvidersState();
+  if (state.activeProviderId) {
+    fillSettingsForm((state.providers || []).find((p) => p.id === state.activeProviderId) || null);
+  }
   if (!(state.providers || []).length) {
     openInferenceEditor(null);
   }
@@ -14211,6 +14216,7 @@ function openAgentSettingsModal() {
         returnFocus: returnFocus instanceof HTMLElement ? returnFocus : null,
         focus: firstField instanceof HTMLElement ? firstField : null
       });
+      chatMediaSettingsUi?.open();
     }
   );
 }

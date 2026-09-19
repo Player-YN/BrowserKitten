@@ -52,6 +52,8 @@ export function makeOfficePrepareStep(env = {}) {
     const taskText = formatTaskInstructions(task);
     const pinned = formatFrozenPlanInstructions(env.execution?.frozenPlan);
     const additions = [taskText, pinned].filter(Boolean);
+    const media = env.mediaContext ? await env.mediaContext.refresh() : env.mediaCapabilities;
+    if (media) additions.push(`Current chat media input (host-resolved for this step): ${JSON.stringify(media)}\nVideo picture capability does not prove soundtrack perception; when videoAudio is unknown, use separate audio input or STT for sound evidence. Never issue capability checks from tools.`);
     if (additions.length) {
       const base = String(env.instructions || '').trim();
       out.instructions = [base, ...additions].filter(Boolean).join('\n\n');

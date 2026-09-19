@@ -86,7 +86,7 @@ Guest FS（`fs.js`）：
 
 清单：`canvasInventory.js` 的 `SESSION_TOOL_NAMES`（含 `task`）。`toolSchedule.js` 原样返回该列表。
 
-System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v18-media-evidence'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 随当前模型注入 world，world 不在 prefix）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
+System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v18-media-evidence'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
 
 交付物打开：`openClassify.js` 负责 kind；`artifactCapability.js` 是家族 × 打开面 × 徽标的单一映射。主 chip 是 `docs` / `data` / `web` / `media` / `files`；`design`/`slides` 只兼容旧数据。未知 HTML/JS 不得在 extension origin 执行。仅文件名的 `.html` 保持中性，不假装 proven site/doc；首次打开分类后可持久化 `capability` hint。site 本波 = 可编辑/可渲染的静态 HTML+CSS + 宿主 postMessage bridge（`src/sandbox/siteFrame.*`），**不是**任意 guest JS。
 
@@ -163,4 +163,4 @@ BYOK：`llm.js` → `pagewand_providers`。推理 / 生图 / 转写各有独立 
 
 ## 当前模型媒体输入
 
-能力、路由、接口限制与测试见 [CHAT_MEDIA_INPUT.md](../../docs/CHAT_MEDIA_INPUT.md)。`chatMedia.js` 按精确模型 + base 判定；`mediaInput.js` 共用 listen / record / fetch 的媒体递交。未知音视频走 STT/NEED_STT，绝不通过 chat 试错。record 只录短片（默认 8 秒、最多 30 秒），需要独立的侧栏视频授权，音频授权不覆盖视频。快照的 `mediaElements` 只提供播放状态和源线索，不是已看过视频的证明。
+能力、路由、接口限制与测试见 [CHAT_MEDIA_INPUT.md](../../docs/CHAT_MEDIA_INPUT.md)。`chatMedia.js` 按精确模型 + base 判定；offscreen `MediaCapabilityChecks` 负责独立、限次的后台合成样本校验，证据跨 session 缓存。普通发送/工具不启动校验，每跳更新共享能力快照。未知音视频仍走 STT/NEED_STT；明确格式拒绝只修正该 MIME，不重放业务请求。record 只录短片（默认 8 秒、最多 30 秒），需要独立的侧栏视频授权，音频授权不覆盖视频。快照的 `mediaElements` 只提供播放状态和源线索，不是已看过视频的证明。

@@ -16,6 +16,8 @@ globalThis.__PAWWORK_CODE_SANDBOX_RUN__ = (opts) => sandboxClient.run(opts);
 // syncTabSelection only need IDB. Gating boot on sandbox.ready made a missed
 // handshake take down selection chrome for 15s+ forever.
 let servicePromise = SessionWorkspaceService.create();
+// The first workspace request never awaits discovery or media check network traffic.
+void servicePromise.then(service => service.requestChatMediaCheck()).catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.target === 'pawwork-offscreen' && message?.action === 'tab_listen_abort') {

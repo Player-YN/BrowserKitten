@@ -1701,6 +1701,7 @@ export function createSessionTools(env) {
             onEvent,
             settings: env.settings,
             mediaCapabilities: env.mediaCapabilities,
+            mediaContext: env.mediaContext,
             audioToWav: env.audioToWav,
             hostPageAction: host,
             listenRuntime: env.listenRuntime,

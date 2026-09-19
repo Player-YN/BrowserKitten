@@ -60,7 +60,8 @@ export async function executeListenAction(env, input = {}, tabId) {
   const video = input.op === 'record';
   const verb = video ? 'clip' : normalizeListenVerb(input.listen);
   if (video) {
-    const caps = env.mediaCapabilities || resolveChatMediaCapabilities(env.settings);
+    const caps = env.mediaContext ? await env.mediaContext.wait('video', env.signal) :
+      env.mediaCapabilities || resolveChatMediaCapabilities(env.settings);
     if (!canSendChatMedia(caps, 'video/webm')) {
       return { ok: false, op: 'record', code: 'VIDEO_INPUT_UNAVAILABLE',
         hint: 'Current model/transport cannot receive video. Use snapshot for visual facts, listen for audio, or fetch an existing file for STT (speech only). Do not probe chat.' };

@@ -24,7 +24,7 @@
  *   mandatory: boolean
  * }} ModelReasoningInfo
  *
- * @typedef {{ id: string, name?: string, image?: boolean, inputModalities?: string[], reasoning?: ModelReasoningInfo, contextWindow?: number }} ModelEntry
+ * @typedef {{ id: string, name?: string, image?: boolean, inputModalities?: string[], inputModalitiesSource?: 'architecture.input_modalities'|'input_modalities'|'inference_metadata.request_modality', reasoning?: ModelReasoningInfo, contextWindow?: number }} ModelEntry
  */
 
 /** Gateway effort order (highest first), matching OpenRouter reasoning.effort. */
@@ -140,6 +140,7 @@ export function parseContextWindow(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const o = /** @type {any} */ (raw);
   const top = o.top_provider && typeof o.top_provider === 'object' ? o.top_provider : {};
+  const modelInfo = o.model_info && typeof o.model_info === 'object' ? o.model_info : {};
   const candidates = [
     o.context_length,
     o.contextLength,
@@ -147,7 +148,10 @@ export function parseContextWindow(raw) {
     o.max_context_length,
     o.max_input_tokens,
     top.context_length,
-    top.max_input_tokens
+    top.max_input_tokens,
+    // Alibaba Cloud Model Studio / DashScope GET /api/v1/models.
+    modelInfo.context_window,
+    modelInfo.max_input_tokens
   ];
   for (const c of candidates) {
     const n = Number(c);
@@ -382,6 +386,17 @@ export function catalogHostKey(baseURL) {
 export function modelsEndpointURL(baseURL) {
   const base = normalizeModelsBaseURL(baseURL);
   if (!base) throw new Error('baseURL required');
+  // DashScope exposes OpenAI-compatible chat at /compatible-mode/v1, but its
+  // documented rich model catalog lives at /api/v1/models on the same regional
+  // host.  This is an endpoint adapter only: authentication stays Bearer and
+  // no vendor-specific request stack is introduced.
+  try {
+    const url = new URL(base);
+    const isDashScopeHost = /(?:^|\.)(?:dashscope(?:-intl)?|[a-z0-9-]+\.(?:cn-[a-z-]+|eu-central-1|ap-northeast-1|us-east-1)\.maas)\.aliyuncs\.com$/i.test(url.hostname);
+    if (isDashScopeHost && /\/compatible-mode\/v1\/?$/i.test(url.pathname)) {
+      return `${url.origin}/api/v1/models`;
+    }
+  } catch { /* retain generic OpenAI-compatible behavior for custom bases */ }
   return `${base}/models`;
 }
 
@@ -476,6 +491,64 @@ export function isLikelyNonChatModel(id, raw) {
 }
 
 /**
+ * Canonical input modalities understood by the chat-media layer.
+ *
+ * Keep this deliberately narrow.  A catalog may contain output modalities,
+ * model-family labels, or broad claims such as "vision"; none establishes an
+ * input wire capability.  Only the documented per-model input arrays below
+ * enter this normalizer.
+ *
+ * @param {unknown} raw
+ * @returns {string[]|null}
+ */
+export function normalizeCatalogInputModalities(raw) {
+  if (!Array.isArray(raw)) return null;
+  const aliases = {
+    text: 'text',
+    image: 'image',
+    images: 'image',
+    audio: 'audio',
+    video: 'video',
+    file: 'file',
+    files: 'file'
+  };
+  const values = raw
+    .map((value) => aliases[String(value || '').trim().toLowerCase()])
+    .filter(Boolean);
+  return values.length ? [...new Set(values)] : null;
+}
+
+/**
+ * Extract a documented per-model input-modality declaration.
+ *
+ * Supported catalog contracts:
+ * - OpenRouter: architecture.input_modalities
+ * - OpenAI-compatible extensions: input_modalities
+ * - Alibaba Cloud Model Studio / DashScope: inference_metadata.request_modality
+ *
+ * Do not add `output_modalities`, DashScope `capabilities`, descriptions, or
+ * model-name rules here.  They cannot prove that this chat endpoint accepts a
+ * particular input media type.
+ *
+ * @param {unknown} raw
+ * @returns {{ modalities: string[], source: NonNullable<ModelEntry['inputModalitiesSource']> }|null}
+ */
+export function parseCatalogInputModalities(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = /** @type {any} */ (raw);
+  const candidates = [
+    [item.architecture?.input_modalities, 'architecture.input_modalities'],
+    [item.input_modalities, 'input_modalities'],
+    [item.inference_metadata?.request_modality, 'inference_metadata.request_modality']
+  ];
+  for (const [value, source] of candidates) {
+    const modalities = normalizeCatalogInputModalities(value);
+    if (modalities) return { modalities, source: /** @type {any} */ (source) };
+  }
+  return null;
+}
+
+/**
  * Normalize OpenAI-compatible /models JSON → ModelEntry[].
  * @param {unknown} payload
  * @param {{ filterEmbeddings?: boolean }} [opts]
@@ -491,6 +564,9 @@ export function parseModelsResponse(payload, opts = {}) {
     if (Array.isArray(d)) list = d;
     else if (Array.isArray(/** @type {any} */ (payload).models)) {
       list = /** @type {any} */ (payload).models;
+    } else if (Array.isArray(/** @type {any} */ (payload).output?.models)) {
+      // Alibaba Cloud Model Studio / DashScope GET /api/v1/models.
+      list = /** @type {any} */ (payload).output.models;
     }
   }
 
@@ -522,9 +598,10 @@ export function parseModelsResponse(payload, opts = {}) {
     seen.add(id);
     /** @type {ModelEntry} */
     const entry = { id };
-    const inputs = rawObj?.architecture?.input_modalities ?? rawObj?.input_modalities;
-    if (Array.isArray(inputs)) {
-      entry.inputModalities = [...new Set(inputs.map((m) => String(m).trim().toLowerCase()).filter(Boolean))];
+    const declaredInputs = parseCatalogInputModalities(rawObj);
+    if (declaredInputs) {
+      entry.inputModalities = declaredInputs.modalities;
+      entry.inputModalitiesSource = declaredInputs.source;
     }
     if (image) entry.image = true;
     if (name) entry.name = name;
@@ -1004,23 +1081,60 @@ export async function fetchOpenAICompatibleModels(baseURL, apiKey, opts = {}) {
 // ── chrome.storage helpers ──────────────────────────────────────────────────
 
 function storageGet(keys) {
-  return new Promise((resolve) => {
-    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
-      resolve({});
-      return;
-    }
-    chrome.storage.local.get(keys, (res) => resolve(res || {}));
-  });
+  const list = Array.isArray(keys) ? keys : [keys];
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    // Keep callback compatibility for existing mocks and older Chrome while
+    // accepting the Promise form supplied by current MV3 contexts.
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const done = (value) => {
+        if (settled) return;
+        settled = true;
+        if (chrome.runtime?.lastError) reject(new Error(chrome.runtime.lastError.message || 'storage_local_get failed'));
+        else resolve(value || {});
+      };
+      try {
+        const pending = chrome.storage.local.get(list, done);
+        if (pending && typeof pending.then === 'function') pending.then(done, reject);
+      } catch (error) { reject(error); }
+    });
+  }
+  if (typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function') {
+    return chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_get', keys: list })
+      .then((res) => {
+        if (!res?.ok) throw new Error(res?.error || 'storage_local_get failed');
+        return res.result || {};
+      });
+  }
+  // Node-only callers use no extension storage. In an extension context a
+  // missing bridge is an error above, rather than a fabricated empty cache.
+  return Promise.resolve({});
 }
 
 function storageSet(obj) {
-  return new Promise((resolve) => {
-    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
-      resolve();
-      return;
-    }
-    chrome.storage.local.set(obj, () => resolve());
-  });
+  if (!obj || typeof obj !== 'object') return Promise.reject(new Error('storage_local_set requires an object'));
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        if (chrome.runtime?.lastError) reject(new Error(chrome.runtime.lastError.message || 'storage_local_set failed'));
+        else resolve();
+      };
+      try {
+        const pending = chrome.storage.local.set(obj, done);
+        if (pending && typeof pending.then === 'function') pending.then(done, reject);
+      } catch (error) { reject(error); }
+    });
+  }
+  if (typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function') {
+    return chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_set', values: obj })
+      .then((res) => {
+        if (!res?.ok) throw new Error(res?.error || 'storage_local_set failed');
+      });
+  }
+  return Promise.resolve();
 }
 
 /**
@@ -1066,6 +1180,12 @@ export async function loadCachedModelsForBase(baseURL) {
   const cache = res[MODEL_CATALOG_CACHE_KEY];
   const entry = cache && typeof cache === 'object' ? cache[key] : null;
   if (!entry || !Array.isArray(entry.models)) return { models: [], fetchedAt: null };
+  // A host key keeps cache cardinality bounded, but catalog declarations are
+  // evidence for one exact configured API base. Never apply a same-host route's
+  // modal metadata to this route.
+  if (normalizeModelsBaseURL(entry.baseURL) !== normalizeModelsBaseURL(baseURL)) {
+    return { models: [], fetchedAt: null };
+  }
   return {
     models: entry.models.filter((m) => m && typeof m.id === 'string'),
     fetchedAt: typeof entry.fetchedAt === 'number' ? entry.fetchedAt : null

@@ -74,6 +74,17 @@ const forwardWorkspaceRpc = createWorkspaceRpcTransport({
   send: payload => chrome.runtime.sendMessage(payload)
 });
 
+// Settings events wake discovery even if no workspace is open. Cache writes do not retrigger it.
+let mediaSettingsTimer;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !['pagewand_providers', 'pagewand_active_provider_id',
+    'pagewand_chat_media_auto_check', 'pagewand_model_catalog_cache'].some(key => key in changes)) return;
+  clearTimeout(mediaSettingsTimer);
+  mediaSettingsTimer = setTimeout(() => {
+    void forwardWorkspaceRpc({ method: 'requestChatMediaCheck', params: {} }).catch(() => {});
+  }, 150);
+});
+
 // PageWand Service Worker - Native Downloads & Smart Auto-Zip Engine
 
 chrome.runtime.onInstalled.addListener(() => {
