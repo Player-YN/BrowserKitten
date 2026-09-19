@@ -14,6 +14,7 @@
  */
 
 import { normalizeMediaOverrides } from './chatMedia.js';
+import { normalizeContextWindowOverrides } from './contextWindowStore.js';
 
 export const DEFAULT_BASE = 'https://api.deepseek.com/v1';
 
@@ -327,6 +328,8 @@ export function normalizeProvider(p) {
   if (image) out.image = image;
   const overrides = normalizeMediaOverrides(p.chatMediaOverrides);
   if (Object.keys(overrides).length) out.chatMediaOverrides = overrides;
+  const contextWindowOverrides = normalizeContextWindowOverrides(p.contextWindowOverrides);
+  if (Object.keys(contextWindowOverrides).length) out.contextWindowOverrides = contextWindowOverrides;
   const lastProbe = normalizeLastProbe(/** @type {any} */ (p).lastProbe);
   if (lastProbe) out.lastProbe = lastProbe;
   return out;
@@ -616,6 +619,9 @@ export async function upsertProvider(provider, opts = {}) {
     if (provider.chatMediaOverrides === undefined && providers[idx].chatMediaOverrides) {
       next.chatMediaOverrides = providers[idx].chatMediaOverrides;
     }
+    if (provider.contextWindowOverrides === undefined && providers[idx].contextWindowOverrides) {
+      next.contextWindowOverrides = providers[idx].contextWindowOverrides;
+    }
     if (!next.apiKey && providers[idx].apiKey) {
       next.apiKey = providers[idx].apiKey;
     }
@@ -706,6 +712,7 @@ export async function loadLlmSettings() {
       apiBase: (active.baseURL || DEFAULT_BASE).replace(/\/$/, ''),
       model: active.model || 'deepseek-v4-flash',
       chatMediaOverrides: active.chatMediaOverrides,
+      contextWindowOverrides: active.contextWindowOverrides,
       providerId: active.id,
       providerName: active.name || 'Provider',
       providers,

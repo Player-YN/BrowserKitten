@@ -183,13 +183,29 @@ export function guessContextWindow(modelId) {
 }
 
 /**
- * Adaptive window: catalog row → known family → optional 128k compacting default.
+ * Adaptive window: user override → measured evidence → catalog row → family →
+ * optional 128k compacting default. UI must pass { allowDefault: false }.
+ * Never treat an 8k output cap as a window; callers only pass adopted ≥2048 values.
  * @param {string} [modelId]
  * @param {ModelEntry|null|undefined} [entry]
- * @param {{ allowDefault?: boolean }} [opts]
+ * @param {{
+ *   allowDefault?: boolean,
+ *   evidence?: { window?: number|null }|null,
+ *   override?: number|null,
+ *   overrides?: Record<string, number>,
+ *   baseURL?: string
+ * }} [opts]
  * @returns {number|null}
  */
 export function resolveContextWindow(modelId, entry, opts = {}) {
+  let override = Number(opts.override);
+  if (!Number.isFinite(override) && opts.overrides && opts.baseURL != null) {
+    const key = `${normalizeModelsBaseURL(opts.baseURL)}\n${String(modelId || entry?.id || '').trim()}`;
+    override = Number(opts.overrides[key]);
+  }
+  if (Number.isFinite(override) && override >= 2048) return Math.round(override);
+  const measured = Number(opts.evidence?.window);
+  if (Number.isFinite(measured) && measured >= 2048) return Math.round(measured);
   const advertised = Number(entry?.contextWindow);
   if (Number.isFinite(advertised) && advertised >= 2048) return Math.round(advertised);
   const family = familyContextWindow(modelId || entry?.id);

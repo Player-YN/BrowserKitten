@@ -146,6 +146,23 @@ test('context window: catalog then family; unknown is not displayed as 128k', ()
   assert.equal(isMissingModelsCatalogError({ status: 401, message: 'HTTP 401' }), false);
 });
 
+test('context window prefers user override, then measured, then catalog, then family', () => {
+  const entry = { contextWindow: 64000 };
+  const evidence = { window: 131072, source: 'measured', kind: 'measure_chat' };
+  assert.equal(resolveContextWindow('mystery', entry, { override: 200000, evidence }), 200000);
+  assert.equal(resolveContextWindow('mystery', entry, { evidence }), 131072);
+  assert.equal(resolveContextWindow('mystery', entry, { evidence: { window: null } }), 64000);
+  assert.equal(
+    resolveContextWindow('alias', { contextWindow: 8000 }, {
+      overrides: { 'https://gateway.example/v1\nalias': 256000 },
+      baseURL: 'https://gateway.example/v1/'
+    }),
+    256000
+  );
+  assert.equal(resolveContextWindow('anthropic/claude-sonnet-4', null, { allowDefault: false }), 200_000);
+  assert.equal(resolveContextWindow('mystery-model', null, { allowDefault: false, evidence: { window: 4096 } }), 4096);
+});
+
 test('refreshAndCacheModels keeps stale rows when GET /models is 404', async () => {
   const previousChrome = globalThis.chrome;
   const previousFetch = globalThis.fetch;

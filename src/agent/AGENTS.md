@@ -26,6 +26,7 @@ sidepanel workspaceRpc('sendMessage')
 | `vnext/host/` | `workspaceRpc`、`browserSysHost`、`tabLease`、`taskScheduler`、`accessPolicy`、`riskClassify`、`dispatchTicket`、`callJournal`、`operationGate`、`postcondition` |
 | `vnext/skills/` | 打包 playbook（`SKILL.md` + `skillSource.js`）。**不是工具** |
 | `llm.js` `provider.js` `modelCatalog.js` | BYOK OpenAI-compatible HTTPS；每轮 `resolveLanguageModel` |
+| `contextWindowProbe.js` `contextWindowStore.js` | 目录无窗口时的独立 chat 探测与 `pagewand_context_window_evidence_v1`；不进 ToolLoopAgent，发送不 await |
 | `webAcquireSettings.js` | `pagewand_web_acquire` |
 | `skills.js` | 用户固化 skill（`pagewand_user_skills`），侧栏用；与 `vnext/skills` 不同 |
 | `artifacts.js` `draftStore.js` `state.js` `trajectory.js` `documentRender.js` `render/` | 旧表面。产品交付物走 `sessionWorkspace/artifacts.js`。改功能前先确认调用方 |

@@ -234,6 +234,35 @@ test('catalog window is shown when gather resolved it', () => {
   assert.match(formatContextHeadline(p, en), /200[,.]?000/);
 });
 
+test('popover: OpenRouter catalog, unknown, and measured windows', () => {
+  const openrouter = projectContextUsage({
+    contextWindow: 128000,
+    lastUsage: { source: 'estimate', promptTokens: 12800 },
+    messages: [{ role: 'user', content: 'hi' }]
+  });
+  assert.equal(openrouter.window, 128000);
+  assert.match(formatContextHeadline(openrouter, en), /128[,.]?000/);
+  assert.match(formatContextHeadline(openrouter, zh), /128[,.]?000/);
+
+  const unknown = projectContextUsage({
+    contextWindow: 0,
+    lastUsage: { source: 'estimate', promptTokens: 1200 },
+    messages: [{ role: 'user', content: 'hi' }]
+  });
+  assert.equal(unknown.window, 0);
+  assert.match(formatContextHeadline(unknown, en), /About .+ tokens \(estimate\)/);
+  assert.doesNotMatch(formatContextHeadline(unknown, en), /128[,.]?000/);
+  assert.doesNotMatch(formatContextHeadline(unknown, zh), /128/);
+
+  const measured = projectContextUsage({
+    contextWindow: 131072,
+    lastUsage: { source: 'estimate', promptTokens: 13107 },
+    messages: [{ role: 'user', content: 'hi' }]
+  });
+  assert.equal(measured.window, 131072);
+  assert.match(formatContextHeadline(measured, en), /131[,.]?072/);
+});
+
 test('unknown usage headline does not claim a full bar', () => {
   const p = projectContextUsage({
     lastUsage: { source: 'none', promptTokens: 0 },

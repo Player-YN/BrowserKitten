@@ -110,6 +110,7 @@ Content script：
 | IndexedDB + OPFS | `pawwork-session-workspace-v1` | 会话 / group / artifact / fsNodes / `meta`（含可选 `task:*`）（offscreen） |
 | `chrome.storage.local` | `pagewand_providers`、`pagewand_active_provider_id` | BYOK |
 | 同上 | `pagewand_chat_media_evidence_v1`、`pagewand_chat_media_auto_check` | 连接范围的媒体校验证据与自动校验开关；offscreen 调度，SW 监听配置变更触发，普通发送只读 |
+| 同上 | `pagewand_context_window_evidence_v1`、`pagewand_context_window_auto_check` | 精确 base+model 的上下文窗口探测结果与自动探测开关；目录已有窗口则不 chat-probe；发送只读、不 await |
 | 同上 | `pagewand_web_acquire` | acquire 搜索/抓取设置 |
 | 同上 | `pagewand_theme_mode`（兼 `pagewand_theme`） | 侧栏主题 |
 | 同上 | `pagewand_user_skills` | 用户固化 skill（`agent/skills.js`，侧栏） |

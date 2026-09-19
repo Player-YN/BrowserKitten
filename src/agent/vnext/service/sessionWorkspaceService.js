@@ -37,6 +37,7 @@ import {
   findOrCreateNamedGroup
 } from '../sessionWorkspace/groups.js';
 import { MediaCapabilityChecks } from '../../mediaCapabilityChecks.js';
+import { ContextWindowChecks } from '../../contextWindowProbe.js';
 import { createPageWandLanguageModel } from '../../provider.js';
 import { runSelectionSuggest } from '../sessionWorkspace/selectionSuggest.js';
 import {
@@ -134,6 +135,7 @@ export class SessionWorkspaceService {
       || (opts.memoryJournal === true ? createCallJournal(createMemoryCallJournal()) : createUnavailableCallJournal());
     this._listenRuntime = opts.listenRuntime || createListenRuntime();
     this.mediaChecks = opts.mediaChecks || new MediaCapabilityChecks();
+    this.contextWindowChecks = opts.contextWindowChecks || new ContextWindowChecks();
     this._ensurePolicyAdapters();
     const recovered = recoverInterruptedTasks(store);
     this._startupPersist = recovered.length ? this._persist() : Promise.resolve();
@@ -208,6 +210,14 @@ export class SessionWorkspaceService {
 
   async requestChatMediaCheck(params = {}) {
     return this.mediaChecks.request({ force: params.force === true });
+  }
+
+  async getContextWindowStatus() {
+    return this.contextWindowChecks.status();
+  }
+
+  async requestContextWindowCheck(params = {}) {
+    return this.contextWindowChecks.request({ force: params.force === true });
   }
 
   async resolveLanguageModel(opts = {}) {
@@ -1685,7 +1695,16 @@ export class SessionWorkspaceService {
       const settings = await loadLlmSettings();
       const cached = await loadCachedModelsForBase(settings.apiBase);
       const hit = findCatalogModel(cached.models || [], settings.model);
-      const contextWindow = resolveContextWindow(settings.model, hit);
+      let evidence = null;
+      let override;
+      try {
+        const read = await this.contextWindowChecks.read(settings, cached.models || []);
+        evidence = read.record;
+        override = read.override;
+      } catch { /* compacting still has the catalog/family/default path */ }
+      const contextWindow = resolveContextWindow(settings.model, hit, { evidence, override });
+      // First-send kick must not delay the turn or learn from a failed user hop.
+      void this.contextWindowChecks.request().catch(() => {});
       const mediaContext = await this.mediaChecks.context(settings, cached.models || []);
       const mediaCapabilities = mediaContext.current;
       const injectedCallModel = callModel || this.callModel || null;

@@ -14,8 +14,10 @@ test('RPC allowlist names actual service methods, not reflection or prototype me
 });
 test('scheduler methods are internal, preview is artifact-only, malformed params rejected', () => {
   assert.equal(assertWorkspaceRpc('getChatMediaStatus', {}, 'ui').retrySafe, true);
+  assert.equal(assertWorkspaceRpc('getContextWindowStatus', {}, 'ui').retrySafe, true);
   assert.equal(assertWorkspaceRpc('requestChatMediaCheck', {}, 'ui').retrySafe, false);
-  for (const method of ['getChatMediaStatus', 'requestChatMediaCheck']) {
+  assert.equal(assertWorkspaceRpc('requestContextWindowCheck', {}, 'ui').retrySafe, false);
+  for (const method of ['getChatMediaStatus', 'getContextWindowStatus', 'requestChatMediaCheck', 'requestContextWindowCheck']) {
     assert.throws(() => assertWorkspaceRpc(method, {}, 'preview'), { code: 'RPC_DENIED' });
     assert.throws(() => assertWorkspaceRpc(method, {}, 'untrusted'), { code: 'RPC_DENIED' });
   }

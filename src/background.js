@@ -78,10 +78,12 @@ const forwardWorkspaceRpc = createWorkspaceRpcTransport({
 let mediaSettingsTimer;
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !['pagewand_providers', 'pagewand_active_provider_id',
-    'pagewand_chat_media_auto_check', 'pagewand_model_catalog_cache'].some(key => key in changes)) return;
+    'pagewand_chat_media_auto_check', 'pagewand_context_window_auto_check',
+    'pagewand_model_catalog_cache'].some(key => key in changes)) return;
   clearTimeout(mediaSettingsTimer);
   mediaSettingsTimer = setTimeout(() => {
     void forwardWorkspaceRpc({ method: 'requestChatMediaCheck', params: {} }).catch(() => {});
+    void forwardWorkspaceRpc({ method: 'requestContextWindowCheck', params: {} }).catch(() => {});
   }, 150);
 });
 

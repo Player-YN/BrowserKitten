@@ -1,6 +1,7 @@
 /** Explicit transport contract. Adding a service method does NOT expose it over RPC. */
 const reads = [
   'getChatMediaStatus',
+  'getContextWindowStatus',
   'listSessions', 'getSession', 'getActiveExecution', 'listTasks', 'getTask',
   'getWorkspaceState', 'getAccessPolicy', 'getPendingApproval', 'listJournal', 'listJournalAnomalies',
   'exportJournal', 'listSkills', 'getSkillDetail', 'listArtifacts', 'readArtifact',
@@ -9,6 +10,7 @@ const reads = [
 ];
 const writes = [
   'requestChatMediaCheck',
+  'requestContextWindowCheck',
   'updateTask', 'renameSession', 'pruneSessions', 'allocateLabel', 'bindGroups',
   'createGroup', 'renameGroup', 'deleteGroup', 'setActiveGroup', 'pinClipboard',
   'removeClipboardItems', 'clearClipboard', 'removeGroupItem', 'addPageItems',

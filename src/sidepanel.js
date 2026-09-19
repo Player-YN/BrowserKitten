@@ -1,4 +1,5 @@
 import { createChatMediaSettings } from './sidepanel/chatMediaSettings.js';
+import { createContextWindowSettings } from './sidepanel/contextWindowSettings.js';
 // Bundled agent entry (Vercel AI SDK + tools). Rebuild: npm run build:agent
 import {
   loadLlmSettings,
@@ -163,6 +164,7 @@ import {
   fetchImageGenModels,
   fetchSttModels,
   findCatalogModel,
+  normalizeModelsBaseURL,
   resolveContextWindow,
   isMissingModelsCatalogError,
   effortLevelsForReasoning,
@@ -234,6 +236,8 @@ let selectedImageModel = '';
 let reasoningEffort = 'none';
 /** @type {import('./agent/modelCatalog.js').ModelEntry[]} */
 let catalogModels = [];
+/** Last evidence/override for the composer chip. Never invents the 128k compacting default. */
+let composerContextWindowState = { model: '', base: '', evidence: null, override: undefined };
 /** Resolved theme mirror (source of truth: sidepanel/theme.js) */
 let currentTheme = 'dark';
 let sessions = [{ id: 'session-1', name: '任务 1', messages: [] }];
@@ -677,6 +681,7 @@ function initSidePanel() {
   void refreshImageGenChip();
   applyI18n();
   safe('wireContextUsage', wireContextUsage);
+  void refreshComposerContextWindowState();
   renderSelectionUI();
   void refreshWorkspaceGroupState();
   renderClipboardUI();
@@ -2633,8 +2638,19 @@ function loadSavedPreferences() {
       devTrajectoryExportEnabled = result[DEV_TRAJECTORY_STORAGE_KEY] !== false;
       updateDevTrajectoryUi();
       refreshAgentStatusBadge();
+      void refreshComposerContextWindowState();
     }
   );
+}
+
+if (chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.pagewand_context_window_evidence_v1 || changes.pagewand_providers ||
+        changes.pagewand_active_provider_id) {
+      void refreshComposerContextWindowState();
+    }
+  });
 }
 
 function updateDevTrajectoryUi() {
@@ -6199,12 +6215,34 @@ function streamEventText(value) {
   return '';
 }
 
+async function refreshComposerContextWindowState() {
+  try {
+    const settings = await loadLlmSettings();
+    const model = String(settings.model || selectedModel || '').trim();
+    const base = normalizeModelsBaseURL(settings.apiBase || '');
+    const key = `${base}\n${model}`;
+    const bag = await chrome.storage.local.get(['pagewand_context_window_evidence_v1']);
+    composerContextWindowState = {
+      model,
+      base,
+      evidence: bag.pagewand_context_window_evidence_v1?.[key] || null,
+      override: settings.contextWindowOverrides?.[key]
+    };
+  } catch { /* keep last snapshot */ }
+  applyContextUsage();
+}
+
 function gatherContextUsageInput(lastUsage = {}) {
   const sid = getWorkspaceSessionId();
   const sess = sessions.find((s) => s.id === sid) || sessions.find((s) => s.id === activeSessionId);
   const merged = { ...(sess?.contextUsage || {}), ...lastUsage };
   const hit = findCatalogModel(catalogModels, selectedModel);
-  const windowN = resolveContextWindow(selectedModel, hit, { allowDefault: false }) || 0;
+  const sameModel = composerContextWindowState.model === String(selectedModel || '').trim();
+  const windowN = resolveContextWindow(selectedModel, hit, {
+    allowDefault: false,
+    evidence: sameModel ? composerContextWindowState.evidence : null,
+    override: sameModel ? composerContextWindowState.override : undefined
+  }) || 0;
   return {
     lastUsage: merged,
     contextWindow: windowN,
@@ -11496,6 +11534,7 @@ async function pickComposerModel(modelId, providerId) {
   }
   refreshAgentStatusBadge();
   setModelSubmenuOpen(false);
+  void refreshComposerContextWindowState();
 }
 
 async function persistComposerImageModel(modelId, providerId) {
@@ -12182,6 +12221,7 @@ function guessPresetId(p) {
  * @param {{ isNew?: boolean }} [opts]
  */
 let chatMediaSettingsUi;
+let contextWindowSettingsUi;
 function fillSettingsForm(provider, opts = {}) {
   const isNew = !!opts.isNew;
   const baseInput = document.getElementById('apiBaseInput');
@@ -12202,6 +12242,9 @@ function fillSettingsForm(provider, opts = {}) {
   chatMediaSettingsUi ||= createChatMediaSettings({ t, workspaceRpc, loadProvidersState,
     getProviderId: () => settingsConfigUi.providerId });
   chatMediaSettingsUi.load(provider);
+  contextWindowSettingsUi ||= createContextWindowSettings({ t, workspaceRpc, loadProvidersState,
+    getProviderId: () => settingsConfigUi.providerId });
+  contextWindowSettingsUi.load(provider);
   settingsConfigUi.providerId = provider?.id || null;
   settingsConfigUi.providerName = provider?.name || 'Provider';
   settingsConfigUi.createdAt = provider?.createdAt || null;
@@ -12274,6 +12317,7 @@ function applyInferencePreset(presetId) {
   }
 
   chatMediaSettingsUi?.sync();
+  contextWindowSettingsUi?.sync();
   setActivePresetChip(id);
 
   // Focus API key so user can type immediately
@@ -12380,6 +12424,7 @@ function renderSettingsModelCatalog() {
       const input = document.getElementById('providerModelInput');
       if (input) input.value = m.id;
       chatMediaSettingsUi?.sync();
+      contextWindowSettingsUi?.sync();
       void persistComposerModel(m.id, settingsConfigUi.providerId);
       ensureModelOption(m.id);
       renderSettingsModelCatalog();
@@ -12589,6 +12634,7 @@ async function onRefreshChatModelsClick() {
       if (modelInput && !modelInput.value.trim() && probe.models[0]?.id) {
         modelInput.value = probe.models[0].id;
         chatMediaSettingsUi?.sync();
+        contextWindowSettingsUi?.sync();
       }
       syncReasoningSwitch();
       await refreshVendorBoards();
@@ -12824,6 +12870,7 @@ function setEditorOpen(editorId, addBtnId, open) {
 function setInferenceEditorOpen(open) {
   setEditorOpen('inferenceEditor', 'addInferenceBtn', open);
   chatMediaSettingsUi?.sync();
+  contextWindowSettingsUi?.sync();
 }
 
 function setImageEditorOpen(open) {
@@ -14217,6 +14264,7 @@ function openAgentSettingsModal() {
         focus: firstField instanceof HTMLElement ? firstField : null
       });
       chatMediaSettingsUi?.open();
+      contextWindowSettingsUi?.open();
     }
   );
 }

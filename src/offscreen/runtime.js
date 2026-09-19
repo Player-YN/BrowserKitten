@@ -17,7 +17,10 @@ globalThis.__PAWWORK_CODE_SANDBOX_RUN__ = (opts) => sandboxClient.run(opts);
 // handshake take down selection chrome for 15s+ forever.
 let servicePromise = SessionWorkspaceService.create();
 // The first workspace request never awaits discovery or media check network traffic.
-void servicePromise.then(service => service.requestChatMediaCheck()).catch(() => {});
+void servicePromise.then(service => {
+  service.requestChatMediaCheck();
+  service.requestContextWindowCheck();
+}).catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.target === 'pawwork-offscreen' && message?.action === 'tab_listen_abort') {
