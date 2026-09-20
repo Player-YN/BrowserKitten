@@ -23,6 +23,7 @@ export {
   COMPACT_RATIO,
   shouldCompact,
   findCompactCutIndex,
+  findCompactCutByBudget,
   contextUsageRatio,
   bindGroupsToSession,
   getBoundGroupsCompact,

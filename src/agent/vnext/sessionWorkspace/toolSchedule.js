@@ -6,6 +6,13 @@
 import { SESSION_TOOL_NAMES } from './canvasInventory.js';
 import { formatFrozenPlanInstructions } from './planContract.js';
 import { formatTaskInstructions } from './taskInstructions.js';
+import {
+  COMPACT_RATIO,
+  contextUsageRatio,
+  estimateMessagesTokens,
+  estimateTextTokens,
+  formatSessionGoalInstructions
+} from './contextCompact.js';
 
 /**
  * @param {{ sheet?: string[], doc?: string[], web?: string[] }} [inventory]
@@ -36,10 +43,14 @@ export function scheduleSessionTools(tools, inventory, runtime = {}) {
 /**
  * prepareStep keeps the same always-on list each hop (no mid-turn hide/reveal).
  * After the user approves a plan, re-inject the pinned contract every step.
- * @param {{ store?: object, sessionId?: string, fs?: object, tools?: Record<string, any>, execution?: object, instructions?: string, taskContext?: object|null, getTaskContext?: Function }} env
+ * Occupancy over COMPACT_RATIO can return shortened `messages` (SDK wire only).
+ * @param {{ store?: object, sessionId?: string, fs?: object, tools?: Record<string, any>, execution?: object, instructions?: string, taskContext?: object|null, getTaskContext?: Function, contextWindow?: number, onMidLoopCompact?: Function }} env
  */
 export function makeOfficePrepareStep(env = {}) {
-  return async function prepareStep() {
+  let lastHop = -1;
+  let lastThrough = '';
+  let busy = false;
+  return async function prepareStep(step = {}) {
     const out = { activeTools: [...SESSION_TOOL_NAMES] };
     let task = env.taskContext || null;
     if (typeof env.getTaskContext === 'function') {
@@ -49,14 +60,51 @@ export function makeOfficePrepareStep(env = {}) {
         /* retain the last host snapshot */
       }
     }
+    const sess =
+      env.store && env.sessionId ? env.store.get('sessions', env.sessionId) : env.session || null;
     const taskText = formatTaskInstructions(task);
     const pinned = formatFrozenPlanInstructions(env.execution?.frozenPlan);
-    const additions = [taskText, pinned].filter(Boolean);
+    const goalText = formatSessionGoalInstructions(sess, task);
+    const additions = [taskText, pinned, goalText].filter(Boolean);
     const media = env.mediaContext ? await env.mediaContext.refresh() : env.mediaCapabilities;
-    if (media) additions.push(`Current chat media input (host-resolved for this step): ${JSON.stringify(media)}\nVideo picture capability does not prove soundtrack perception; when videoAudio is unknown, use separate audio input or STT for sound evidence. Never issue capability checks from tools.`);
+    if (media) {
+      additions.push(
+        `Current chat media input (host-resolved for this step): ${JSON.stringify(media)}\nVideo picture capability does not prove soundtrack perception; when videoAudio is unknown, use separate audio input or STT for sound evidence. Never issue capability checks from tools.`
+      );
+    }
     if (additions.length) {
       const base = String(env.instructions || '').trim();
       out.instructions = [base, ...additions].filter(Boolean).join('\n\n');
+    }
+    const sdkMessages = step.messages;
+    const hop = Array.isArray(step.steps) ? step.steps.length : 0;
+    if (
+      Array.isArray(sdkMessages) &&
+      typeof env.onMidLoopCompact === 'function' &&
+      !busy &&
+      hop !== lastHop
+    ) {
+      const tokens =
+        estimateMessagesTokens(sdkMessages) + estimateTextTokens(out.instructions || env.instructions);
+      if (contextUsageRatio(tokens, env.contextWindow) >= COMPACT_RATIO) {
+        busy = true;
+        try {
+          const result = await env.onMidLoopCompact({
+            messages: sdkMessages,
+            steps: step.steps,
+            promptTokens: tokens
+          });
+          if (Array.isArray(result?.messages)) {
+            out.messages = result.messages;
+            lastHop = hop;
+            if (result.throughMessageId) lastThrough = result.throughMessageId;
+          } else if (lastThrough && result?.throughMessageId === lastThrough) {
+            lastHop = hop;
+          }
+        } finally {
+          busy = false;
+        }
+      }
     }
     return out;
   };

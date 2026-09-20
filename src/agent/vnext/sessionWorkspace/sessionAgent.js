@@ -144,7 +144,7 @@ function schemasOnly(tools) {
 
 /**
  * Run the general Session agent. Kernel tools are always-on; prepareStep may
- * activate office tools from canvas inventory.
+ * re-inject instructions and return shortened `messages` when occupancy is high.
  *
  * @param {{
  *   model: any,

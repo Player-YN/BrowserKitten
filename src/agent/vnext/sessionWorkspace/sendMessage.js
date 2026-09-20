@@ -43,14 +43,15 @@ import {
 import {
   COMPACT_RATIO,
   shouldCompact,
-  findCompactCutIndex,
   messagesAfterCompact,
   compactPrefixMessages,
-  generateCompactText,
   estimateMessagesTokens,
   estimateTextTokens,
   harvestModelUsage,
-  contextUsageRatio
+  contextUsageRatio,
+  runSessionCompact,
+  pruneSdkToolResults,
+  spliceCompactIntoSdkMessages
 } from './contextCompact.js';
 import { resolveContextWindow } from '../../modelCatalog.js';
 import { loadWebAcquireSettings } from '../../webAcquireSettings.js';
@@ -444,11 +445,12 @@ export async function sendMessage(store, input) {
     return ev;
   };
 
-  async function maybeCompactHistory(allMessages) {
+  async function maybeCompactHistory(allMessages, promptTokensHint) {
     const sessNow = store.get('sessions', sessionId);
     const compact = sessNow?.compact || null;
     const live = messagesAfterCompact(allMessages, compact);
     const estimated =
+      Number(promptTokensHint) ||
       Number(sessNow?.contextUsage?.promptTokens) ||
       estimateTextTokens(system) +
         estimateTextTokens(worldBlock) +
@@ -463,60 +465,44 @@ export async function sendMessage(store, input) {
       })
     ) {
       emitUsage({ promptTokens: estimated, source: 'estimate' });
-      return { compact, live };
+      return { compact, live, didCompact: false };
     }
-    const cut = findCompactCutIndex(allMessages);
-    const folded = allMessages.slice(0, cut);
-    const throughMessageId = folded[folded.length - 1]?.messageId || null;
     emitUsage({ promptTokens: estimated, compacting: true, source: 'estimate' });
     try {
       onEvent({ type: 'compacting', sessionId, contextWindow, promptTokens: estimated });
     } catch {
       /* ignore */
     }
-    let text = '';
-    try {
-      text = await generateCompactText({
-        model: await resolveSessionModel(input),
-        callModel: input.callModel,
-        messages: folded,
-        prevText: compact?.text
-      });
-    } catch {
-      text = '';
-    }
-    const nextCompact = {
-      text: text || compact?.text || '',
-      throughMessageId,
-      createdAt: Date.now(),
-      contextWindow
-    };
-    if (store.has('sessions', sessionId)) {
-      store.put('sessions', sessionId, {
-        ...store.get('sessions', sessionId),
-        compact: nextCompact,
-        updatedAt: Date.now()
-      });
-    }
+    const packed = await runSessionCompact({
+      store,
+      sessionId,
+      messages: allMessages,
+      contextWindow,
+      system,
+      worldBlock,
+      compact,
+      promptTokens: estimated,
+      model: await resolveSessionModel(input),
+      callModel: input.callModel
+    });
     try {
       onEvent({
         type: 'compact-done',
         sessionId,
-        throughMessageId,
+        throughMessageId: packed.throughMessageId || packed.compact?.throughMessageId,
         contextWindow,
         promptTokens: estimated,
-        text: nextCompact.text
+        text: packed.compact?.text || ''
       });
     } catch {
       /* ignore */
     }
-    const liveAfter = messagesAfterCompact(allMessages, nextCompact);
     emitUsage({
       promptTokens:
-        estimateTextTokens(nextCompact.text) + estimateMessagesTokens(liveAfter),
+        estimateTextTokens(packed.compact?.text) + estimateMessagesTokens(packed.live),
       source: 'estimate'
     });
-    return { compact: nextCompact, live: liveAfter };
+    return packed;
   }
 
   const packed = await maybeCompactHistory(messages);
@@ -583,7 +569,22 @@ export async function sendMessage(store, input) {
           taskContext,
           getTaskContext: input.getTaskContext,
           mediaContext: input.mediaContext,
-          mediaCapabilities: input.mediaCapabilities
+          mediaCapabilities: input.mediaCapabilities,
+          contextWindow,
+          onMidLoopCompact: async ({ messages: sdkMessages, promptTokens }) => {
+            const sessNow = store.get('sessions', sessionId);
+            const mid = await maybeCompactHistory(sessNow?.messages || messages, promptTokens);
+            const through = mid.throughMessageId || mid.compact?.throughMessageId;
+            if (mid.didCompact) {
+              return {
+                messages: spliceCompactIntoSdkMessages(sdkMessages, mid.compact, through),
+                throughMessageId: through
+              };
+            }
+            const pruned = pruneSdkToolResults(sdkMessages);
+            if (pruned !== sdkMessages) return { messages: pruned };
+            return null;
+          }
         }),
         taskContext,
         taskRun: input.taskRun === true,

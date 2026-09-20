@@ -141,11 +141,20 @@ export {
   COMPACT_RATIO,
   shouldCompact,
   findCompactCutIndex,
+  findCompactCutByBudget,
   messagesAfterCompact,
   compactPrefixMessages,
   extractiveCompactText,
+  packFoldedTurnsForSummary,
+  generateCompactText,
+  runSessionCompact,
+  freezeSessionGoal,
+  formatSessionGoalInstructions,
+  isGreetingOrFiller,
+  firstRequestLikeUserText,
   contextUsageRatio,
-  estimateTextTokens
+  estimateTextTokens,
+  estimateMessagesTokens
 } from './contextCompact.js';
 export {
   classifyArtifactSelection,

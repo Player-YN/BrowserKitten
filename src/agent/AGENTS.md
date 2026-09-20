@@ -81,7 +81,17 @@ Guest FS（`fs.js`）：
 
 普通 `sendMessage` **不创建、不附着** durable task（`sessionWorkspaceService.sendMessage`：只有 `taskRun && taskId` 才绑定已有记录）。`task` 工具仍在 schema 里；模型 `task schedule` 才会新建一条未来/周期任务。续跑由 SW alarms 或 UI `updateTask(resume)` 再 `sendMessage({ taskRun, taskId, taskContinuation: true })`，不写假用户消息。
 
-`prepareStep`（`makeOfficePrepareStep`）每 hop **读** store（`getTaskContext` → `readTask`）把 goal/amendments 重新注入 instructions，**不**在 prepareStep 里持久化。写入只走 `hostTask` → `hostTaskMutation`。`completed` **只**来自成功的 `task complete`；空 plan settle 是 `ready`，未 complete 的回合 settle 是 `ready`/`paused`，abort/deadline 是 `paused`（结果未知），不会写成 `completed`。
+`prepareStep`（`makeOfficePrepareStep`）每 hop **读** store（`getTaskContext` → `readTask`）把 goal/amendments 重新注入 instructions，**不**在 prepareStep 里持久化。写入只走 `hostTask` → `hostTaskMutation`。`completed` **只**来自成功的 `task complete`；空 plan settle 是 `ready`，未 complete 的回合 settle 是 `ready`/`paused`，abort/deadline 是 `paused`（结果未知），不会写成 `completed`。没有 durable task 时，已冻结的 `session.sessionGoal` 以 `[Session goal — immutable]` 重注；有 task 时仍以 IDB `originalGoal` 为准。
+
+## Compact（模型线，不是 UI 全文）
+
+`contextCompact.js`：占用 **本模型窗口 ≥ 80%** 才压。不改写 `session.messages` / artifacts / 组 / guest FS，不新建 durable task。system prefix 与 tool schema 不进摘要。窗口解析：覆盖 → 探测 → 目录 → 家族；压缩数学可用 128k 默认，侧栏 `allowDefault: false`。
+
+1. **时机**：`sendMessage` 进 ToolLoop **之前**跑一次 `runSessionCompact`；`prepareStep` 每 hop 估 SDK `messages`，再超 80% 且可切则再压。同一 `throughMessageId` / 同一 hop 不连压。SDK 可返回缩短的 `messages`。
+2. **Goal**：第一次 compact **之前不钉**。第一次成功的模型摘要必须写出高阶 `Goal`（忽略问候/谢谢/ok/表情），写入 `session.sessionGoal` 后只追加 `sessionAmendments`，禁止覆盖。已冻结后 Goal 栏复述 `sessionGoal`，不得改成最近两轮的局部目标。`doGenerate` 失败时抽取回退跳过寒暄，取第一条像请求的 user；没有像样的请求则 `sessionGoal` 仍为空。
+3. **Tail**：`findCompactCutByBudget` 从末尾在 **user 边界**切开，预算 `min(0.2 * window, 20000)`，至少保留 2 个 user turn。
+4. **摘要作者**：主路径 `doGenerate` 写 Goal / Constraints / Decisions / Files/artifacts / Errors / Remaining / Next（约 1500 output / 4000 cap）。进摘要前 `packFoldedTurnsForSummary` 截断旧 tool 正文（近 20k token 保留，更早只留名+结论+path，禁 base64）。`callModel` 桩与生成失败走抽取回退。
+5. **Mid-loop**：已落盘历史更新 `session.compact`；本回合未 settle 的 in-flight tool 只改返回的 `messages`（旧 tool 结果换成短占位），UI transcript 不动。
 
 普通回合与 durable-task 回合都无 hop 上限。task 停点：`task wait` / `task complete` / host yield / abort（`createTaskStopState`）。成功 `wait`/`complete` 之后 gate 抑制后续（含同步兄弟）工具。非法 tool call 会 `repairSessionToolCall` 一次。
 
