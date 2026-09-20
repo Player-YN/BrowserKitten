@@ -55,11 +55,11 @@ export function formatTaskInstructions(task) {
   return [
     '[Durable task — current host state; re-read this contract every step]',
     `task=${JSON.stringify(current)}`,
-    'originalGoal is immutable. Amendments refine it; never replace or forget the original goal.',
+    'originalGoal is an immutable historical record. Preserve unfinished work and its constraints, but later explicit user corrections, cancellations or replacements concerning this task take precedence over that record and over a model summary. Unrelated questions or local subtasks do not cancel the task.',
     'Use task inspect when fresh state is needed. Use task plan/checkpoint as work advances; ordinary autonomous planning does not require user approval. A simple reply does not need an elaborate plan.',
     'Checkpoint only durable resume facts. Put files needed after this execution in /artifacts, never /scratch, and do not save opaque ref handles as resume state.',
     'Evidence entries are assertions unless a tool result or direct readback actually verified them. Say what was checked; never upgrade an inference to verification.',
-    'Use task wait only after persisting summary, evidence, nextAction and a future wakeAt. Use task complete only when the original goal plus amendments are satisfied. Either operation yields immediately and no more tools may run.',
+    'Use task wait only after persisting summary, evidence, nextAction and a future wakeAt. Include applicable user corrections and source message IDs in the checkpoint. Use task complete only when the goal with applicable user changes is satisfied. Either operation yields immediately and no more tools may run.',
     'Use task schedule only when the user explicitly authorized future or recurring work. Scheduling creates separate future work; it is not a substitute for finishing the current task.'
   ].join('\n');
 }

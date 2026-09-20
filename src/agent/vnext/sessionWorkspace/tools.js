@@ -1510,6 +1510,18 @@ export function createSessionTools(env) {
       }
       try {
         const answers = await waiting;
+        // Preserve the actual UI answer before tool-output projection or compact
+        // can shorten it. Questions/plans are context, not user instructions.
+        if (answers && typeof answers === 'object' && Object.keys(answers).length) {
+          const session = store.get('sessions', sessionId);
+          if (session) store.put('sessions', sessionId, {
+            ...session,
+            userClarifications: [...(session.userClarifications || []), {
+              messageId: clarifyId, source: 'clarification', createdAt: Date.now(),
+              content: { questions, ...(plan ? { plan } : {}), answers }
+            }]
+          });
+        }
         const classified = plan ? classifyPlanDecision(answers) : { kind: 'unknown', notes: '' };
         if (plan && classified.kind === 'revise' && !classified.notes) {
           unpinFrozenPlan(execution);

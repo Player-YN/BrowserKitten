@@ -205,14 +205,15 @@ export function replayWireMessages(sessionMessages) {
   const out = [];
   for (const m of sessionMessages || []) {
     if (!m || typeof m !== 'object') continue;
+    const start = out.length;
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content == null ? '' : m.content });
+      out.push({ role: 'user', content: m.content == null ? '' : m.content, messageId: m.messageId });
       continue;
     }
     if (m.role !== 'assistant') continue;
     if (Array.isArray(m.wire) && m.wire.length) {
       for (const part of m.wire) {
-        if (part && part.role) out.push(reprojectWireMessage(part));
+        if (part && part.role) out.push({ ...reprojectWireMessage(part), messageId: m.messageId });
       }
       continue;
     }
@@ -228,6 +229,7 @@ export function replayWireMessages(sessionMessages) {
     } else {
       out.push({ role: 'assistant', content: m.content || '' });
     }
+    for (let i = start; i < out.length; i++) out[i].messageId = m.messageId;
   }
   return out;
 }

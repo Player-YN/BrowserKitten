@@ -81,17 +81,19 @@ Guest FS（`fs.js`）：
 
 普通 `sendMessage` **不创建、不附着** durable task（`sessionWorkspaceService.sendMessage`：只有 `taskRun && taskId` 才绑定已有记录）。`task` 工具仍在 schema 里；模型 `task schedule` 才会新建一条未来/周期任务。续跑由 SW alarms 或 UI `updateTask(resume)` 再 `sendMessage({ taskRun, taskId, taskContinuation: true })`，不写假用户消息。
 
-`prepareStep`（`makeOfficePrepareStep`）每 hop **读** store（`getTaskContext` → `readTask`）把 goal/amendments 重新注入 instructions，**不**在 prepareStep 里持久化。写入只走 `hostTask` → `hostTaskMutation`。`completed` **只**来自成功的 `task complete`；空 plan settle 是 `ready`，未 complete 的回合 settle 是 `ready`/`paused`，abort/deadline 是 `paused`（结果未知），不会写成 `completed`。没有 durable task 时，已冻结的 `session.sessionGoal` 以 `[Session goal — immutable]` 重注；有 task 时仍以 IDB `originalGoal` 为准。
+`prepareStep`（`makeOfficePrepareStep`）每 hop **读** store（`getTaskContext` → `readTask`）把 goal/amendments 重新注入 instructions，不在 prepareStep 里改 task 进度。task 写入只走 `hostTask` → `hostTaskMutation`。`completed` **只**来自成功的 `task complete`；空 plan settle 是 `ready`，未 complete 的回合 settle 是 `ready`/`paused`，abort/deadline 是 `paused`（结果未知），不会写成 `completed`。没有 durable task 时，`session.sessionGoal` 以历史模型概括重注；有 task 时以 IDB `originalGoal` 保留历史目标。二者均不能覆盖用户后来明确的纠正、取消或替换；局部子任务/状态询问不自动撤销未完成目标。压缩后每 hop 另从 `session.messages` 注入有界的用户原文，普通对话仍不自动绑定 task。
 
 ## Compact（模型线，不是 UI 全文）
 
 `contextCompact.js`：占用 **本模型窗口 ≥ 80%** 才压。不改写 `session.messages` / artifacts / 组 / guest FS，不新建 durable task。system prefix 与 tool schema 不进摘要。窗口解析：覆盖 → 探测 → 目录 → 家族；压缩数学可用 128k 默认，侧栏 `allowDefault: false`。
 
 1. **时机**：`sendMessage` 进 ToolLoop **之前**跑一次 `runSessionCompact`；`prepareStep` 每 hop 估 SDK `messages`，再超 80% 且可切则再压。同一 `throughMessageId` / 同一 hop 不连压。SDK 可返回缩短的 `messages`。
-2. **Goal**：第一次 compact **之前不钉**。第一次成功的模型摘要必须写出高阶 `Goal`（忽略问候/谢谢/ok/表情），写入 `session.sessionGoal` 后只追加 `sessionAmendments`，禁止覆盖。已冻结后 Goal 栏复述 `sessionGoal`，不得改成最近两轮的局部目标。`doGenerate` 失败时抽取回退跳过寒暄，取第一条像请求的 user；没有像样的请求则 `sessionGoal` 仍为空。
+2. **意图与历史目标**：首次摘要的 `Goal` 是多轮对话的可修正理解，未明确的要求应保留未决状态；保存为 `session.sessionGoal` 历史概括（摘要失败时不拿第一条请求充当目标），`sessionAmendments` 为模型提取的约束提示；首次压缩也提取约束。它们均可能出错，不是不可撤销的用户合同。`sessionIntent.js` 从持久化原文每 hop 选取早期对话与最近请求（有界、带 messageId、按时序），显式用户变更优先。用户澄清卡答案也在工具投影前原样持久化。完整原文通过只读虚拟文件 `/context/user-requests.json`；对应助手方案通过 `/context/conversation.json` 用现有 `run`/FS 按需回查，不复制一份存储、不增加工具。
 3. **Tail**：`findCompactCutByBudget` 从末尾在 **user 边界**切开，预算 `min(0.2 * window, 20000)`，至少保留 2 个 user turn。
-4. **摘要作者**：主路径 `doGenerate` 写 Goal / Constraints / Decisions / Files/artifacts / Errors / Remaining / Next（约 1500 output / 4000 cap）。进摘要前 `packFoldedTurnsForSummary` 截断旧 tool 正文（近 20k token 保留，更早只留名+结论+path，禁 base64）。`callModel` 桩与生成失败走抽取回退。
-5. **Mid-loop**：已落盘历史更新 `session.compact`；本回合未 settle 的 in-flight tool 只改返回的 `messages`（旧 tool 结果换成短占位），UI transcript 不动。
+4. **摘要作者**：主路径 `doGenerate` 写 Goal / Constraints / Decisions / Files/artifacts / Errors / Remaining / Next（1500 output token / 4000 字符 cap，省略显式标注）。重压缩使用前摘要 + 新覆盖的历史，不重复塞最早全部历史。输入按窗口有界，用户要求优先、最近工具证据其次；不再固定截每条 user 的前 400 字或整体前 8000 字。`callModel` 桩与生成失败走有界抽取回退；取消摘要请求沿本轮 signal，未生成替代摘要不推进覆盖标记。
+5. **Mid-loop**：已落盘历史更新 `session.compact`；wire replay 保留 source messageId，展开的同一 assistant turn 从最后一条 wire part 后切，避免孤立 tool-result。估算/缩短识别真实 SDK `tool-result.output`，旧结果保留 callId/toolName、格式合法的摘要、路径/结果线索，最近工具结果也受共享正文预算限制；不可省略的协议占位开销单独计入总窗口；预算 `min(20000, 0.2 * window)`。首个 mid-loop compact 当跳即刷新原文提示。UI transcript 不动。
+
+审查证据、边界和验收见 [COMPACT_INTENT.md](../../docs/COMPACT_INTENT.md)。
 
 普通回合与 durable-task 回合都无 hop 上限。task 停点：`task wait` / `task complete` / host yield / abort（`createTaskStopState`）。成功 `wait`/`complete` 之后 gate 抑制后续（含同步兄弟）工具。非法 tool call 会 `repairSessionToolCall` 一次。
 
@@ -175,3 +177,9 @@ BYOK：`llm.js` → `pagewand_providers`。推理 / 生图 / 转写各有独立 
 ## 当前模型媒体输入
 
 能力、路由、接口限制与测试见 [CHAT_MEDIA_INPUT.md](../../docs/CHAT_MEDIA_INPUT.md)。`chatMedia.js` 按精确模型 + base 判定；offscreen `MediaCapabilityChecks` 负责独立、限次的后台合成样本校验，证据跨 session 缓存。普通发送/工具不启动校验，每跳更新共享能力快照。未知音视频仍走 STT/NEED_STT；明确格式拒绝只修正该 MIME，不重放业务请求。record 只录短片（默认 8 秒、最多 30 秒），需要独立的侧栏视频授权，音频授权不覆盖视频。快照的 `mediaElements` 只提供播放状态和源线索，不是已看过视频的证明。
+
+## Session 意图状态 v1
+
+`intentState.js` 在 prepareStep 的业务请求前处理尚未覆盖的用户消息/clarify 回答，使用本轮 chat 模型的独立无工具请求（最多 10 秒、2048 输出 token、无 SDK 重试/网络代理重发）。callModel 测试桩不自动发起提取。成功后校验来源、版本和输入身份，将结构化增量合并到 session.intentState；失败同 execution 不因每 hop 自动重试，新用户输入/clarify 可触发新一批。Compact 不改意图状态。
+
+每 hop 加载有界有效意图及未覆盖原文；完整投影在只读 `/context/intent.md`。历史取消/替代项保留在完整投影，普通注入只列有效项。该状态是模型理解，不是用户权限或业务完成证据，不自动更新 task 生命周期。详见 COMPACT_INTENT.md 的预算、失败降级和手测步骤。

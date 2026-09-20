@@ -1,3 +1,4 @@
+import { createIntentUpdater } from './intentState.js';
 /**
  * Unified production path: sendMessage → AI SDK 7 ToolLoopAgent (toolChoice=auto).
  * No Task object, no chat/run mode split, no handwritten tool loop.
@@ -483,7 +484,8 @@ export async function sendMessage(store, input) {
       compact,
       promptTokens: estimated,
       model: await resolveSessionModel(input),
-      callModel: input.callModel
+      callModel: input.callModel,
+      signal: execution.abortSignal
     });
     try {
       onEvent({
@@ -505,15 +507,14 @@ export async function sendMessage(store, input) {
     return packed;
   }
 
-  const packed = await maybeCompactHistory(messages);
-  const history = attachWorldToLastUser(
-    [...compactPrefixMessages(packed.compact), ...replayWireMessages(packed.live)],
-    worldBlock
-  );
-
   /** @type {Promise<string>|null} */
   let titlePromise = null;
   try {
+    const packed = await maybeCompactHistory(messages);
+    const history = attachWorldToLastUser(
+      [...compactPrefixMessages(packed.compact), ...replayWireMessages(packed.live)],
+      worldBlock
+    );
     let finalText = '';
     /** @type {Array<object>} */
     let steps = [];
@@ -566,6 +567,9 @@ export async function sendMessage(store, input) {
           tools,
           execution,
           instructions: system,
+          updateIntent: typeof input.callModel === 'function' ? null : createIntentUpdater({
+            store, sessionId, model, signal: execution.abortSignal, contextWindow
+          }),
           taskContext,
           getTaskContext: input.getTaskContext,
           mediaContext: input.mediaContext,
@@ -575,13 +579,14 @@ export async function sendMessage(store, input) {
             const sessNow = store.get('sessions', sessionId);
             const mid = await maybeCompactHistory(sessNow?.messages || messages, promptTokens);
             const through = mid.throughMessageId || mid.compact?.throughMessageId;
+            const toolBudget = Math.min(20000, Math.floor(contextWindow * 0.2));
             if (mid.didCompact) {
               return {
-                messages: spliceCompactIntoSdkMessages(sdkMessages, mid.compact, through),
+                messages: spliceCompactIntoSdkMessages(sdkMessages, mid.compact, through, toolBudget),
                 throughMessageId: through
               };
             }
-            const pruned = pruneSdkToolResults(sdkMessages);
+            const pruned = pruneSdkToolResults(sdkMessages, toolBudget);
             if (pruned !== sdkMessages) return { messages: pruned };
             return null;
           }

@@ -1,8 +1,11 @@
+import { INTENT_PATH, renderIntent } from './intentState.js';
 /**
  * Guest FS for Session Workspace.
  * Visible roots: /context, /artifacts, /scratch
  * Host maps to session-owned paths; cross-session denied.
  */
+
+import { USER_REQUESTS_PATH, CONVERSATION_PATH, sessionUserRequests, sessionConversation } from './sessionIntent.js';
 
 const GUEST_ROOTS = new Set(['/context', '/artifacts', '/scratch']);
 
@@ -46,6 +49,15 @@ export function createSessionGuestFs(store, opts) {
 
   function nodeKey(hp) {
     return `fs:${hp}`;
+  }
+
+  function requestArchive(guestPath) {
+    const path = normalizeGuest(guestPath);
+    const session = store.get('sessions', sessionId);
+    if (path === INTENT_PATH) return renderIntent(session);
+    if (path === USER_REQUESTS_PATH) return JSON.stringify(sessionUserRequests(session), null, 2);
+    if (path === CONVERSATION_PATH) return JSON.stringify(sessionConversation(session), null, 2);
+    return null;
   }
 
   return {
@@ -93,6 +105,8 @@ export function createSessionGuestFs(store, opts) {
      */
     readFile(guestPath) {
       const hp = hostPath(guestPath);
+      const archive = requestArchive(guestPath);
+      if (archive !== null) return archive;
       const blob = store.getBlob(nodeKey(hp));
       if (!blob) throw new Error(`ENOENT: ${normalizeGuest(guestPath)}`);
       return new TextDecoder().decode(blob.bytes);
@@ -104,18 +118,24 @@ export function createSessionGuestFs(store, opts) {
      */
     readFileBytes(guestPath) {
       const hp = hostPath(guestPath);
+      const archive = requestArchive(guestPath);
+      if (archive !== null) return new TextEncoder().encode(archive);
       const blob = store.getBlob(nodeKey(hp));
       if (!blob) throw new Error(`ENOENT: ${normalizeGuest(guestPath)}`);
       return blob.bytes;
     },
 
     readFileMimeType(guestPath) {
+      hostPath(guestPath);
+      if (normalizeGuest(guestPath) === INTENT_PATH) return 'text/markdown';
+      if ([USER_REQUESTS_PATH, CONVERSATION_PATH, INTENT_PATH].includes(normalizeGuest(guestPath))) return 'application/json';
       return store.getBlob(nodeKey(hostPath(guestPath)))?.mimeType || '';
     },
 
     exists(guestPath) {
       try {
         const hp = hostPath(guestPath);
+        if ([USER_REQUESTS_PATH, CONVERSATION_PATH, INTENT_PATH].includes(normalizeGuest(guestPath))) return true;
         return store.has('fsNodes', hp) || !!store.getBlob(nodeKey(hp));
       } catch {
         return false;
@@ -139,6 +159,9 @@ export function createSessionGuestFs(store, opts) {
         if (guest === g || guest.startsWith(g.endsWith('/') ? g : g + '/')) {
           out.push(guest);
         }
+      }
+      for (const path of [USER_REQUESTS_PATH, CONVERSATION_PATH, INTENT_PATH]) {
+        if ((path === g || path.startsWith(g + '/')) && !out.includes(path)) out.push(path);
       }
       return out.sort();
     },

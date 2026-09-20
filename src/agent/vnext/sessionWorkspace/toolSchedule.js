@@ -6,6 +6,8 @@
 import { SESSION_TOOL_NAMES } from './canvasInventory.js';
 import { formatFrozenPlanInstructions } from './planContract.js';
 import { formatTaskInstructions } from './taskInstructions.js';
+import { formatIntentInstructions } from './intentState.js';
+import { formatUserRequestInstructions } from './sessionIntent.js';
 import {
   COMPACT_RATIO,
   contextUsageRatio,
@@ -60,22 +62,21 @@ export function makeOfficePrepareStep(env = {}) {
         /* retain the last host snapshot */
       }
     }
-    const sess =
-      env.store && env.sessionId ? env.store.get('sessions', env.sessionId) : env.session || null;
+    if (env.updateIntent) await env.updateIntent(task);
     const taskText = formatTaskInstructions(task);
     const pinned = formatFrozenPlanInstructions(env.execution?.frozenPlan);
-    const goalText = formatSessionGoalInstructions(sess, task);
-    const additions = [taskText, pinned, goalText].filter(Boolean);
     const media = env.mediaContext ? await env.mediaContext.refresh() : env.mediaCapabilities;
-    if (media) {
-      additions.push(
+    const refreshInstructions = () => {
+      const sess = env.store && env.sessionId ? env.store.get('sessions', env.sessionId) : env.session || null;
+      const additions = [taskText, pinned, formatSessionGoalInstructions(sess, task),
+        formatUserRequestInstructions(sess, env.contextWindow),
+        formatIntentInstructions(sess, env.contextWindow)].filter(Boolean);
+      if (media) additions.push(
         `Current chat media input (host-resolved for this step): ${JSON.stringify(media)}\nVideo picture capability does not prove soundtrack perception; when videoAudio is unknown, use separate audio input or STT for sound evidence. Never issue capability checks from tools.`
       );
-    }
-    if (additions.length) {
-      const base = String(env.instructions || '').trim();
-      out.instructions = [base, ...additions].filter(Boolean).join('\n\n');
-    }
+      if (additions.length) out.instructions = [String(env.instructions || '').trim(), ...additions].filter(Boolean).join('\n\n');
+    };
+    refreshInstructions();
     const sdkMessages = step.messages;
     const hop = Array.isArray(step.steps) ? step.steps.length : 0;
     if (
@@ -96,6 +97,9 @@ export function makeOfficePrepareStep(env = {}) {
           });
           if (Array.isArray(result?.messages)) {
             out.messages = result.messages;
+            // A first mid-turn compact may have just established the goal.
+            // The very request using that compact must carry the source too.
+            refreshInstructions();
             lastHop = hop;
             if (result.throughMessageId) lastThrough = result.throughMessageId;
           } else if (lastThrough && result?.throughMessageId === lastThrough) {

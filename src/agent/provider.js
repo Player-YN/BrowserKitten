@@ -293,6 +293,10 @@ export async function createPageWandLanguageModel(opts = {}) {
  */
 export function createExtensionFetch(opts = {}) {
   return async function pagewandFetch(input, init = {}) {
+    const headers = new Headers(init.headers || input?.headers);
+    const requestNoRetry = headers.get('x-paw-internal-no-retry') === '1';
+    headers.delete('x-paw-internal-no-retry');
+    init = { ...init, headers };
     const url = typeof input === 'string' ? input : input?.url || '';
     const keepReasoning = /openrouter\.ai/i.test(String(url));
     const cleanedInit = stripUnsupportedFieldsFromRequestInit(init, opts.reasoning || null, {
@@ -309,7 +313,7 @@ export function createExtensionFetch(opts = {}) {
       }
       return keepReasoning ? liftOpenRouterReasoningResponse(res) : res;
     } catch (directErr) {
-      if (opts.noRetry) throw directErr;
+      if (opts.noRetry || requestNoRetry) throw directErr;
       if (isAbortLike(directErr, cleanedInit?.signal)) throw toAbortError(directErr);
       console.warn('[PageWand] direct fetch failed, trying background proxy:', directErr?.message);
       return proxyFetchAsResponse(input, cleanedInit, directErr);
