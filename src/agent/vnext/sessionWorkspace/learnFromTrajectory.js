@@ -1,7 +1,7 @@
 /**
  * /learn first wave: methodology playbook from the agent's own successful turn.
  * Sanitize before the drafting model. Persist only after a plan-card confirm.
- * Learned skills stay on pagewand_durable_skills via skillStore.
+ * Learned skills stay on browserbot_durable_skills via skillStore.
  */
 
 import { newClarifyId, waitForClarifyAnswer } from './clarifyGate.js';

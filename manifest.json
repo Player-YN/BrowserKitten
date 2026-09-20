@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "爪爪 · 完全解放版",
+  "name": "Browser Kitten",
   "version": "1.2.0",
   "version_name": "1.2.0-bot-candidate",
-  "description": "爪爪 · 完全解放版 — 开发者模式本地实验：把已登录浏览器当成可编程层（live-page action；run 内 sys）。不面向 CWS，不出售。",
+  "description": "Browser Kitten — 开发者模式本地实验：把已登录浏览器当成可编程层（live-page action；run 内 sys）。不面向 CWS，不出售。",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -34,7 +34,7 @@
         "default": "Alt+Shift+S",
         "mac": "Alt+Shift+S"
       },
-      "description": "开启/关闭 伸爪（页面点选）"
+      "description": "开启/关闭 点选（页面点选）"
     },
     "capture-screenshot": {
       "suggested_key": {
@@ -80,7 +80,7 @@
     }
   ],
   "action": {
-    "default_title": "打开 爪爪 · 完全解放版",
+    "default_title": "打开 Browser Kitten",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

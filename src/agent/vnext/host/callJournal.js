@@ -4,11 +4,79 @@
  * Exactly-once for arbitrary web pages does not exist; never blind-replay.
  */
 
-export const JOURNAL_SCHEMA = 'pawwork.call-journal/v1';
-export const JOURNAL_DB = 'pawwork-call-journal-v1';
+import { JOURNAL_DB_NAME, JOURNAL_SCHEMA } from '../../../brand.js';
+
+export { JOURNAL_SCHEMA };
+export const JOURNAL_DB = JOURNAL_DB_NAME;
+export const JOURNAL_DB_VERSION = 1;
 export const JOURNAL_STORE = 'operations';
+export const JOURNAL_APPROVALS_STORE = 'approvals';
 export const JOURNAL_SESSION_CAP = 200;
 export const JOURNAL_ANOMALY_CAP = 50;
+
+function journalUnavailable(message) {
+  return Object.assign(new Error(message), { code: 'JOURNAL_UNAVAILABLE' });
+}
+
+function hasJournalStores(db) {
+  const names = db?.objectStoreNames;
+  return !!(names && names.contains(JOURNAL_STORE) && names.contains(JOURNAL_APPROVALS_STORE));
+}
+
+function ensureJournalSchema(db) {
+  if (!db.objectStoreNames.contains(JOURNAL_STORE)) {
+    const store = db.createObjectStore(JOURNAL_STORE, { keyPath: 'operationId' });
+    store.createIndex('sessionId', 'sessionId', { unique: false });
+    store.createIndex('state', 'state', { unique: false });
+  }
+  if (!db.objectStoreNames.contains(JOURNAL_APPROVALS_STORE)) {
+    const store = db.createObjectStore(JOURNAL_APPROVALS_STORE, { keyPath: 'approvalId' });
+    store.createIndex('sessionId', 'sessionId', { unique: false });
+  }
+}
+
+/**
+ * Attach IDBRequest handlers only when `req` is a real request.
+ * Undefined/closed/aborted requests must be JOURNAL_UNAVAILABLE, never TypeError.
+ */
+export function requestValue(req, transaction) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const ok = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const fail = (message = 'journal idb request failed') => {
+      if (settled) return;
+      settled = true;
+      reject(journalUnavailable(message));
+    };
+
+    if (!req || typeof req !== 'object') {
+      fail();
+      return;
+    }
+
+    try {
+      req.onsuccess = () => ok(req.result);
+      req.onerror = () => fail();
+    } catch {
+      fail();
+      return;
+    }
+
+    if (!transaction) return;
+    const prevAbort = transaction.onabort;
+    transaction.onabort = (event) => {
+      try {
+        if (typeof prevAbort === 'function') prevAbort.call(transaction, event);
+      } finally {
+        fail('journal idb write failed');
+      }
+    };
+  });
+}
 
 export const JOURNAL_STATES = Object.freeze([
   'prepared',
@@ -142,56 +210,122 @@ export function createMemoryCallJournal() {
   };
 }
 
-export async function openIndexedDbCallJournal(indexedDBImpl) {
-  const idb = indexedDBImpl || globalThis.indexedDB;
-  if (!idb) {
-    const err = new Error('indexedDB unavailable');
-    err.code = 'JOURNAL_UNAVAILABLE';
-    throw err;
-  }
-  const db = await new Promise((resolve, reject) => {
-    const req = idb.open(JOURNAL_DB, 1);
+function openJournalDatabase(idb, version) {
+  return new Promise((resolve, reject) => {
+    let req;
+    try {
+      req = idb.open(JOURNAL_DB, version);
+    } catch {
+      reject(journalUnavailable('journal idb open failed'));
+      return;
+    }
+    if (!req) {
+      reject(journalUnavailable('journal idb open failed'));
+      return;
+    }
     req.onupgradeneeded = () => {
-      const next = req.result;
-      if (!next.objectStoreNames.contains(JOURNAL_STORE)) {
-        const store = next.createObjectStore(JOURNAL_STORE, { keyPath: 'operationId' });
-        store.createIndex('sessionId', 'sessionId', { unique: false });
-        store.createIndex('state', 'state', { unique: false });
-      }
-      if (!next.objectStoreNames.contains('approvals')) {
-        const store = next.createObjectStore('approvals', { keyPath: 'approvalId' });
-        store.createIndex('sessionId', 'sessionId', { unique: false });
+      try {
+        ensureJournalSchema(req.result);
+      } catch {
+        reject(journalUnavailable('journal idb open failed'));
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(Object.assign(new Error('journal idb open failed'), { code: 'JOURNAL_UNAVAILABLE' }));
+    req.onerror = () => reject(journalUnavailable('journal idb open failed'));
   });
+}
 
-  function requestValue(req) {
-    return new Promise((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () =>
-        reject(Object.assign(new Error('journal idb request failed'), { code: 'JOURNAL_UNAVAILABLE' }));
-    });
+export async function openIndexedDbCallJournal(indexedDBImpl) {
+  const idb = indexedDBImpl || globalThis.indexedDB;
+  if (!idb) {
+    throw journalUnavailable('indexedDB unavailable');
+  }
+
+  let db = await openJournalDatabase(idb, JOURNAL_DB_VERSION);
+  if (!hasJournalStores(db)) {
+    const nextVersion = Math.max(Number(db.version) || JOURNAL_DB_VERSION, JOURNAL_DB_VERSION) + 1;
+    try {
+      db.close();
+    } catch {
+      /* ignore */
+    }
+    db = await openJournalDatabase(idb, nextVersion);
+  }
+  if (!hasJournalStores(db)) {
+    try {
+      db.close();
+    } catch {
+      /* ignore */
+    }
+    throw journalUnavailable('journal idb open failed');
   }
 
   function tx(storeName, mode, fn) {
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(storeName, mode);
-      const store = transaction.objectStore(storeName);
+      let settled = false;
+      const finishOk = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const finishErr = (error) => {
+        if (settled) return;
+        settled = true;
+        reject(
+          error?.code === 'JOURNAL_UNAVAILABLE'
+            ? error
+            : journalUnavailable(error?.message || 'journal idb write failed')
+        );
+      };
+
+      let transaction;
+      try {
+        transaction = db.transaction(storeName, mode);
+      } catch {
+        finishErr(journalUnavailable('journal idb write failed'));
+        return;
+      }
+      if (!transaction) {
+        finishErr(journalUnavailable('journal idb write failed'));
+        return;
+      }
+
+      let store;
+      try {
+        store = transaction.objectStore(storeName);
+      } catch {
+        finishErr(journalUnavailable('journal idb write failed'));
+        return;
+      }
+
       let pending;
       try {
         pending = fn(store);
       } catch (error) {
-        reject(error);
+        finishErr(error);
         return;
       }
-      const value = pending && typeof pending.then === 'function' ? pending : requestValue(pending);
-      transaction.oncomplete = () => {
-        value.then(resolve, reject);
+
+      const prevAbort = transaction.onabort;
+      transaction.onabort = (event) => {
+        try {
+          if (typeof prevAbort === 'function') prevAbort.call(transaction, event);
+        } finally {
+          finishErr(journalUnavailable('journal idb write failed'));
+        }
       };
-      transaction.onerror = () =>
-        reject(Object.assign(new Error('journal idb write failed'), { code: 'JOURNAL_UNAVAILABLE' }));
+      transaction.onerror = () => finishErr(journalUnavailable('journal idb write failed'));
+
+      if (pending && typeof pending.then === 'function') {
+        pending.then(undefined, finishErr);
+        transaction.oncomplete = () => pending.then(finishOk, finishErr);
+        return;
+      }
+
+      const value = requestValue(pending);
+      // Handle reject in this turn so Chrome does not report uncaught TypeError / JOURNAL_UNAVAILABLE.
+      value.then(undefined, finishErr);
+      transaction.oncomplete = () => value.then(finishOk, finishErr);
     });
   }
 
@@ -212,24 +346,32 @@ export async function openIndexedDbCallJournal(indexedDBImpl) {
     },
     async deleteSession(sessionId) {
       const rows = await this.listBySession(sessionId);
-      await tx(JOURNAL_STORE, 'readwrite', (store) => {
-        for (const row of rows || []) store.delete(row.operationId);
-      });
+      if (rows?.length) {
+        await tx(JOURNAL_STORE, 'readwrite', (store) => {
+          let last = null;
+          for (const row of rows) last = store.delete(row.operationId);
+          return last;
+        });
+      }
       const approvals = await this.listApprovals(sessionId);
-      await tx('approvals', 'readwrite', (store) => {
-        for (const rec of approvals || []) store.delete(rec.approvalId);
-      });
+      if (approvals?.length) {
+        await tx(JOURNAL_APPROVALS_STORE, 'readwrite', (store) => {
+          let last = null;
+          for (const rec of approvals) last = store.delete(rec.approvalId);
+          return last;
+        });
+      }
     },
     async putApproval(rec) {
-      await tx('approvals', 'readwrite', (store) => store.put(rec));
+      await tx(JOURNAL_APPROVALS_STORE, 'readwrite', (store) => store.put(rec));
       return rec;
     },
     async getApproval(approvalId) {
-      return tx('approvals', 'readonly', (store) => store.get(String(approvalId || '')));
+      return tx(JOURNAL_APPROVALS_STORE, 'readonly', (store) => store.get(String(approvalId || '')));
     },
     async listApprovals(sessionId) {
       const sid = String(sessionId || '');
-      const all = await tx('approvals', 'readonly', (store) => store.getAll());
+      const all = await tx(JOURNAL_APPROVALS_STORE, 'readonly', (store) => store.getAll());
       return (all || []).filter((rec) => !sid || rec.sessionId === sid);
     },
     async scan(predicate) {
@@ -303,10 +445,10 @@ export function createCallJournal(backend) {
         err.code = 'JOURNAL_UNAVAILABLE';
         throw err;
       }
-      return store.put(row);
+      return await store.put(row);
     } catch (error) {
       if (error?.code === 'JOURNAL_UNAVAILABLE') throw error;
-      throw Object.assign(new Error(error?.message || 'journal write failed'), { code: 'JOURNAL_UNAVAILABLE' });
+      throw journalUnavailable(error?.message || 'journal write failed');
     }
   }
 
@@ -330,7 +472,12 @@ export function createCallJournal(backend) {
       outcome: patch.outcome !== undefined ? patch.outcome : current.outcome
     };
     applyStateTimes(next, nextState, ts);
-    return store.put(next);
+    try {
+      return await store.put(next);
+    } catch (error) {
+      if (error?.code === 'JOURNAL_UNAVAILABLE') throw error;
+      throw journalUnavailable(error?.message || 'journal write failed');
+    }
   }
 
   async function findDuplicate(sessionId, payloadHash, documentId) {

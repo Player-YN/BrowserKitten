@@ -1,16 +1,21 @@
 /**
  * Guarded / Full Access. Host-enforced, not a prompt preference.
- * Profile: chrome.storage.local pagewand_access_policy
- * Session override: chrome.storage.session pagewand_access_policy_session
+ * Profile: chrome.storage.local browserbot_access_policy
+ * Session override: chrome.storage.session browserbot_access_policy_session
  * Precedence: session > profile > guarded
  */
 
+import {
+  ACCESS_POLICY_SCHEMA,
+  ACCESS_POLICY_SESSION_SCHEMA,
+  STORAGE_ACCESS_POLICY,
+  STORAGE_ACCESS_POLICY_SESSION
+} from '../../../brand.js';
 import { deriveRawEscape } from './riskClassify.js';
 
-export const ACCESS_POLICY_PROFILE_KEY = 'pagewand_access_policy';
-export const ACCESS_POLICY_SESSION_KEY = 'pagewand_access_policy_session';
-export const ACCESS_POLICY_SCHEMA = 'pawwork.access-policy/v1';
-export const ACCESS_POLICY_SESSION_SCHEMA = 'pawwork.access-policy-session/v1';
+export const ACCESS_POLICY_PROFILE_KEY = STORAGE_ACCESS_POLICY;
+export const ACCESS_POLICY_SESSION_KEY = STORAGE_ACCESS_POLICY_SESSION;
+export { ACCESS_POLICY_SCHEMA, ACCESS_POLICY_SESSION_SCHEMA };
 
 /** @type {{ local?: any, session?: any } | null} */
 let installed = null;

@@ -1,6 +1,6 @@
 # Third-party notices
 
-Paw Work's own code is MIT-licensed (see [LICENSE](LICENSE)). This repository **does** commit and redistribute the third-party runtime bundles listed below — an unpacked MV3 extension has no install step, so every dependency must already be in the load root. Build commands for the Univer bundles are recorded in [`src/preview/vendor/README.md`](src/preview/vendor/README.md).
+Browser Kitten's own code is MIT-licensed (see [LICENSE](LICENSE)). This repository **does** commit and redistribute the third-party runtime bundles listed below — an unpacked MV3 extension has no install step, so every dependency must already be in the load root. Build commands for the Univer bundles are recorded in [`src/preview/vendor/README.md`](src/preview/vendor/README.md).
 
 | Component | License | How it ships |
 |-----------|---------|--------------|

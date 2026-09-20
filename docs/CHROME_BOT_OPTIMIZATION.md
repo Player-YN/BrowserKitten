@@ -1,8 +1,8 @@
-# 爪爪 · Chrome BOT 架构优化与交付说明
+# Browser Kitten · Chrome BOT 架构优化与交付说明
 
 日期：2026-09-17  
 版本：`1.2.0-bot-candidate`（manifest.version 为 `1.2.0`）  
-基线：用户上传的 `PawWork_ZhuaZhua.zip` 工作区，包含尚未提交的 Durable Task / tab lease 改动；不是只基于 origin/main 的 v1.1.0。  
+基线：用户上传的 `BrowserBot.zip` 工作区，包含尚未提交的 Durable Task / tab lease 改动；不是只基于 origin/main 的 v1.1.0。  
 状态：已修改源码、补充回归、修复打包；真实 Chrome / 真模型全链路验收未完成。未提交 commit、未推送仓库、未创建官方 release。
 
 ## 1. 架构判断：保留执行器，补可靠执行
@@ -19,7 +19,7 @@
 | Execution：本次执行 | 单 session 执行槽、取消、工具循环、资源归属 | 不跨崩溃续接原始调用栈，不等于永久后台进程 |
 | 浏览器宿主 | 校验调用者、占用 tab、核验文档、派发 action/sys、返回事实或未知 | 不替模型认定业务目标已完成，不盲目重试写操作 |
 
-用户审查文档 §1 明确保留的边界，本次均未改：普通 send 不自动建 task；同 session 不并发 turn；不做 call journal、exactly-once 和盲目副作用重放；不增加 hop 上限；不隐藏工具；不加 native companion；不上 CWS；不改 `pagewand_*` 存储键；不要求用户换 Chrome profile。
+用户审查文档 §1 明确保留的边界，本次均未改：普通 send 不自动建 task；同 session 不并发 turn；不做 call journal、exactly-once 和盲目副作用重放；不增加 hop 上限；不隐藏工具；不加 native companion；不上 CWS；不改 `browserbot_*` 存储键；不要求用户换 Chrome profile。
 
 ## 2. 优化后的主要执行路径
 
@@ -64,7 +64,7 @@ SW 根据 Chrome 原生 sender.id、sender.url、sender.tab 判断角色，不�
 
 ### 3.2 tab 租约：跨 SW 重启保留，恢复失败不冒险派发
 
-`tabLease.js` 接入 `chrome.storage.session`，键为 `pawwork_browser_leases_v1`。记录 sessionId + executionId + tabId + kinds；操作串行更新，先成功登记再放行。恢复数据损坏、读写失败时拒绝执行，不把“读不到”当成“没人占用”。
+`tabLease.js` 接入 `chrome.storage.session`，键为 `browserbot_browser_leases_v1`。记录 sessionId + executionId + tabId + kinds；操作串行更新，先成功登记再放行。恢复数据损坏、读写失败时拒绝执行，不把“读不到”当成“没人占用”。
 
 SW 第一次处理浏览器调用/调度时，通过 offscreen 内部 `getBrowserRuntimeState` 对账。确认已不存在的执行才清理；无法取得可信运行状态则保留锁并报错，未增加“过了若干秒就抢锁”的逻辑。
 
@@ -165,10 +165,10 @@ sidepanel 的大型 UI 文件、三套 skill、快照式持久化仍保留。这
 先停止运行中的任务并保留原源码目录。补丁以**本次上传的工作区**为基线；不是以 origin/main 为基线。先检查再应用：
 
 ```sh
-git apply --check /path/to/PawWork_ChromeBOT_1.2.0_changes.patch
-git apply /path/to/PawWork_ChromeBOT_1.2.0_changes.patch
+git apply --check /path/to/BrowserBot_ChromeBOT_1.2.0_changes.patch
+git apply /path/to/BrowserBot_ChromeBOT_1.2.0_changes.patch
 node --test tests/*.test.mjs
-python3 scripts/pack_extension.py --zip dist/PawWork_ChromeBOT_1.2.0_extension.zip
+python3 scripts/pack_extension.py --zip dist/BrowserKitten_ChromeBOT_1.2.0_extension.zip
 python3 scripts/verify_extension.py extension --source .
 ```
 
@@ -181,10 +181,10 @@ python3 scripts/verify_extension.py extension --source .
 已有 Playwright 环境可运行（不引入 npm 构建依赖）：
 
 ```sh
-PAW_LOAD_ROOT=extension node tests/browser-smoke.cjs /path/to/playwright
+BROWSERBOT_LOAD_ROOT=extension node tests/browser-smoke.cjs /path/to/playwright
 # 可按本地环境提供已有、允许加载扩展的浏览器路径；不修改组织策略：
-PAW_CHROMIUM_EXECUTABLE=/path/to/chromium PAW_HEADLESS=false \
-  PAW_LOAD_ROOT=extension node tests/browser-smoke.cjs /path/to/playwright
+BROWSERBOT_CHROMIUM_EXECUTABLE=/path/to/chromium BROWSERBOT_HEADLESS=false \
+  BROWSERBOT_LOAD_ROOT=extension node tests/browser-smoke.cjs /path/to/playwright
 ```
 
 脚本使用临时独立 profile、不读取日常浏览数据；该 profile 仅用于隔离测试，不是产品要求的多任务运行方案。脚本覆盖存储、沙箱、artifact 冲突及部分 RPC 原生边界；下列生命周期情境仍须另外人工验收：
@@ -202,7 +202,7 @@ PAW_CHROMIUM_EXECUTABLE=/path/to/chromium PAW_HEADLESS=false \
 
 ## 8. 依据与来源
 
-项目事实来自上传源码和《爪爪 · 进度与架构审查》§1、§2、§4；以源码核对，不将旧文档里的 H# 假设直接当成结论。用户提到但未提供的 09-16 技术盘点、browser-agent 对比原文没有被假定已读取。未来优先级为本次架构判断，不是 Chrome 官方结论。
+项目事实来自上传源码和《Browser Kitten · 进度与架构审查》§1、§2、§4；以源码核对，不将旧文档里的 H# 假设直接当成结论。用户提到但未提供的 09-16 技术盘点、browser-agent 对比原文没有被假定已读取。未来优先级为本次架构判断，不是 Chrome 官方结论。
 
 核对的 Chrome 官方资料：
 [1] Storage：Session 的寿命与可见性。

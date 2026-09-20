@@ -1,5 +1,5 @@
 /**
- * PageWand — run-scoped in-memory artifacts (meta materialize API).
+ * BrowserBot — run-scoped in-memory artifacts (meta materialize API).
  *
  * Atomic helpers only: text, table (CSV), zip pack.
  * No scenario-named tools (report/taobao/etc). Download wiring is C2.

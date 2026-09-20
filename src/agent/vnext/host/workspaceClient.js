@@ -1,4 +1,5 @@
 /** Shared sidepanel/preview client. Losing a write receipt never authorizes replay. */
+import { MSG_TARGET_BACKGROUND } from '../../../brand.js';
 import { formatRpcError } from './rpcError.js';
 import { assertWorkspaceRpc, rpcFailure } from './workspaceRpcContract.js';
 
@@ -9,7 +10,7 @@ export async function workspaceRpc(method, params = {}) {
   }
   let response;
   try {
-    response = await chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'workspace_rpc', method, params });
+    response = await chrome.runtime.sendMessage({ target: MSG_TARGET_BACKGROUND, action: 'workspace_rpc', method, params });
   } catch (error) {
     throw rpcFailure(contract.retrySafe ? 'RPC_UNAVAILABLE' : 'RPC_OUTCOME_UNKNOWN',
       contract.retrySafe ? `Workspace unavailable: ${error?.message || error}` : 'Workspace write result is unknown. Inspect state before retrying.');

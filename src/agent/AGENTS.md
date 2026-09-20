@@ -26,9 +26,9 @@ sidepanel workspaceRpc('sendMessage')
 | `vnext/host/` | `workspaceRpc`、`browserSysHost`、`tabLease`、`taskScheduler`、`accessPolicy`、`riskClassify`、`dispatchTicket`、`callJournal`、`operationGate`、`postcondition` |
 | `vnext/skills/` | 打包 playbook（`SKILL.md` + `skillSource.js`）。**不是工具** |
 | `llm.js` `provider.js` `modelCatalog.js` | BYOK OpenAI-compatible HTTPS；每轮 `resolveLanguageModel` |
-| `contextWindowProbe.js` `contextWindowStore.js` | 目录无窗口时的独立 chat 探测与 `pagewand_context_window_evidence_v1`；不进 ToolLoopAgent，发送不 await |
-| `webAcquireSettings.js` | `pagewand_web_acquire` |
-| `skills.js` | 用户固化 skill（`pagewand_user_skills`），侧栏用；与 `vnext/skills` 不同 |
+| `contextWindowProbe.js` `contextWindowStore.js` | 目录无窗口时的独立 chat 探测与 `browserbot_context_window_evidence_v1`；不进 ToolLoopAgent，发送不 await |
+| `webAcquireSettings.js` | `browserbot_web_acquire` |
+| `skills.js` | 用户固化 skill（`browserbot_user_skills`），侧栏用；与 `vnext/skills` 不同 |
 | `artifacts.js` `draftStore.js` `state.js` `trajectory.js` `documentRender.js` `render/` | 旧表面。产品交付物走 `sessionWorkspace/artifacts.js`。改功能前先确认调用方 |
 
 ## 领域与 store
@@ -41,7 +41,7 @@ sidepanel workspaceRpc('sendMessage')
 
 | 调用 | 作用 |
 |------|------|
-| `sys.help()` / `inspect view=sys` | ABI 目录（`pawwork-sys-v1`） |
+| `sys.help()` / `inspect view=sys` | ABI 目录（`browserbot-sys-v1`） |
 | `sys.capabilities()` | 实时探测用户脚本、debugger、截图、下载可用性与大小限制 |
 | `sys.tabs.list` / `current` / `frames` | 标签与 frame（进程表） |
 | `sys.tabs.open` / `navigate` / `reload` / `close` / `focus` | 进程控制（已有 `tabs` 权限） |
@@ -55,17 +55,17 @@ sidepanel workspaceRpc('sendMessage')
 
 宿主政策与 journal（不是 task，不是 audit）：
 
-- 模式：`guarded` | `full`。默认 Guarded。`pagewand_access_policy`（local）+ `pagewand_access_policy_session`（session）。
+- 模式：`guarded` | `full`。默认 Guarded。`browserbot_access_policy`（local）+ `browserbot_access_policy_session`（session）。
 - 分类在 `riskClassify.js`：忽略模型 `risk`/`intent`。已知付款 deny；已知删除要 `approvalGate` one-shot（UI 不是 clarify）。
 - `operationGate.gatedDispatch` 在 offscreen 写 journal、等人、发 ticket；SW `consumeDispatchTicket` 是最后一道门。
-- journal 库：`pawwork-call-journal-v1`。启动把未收束的 `dispatched` 标 `unknown`。verified 不重放。
+- journal 库：`browserbot-call-journal-v1`。启动把未收束的 `dispatched` 标 `unknown`。verified 不重放。
 - `postcondition.js` 只认宿主事实。不可证明的 POST/send → `needs_human`。
 
 `sys.fetch` / `sys.screenshot` 可传 `saveTo: '/scratch/…' | '/artifacts/…'`：宿主写入 guest FS，返回文件回执；`run` 登记交付物。调用携带身份与截止时间，错误保留 `code`。停止可中止扩展 fetch，但已派发的页面/CDP 副作用可能已发生，超时后需查证状态。
 
 Artifact 具有 `revision`；`updateArtifact` 可携带 `expectedRevision`，不同内容的过期写入返回 `ARTIFACT_CONFLICT`。三种画布（sheet / doc / web）与常用 office 写入路径已接入；raw guest 写主文件推进 revision，但仍不是带读版本的条件写入。
 
-模型可见面：没有单独的 `sys` 工具。ISA 写在 `run` 的 `code` 字段（`SYS_MODEL_HINT`）；`run.description` 只指向该字段与 `inspect view=sys`。`inspect.view` enum 含 `sys`、每轮 world 有 `browserSys=pawwork-sys-v1`。完整目录仍是 `inspect view=sys` 或 guest `sys.help()`。
+模型可见面：没有单独的 `sys` 工具。ISA 写在 `run` 的 `code` 字段（`SYS_MODEL_HINT`）；`run.description` 只指向该字段与 `inspect view=sys`。`inspect.view` enum 含 `sys`、每轮 world 有 `browserSys=browserbot-sys-v1`。完整目录仍是 `inspect view=sys` 或 guest `sys.help()`。
 
 Guest FS（`fs.js`）：
 
@@ -79,7 +79,7 @@ Guest FS（`fs.js`）：
 
 `sendMessage.js`：写入 user message → `beginExecution` → 组世界索引（bound groups/items、artifact 概览、focusPage）→ `buildSessionAgentInstructions` + 本轮 world block → `createSessionTools` → `inventoryFromSession`（**瞄准目标，不隐藏工具**）→ `runSessionToolLoopAgent`。
 
-普通 `sendMessage` **不创建** durable task。`task start` 弹出确认卡，**只有 UI 回执**才创建任务并写入 `session.activeTaskId`、绑定当前 execution。模型传入 `approved:true` 无效。普通 `clarify` 计划卡仍只钉本回合 `frozenPlan`，不建 Task。`task schedule` 仍只建未来/周期任务。绑定后的新消息作为该任务的补充上下文；`updateTask(detach)` 退出后继续普通聊天。续跑由 SW alarms 或 UI `updateTask(resume)` 再 `sendMessage({ taskRun, taskId, taskContinuation: true })`，不写假用户消息。
+普通 `sendMessage` **不创建** durable task。`task start` 弹出确认卡，**只有 UI 回执**才创建任务并写入 `session.activeTaskId`、绑定当前 execution。模型传入 `approved:true` 无效。普通 `/plan` 卡默认勾选「同时开启长任务」：批准且勾选才用同一 UI 回执建 Task 并绑当前 execution；不勾选、拒绝、改计划、或已有非终态 `activeTaskId` 则只钉本回合 `frozenPlan`。`task schedule` 仍只建未来/周期任务。绑定后的新消息作为该任务的补充上下文；`updateTask(detach)` 退出后继续普通聊天。续跑由 SW alarms 或 UI `updateTask(resume)` 再 `sendMessage({ taskRun, taskId, taskContinuation: true })`，不写假用户消息。
 
 `prepareStep`（`makeOfficePrepareStep`）每 hop **读** store（`getTaskContext` → `readTask`）把**用户确认的任务合同**和进度重新注入 instructions。有绑定 Task 时不再注入 `sessionGoal` / `intentState` / 平行的 `frozenPlan`。task 写入只走 `hostTask` → `hostTaskMutation`。`completed` **只**来自成功的 `task complete`；空 plan settle 是 `ready`，未 complete 的回合 settle 是 `ready`/`paused`，abort/deadline 是 `paused`（结果未知），不会写成 `completed`。完成、取消或退出后停止注入该合同。压缩后每 hop 仍从 `session.messages` 注入有界用户原文。
 
@@ -99,7 +99,7 @@ Guest FS（`fs.js`）：
 
 清单：`canvasInventory.js` 的 `SESSION_TOOL_NAMES`（含 `task`）。`toolSchedule.js` 原样返回该列表。
 
-System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v18-media-evidence'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
+System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v22-browser-kitten'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions；语气：说话清楚、先把事情做对、不确定就问、受阻直说、尽最大努力且不凑合——不越过宿主门。`/artifacts/AGENTS.md` 对标 coding-agent 用法：短合同、文件存在时每 hop 有界注入、不是用户授权；进度在 task checkpoint 或 `/artifacts/STATUS.md`。计划批准或 `task start` 成功时宿主才脚手架，普通 send 不建）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
 
 交付物打开：`openClassify.js` 负责 kind；`artifactCapability.js` 是家族 × 打开面 × 徽标的单一映射。主 chip 是 `docs` / `data` / `web` / `media` / `files`；`design`/`slides` 只兼容旧数据。未知 HTML/JS 不得在 extension origin 执行。仅文件名的 `.html` 保持中性，不假装 proven site/doc；首次打开分类后可持久化 `capability` hint。site 本波 = 可编辑/可渲染的静态 HTML+CSS + 宿主 postMessage bridge（`src/sandbox/siteFrame.*`），**不是**任意 guest JS。
 
@@ -115,17 +115,17 @@ System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v18-media-evidence'`�
 | `task` | `sessionWorkspace/taskTool.js` | 合同与进度：`start` / `amend` / `inspect` / `plan` / `checkpoint` / `wait` / `complete` / `schedule`。`start`/`amend` 走确认卡。`wait`/`complete` 成功即 yield。`schedule` 只建未来/周期任务 |
 | `sheet` | `sessionWorkspace/officeTools.js` | Univer 表：`act` = read / write / snapshot |
 | `doc` | 同上 | Univer 文档：`act` = read / write |
-| `web` | 同上 | `data-paw-kind=site`：`act` = read / write / undo / clone / capture。画布是静态 HTML+CSS；宿主 bridge 在 sandbox frame，用户脚本仍被剥 |
+| `web` | 同上 | `data-browserbot-kind=site`：`act` = read / write / undo / clone / capture。画布是静态 HTML+CSS；宿主 bridge 在 sandbox frame，用户脚本仍被剥 |
 
 Office 无对应 canvas 时返回 `NO_CANVAS`（工具仍在 schema 里）。没有 Design/Slides（tldraw）。网站复刻走 `web act=clone`。
 
-BYOK：`llm.js` → `pagewand_providers`。推理 / 生图 / 转写各有独立 active id（`pagewand_active_provider_id` · `pagewand_active_image_provider_id` · `pagewand_active_stt_provider_id`）。转写供应商 `purpose:'stt'`，POST `{base}/audio/transcriptions`。`run`：`vnext/adapters`（QuickJS / esbuild-wasm / AI SDK loader）+ `src/sandbox/`。Offscreen 经 `sandboxClient.js` postMessage；channel `pawwork-code-sandbox-v1`。`fs` 与 `sys` 都是同一条 RPC。
+BYOK：`llm.js` → `browserbot_providers`。推理 / 生图 / 转写各有独立 active id（`browserbot_active_provider_id` · `browserbot_active_image_provider_id` · `browserbot_active_stt_provider_id`）。转写供应商 `purpose:'stt'`，POST `{base}/audio/transcriptions`。`run`：`vnext/adapters`（QuickJS / esbuild-wasm / AI SDK loader）+ `src/sandbox/`。Offscreen 经 `sandboxClient.js` postMessage；channel `browserbot-code-sandbox-v1`。`fs` 与 `sys` 都是同一条 RPC。
 
 ## Skills（playbook）
 
 `vnext/skills/<id>/`：`SKILL.md` + 打包进扩展的 `skillSource.js` + `index.js`。注册表：`skills/registry.js`。
 
-已注册：`page-restyle`、`site-tool-reuse`。正文用 `inspect view=skill`。`/learn` 从上一轮成功轨迹起草方法论，确认后写入 `pagewand_durable_skills`；第一次复用必须再过计划卡。
+已注册：`page-restyle`、`site-tool-reuse`。正文用 `inspect view=skill`。`/learn` 从上一轮成功轨迹起草方法论，确认后写入 `browserbot_durable_skills`；第一次复用必须再过计划卡。
 
 用户自定义 skill（侧栏固化）走 `agent/skills.js`，与打包 playbook 分开存。
 

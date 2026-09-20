@@ -63,7 +63,7 @@ import {
   isInjectableTabUrl,
   normalizePageRef,
   classifyWorkTab,
-  isPawWorkTabUrl,
+  isBrowserBotTabUrl,
   workTabListenLabel,
   pageRefId
 } from './agent/vnext/sessionWorkspace/pageContext.js';
@@ -198,7 +198,7 @@ import {
   getResolvedTheme
 } from './sidepanel/theme.js';
 import { applySendStopUi } from './sidepanel/sendStop.js';
-import { enhanceComposerIcons, enhanceTopbarIcons, pawSvg, ICONS } from './sidepanel/icons.js';
+import { enhanceComposerIcons, enhanceTopbarIcons, brandMarkSvg, ICONS } from './sidepanel/icons.js';
 import {
   registerHoverDrawer,
   wireDrawerEscape,
@@ -223,8 +223,8 @@ import { setupPanelDensity } from './sidepanel/density.js';
 import { createTaskStatusUi } from './sidepanel/taskStatus.js';
 // Single-agent only — no worker spawn/cancel/message tools.
 
-/** Product path is vNext-only. Legacy tool-loop has no UI entry. */
-const RUNTIME_MODE_STORAGE_KEY = 'pagewand_runtime_mode'; // legacy key ignored if present
+/** Product path is vNext-only. */
+const RUNTIME_MODE_STORAGE_KEY = 'browserbot_runtime_mode';
 
 let isPickerActive = false;
 let selectedElementsSummary = [];
@@ -502,7 +502,6 @@ let settingsSttUi = { providerId: null, hasStoredKey: false, keyTail: '' };
 let settingsWebUi = { kind: 'tavily' };
 let settingsProbedSttModels = [];
 
-/** @deprecated legacy name kept as alias so old partial code paths never TDZ */
 const settingsProviderUi = settingsConfigUi;
 
 /** Lightweight catalog stub (full UI removed; refresh still may touch baseURL) */
@@ -598,9 +597,10 @@ const accessPolicyUi = createAccessPolicyUi({
   t,
   getChip: () => $('accessPolicyChip'),
   getDialog: () => $('accessFullDialog'),
-  getSettingsHint: () => $('accessSettingsHint'),
+  getSettingsCard: () => $('settingsAccessCard'),
   getSettingsMode: () => $('accessSettingsMode'),
   getSettingsToggle: () => $('accessFullToggle'),
+  getSettingsToggleRow: () => $('accessFullToggleRow'),
   setAccessPolicy: async (params) => {
     const policy = await workspaceRpc('setAccessPolicy', params);
     accessPolicyUi.setPolicy(policy);
@@ -645,7 +645,7 @@ function initSidePanel() {
     try {
       fn();
     } catch (e) {
-      console.error(`[PageWand] ${name} failed`, e);
+      console.error(`[BrowserBot] ${name} failed`, e);
     }
   };
 
@@ -824,7 +824,7 @@ function snapReasoningEffort(levels) {
   if (!Array.isArray(levels) || !levels.length) return;
   if (levels.includes(reasoningEffort)) return;
   reasoningEffort = levels.includes('none') ? 'none' : levels[0];
-  chrome.storage.local.set({ pagewand_reasoning_effort: reasoningEffort });
+  chrome.storage.local.set({ browserbot_reasoning_effort: reasoningEffort });
 }
 
 function selectReasoningEffort(effort, levels) {
@@ -834,7 +834,7 @@ function selectReasoningEffort(effort, levels) {
     return;
   }
   reasoningEffort = effort;
-  chrome.storage.local.set({ pagewand_reasoning_effort: reasoningEffort });
+  chrome.storage.local.set({ browserbot_reasoning_effort: reasoningEffort });
   updateReasoningEffortSlider(steps);
 }
 
@@ -1152,7 +1152,7 @@ function applyOpenMentionPages(pages) {
 async function refreshOpenMentionPages() {
   try {
     const res = await chrome.runtime.sendMessage({
-      target: 'pawwork-background',
+      target: 'browserbot-background',
       action: 'workspace_list_open_tabs'
     });
     if (res?.ok && Array.isArray(res.pages)) applyOpenMentionPages(res.pages);
@@ -2335,7 +2335,7 @@ async function confirmRenderDraft(andDownload) {
       const result = await renderDocumentFromDraft(draft, {
         format: fmt,
         runId: draft.runId || 'sidepanel',
-        name: draft.title || name || 'pagewand'
+        name: draft.title || name || 'browserbot'
       });
       if (result.status !== 'ok') {
         showSidepanelToast(result.message || 'Render failed', { error: true });
@@ -2604,13 +2604,13 @@ function loadSavedPreferences() {
   chrome.storage.local.get(
     [
       'selected_model',
-      'pagewand_theme',
-      'pagewand_theme_mode',
+      'browserbot_theme',
+      'browserbot_theme_mode',
       'app_lang',
-      'pagewand_reasoning',
-      'pagewand_reasoning_effort',
-      'pagewand_use_browser_runtime',
-      'pagewand_allow_python_fallback',
+      'browserbot_reasoning',
+      'browserbot_reasoning_effort',
+      'browserbot_use_browser_runtime',
+      'browserbot_allow_python_fallback',
       RUNTIME_MODE_STORAGE_KEY,
       DEV_TRAJECTORY_STORAGE_KEY
     ],
@@ -2628,10 +2628,10 @@ function loadSavedPreferences() {
       ensureModelOption(selectedModel);
       if (result.app_lang) setAppLanguage(result.app_lang);
       if (
-        result.pagewand_reasoning_effort === 'none' ||
-        GATEWAY_REASONING_EFFORTS.includes(result.pagewand_reasoning_effort)
+        result.browserbot_reasoning_effort === 'none' ||
+        GATEWAY_REASONING_EFFORTS.includes(result.browserbot_reasoning_effort)
       ) {
-        reasoningEffort = result.pagewand_reasoning_effort;
+        reasoningEffort = result.browserbot_reasoning_effort;
       }
       syncReasoningSwitch();
       void refreshReasoningCatalog(false);
@@ -2646,8 +2646,8 @@ function loadSavedPreferences() {
 if (chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes.pagewand_context_window_evidence_v1 || changes.pagewand_providers ||
-        changes.pagewand_active_provider_id) {
+    if (changes.browserbot_context_window_evidence_v1 || changes.browserbot_providers ||
+        changes.browserbot_active_provider_id) {
       void refreshComposerContextWindowState();
     }
   });
@@ -2686,7 +2686,7 @@ async function refreshAgentStatusBadge() {
       statusEl.textContent = t('statusReady');
       statusEl.title = settings.providerName
         ? `${settings.providerName} · ${settings.model || ''}`
-        : 'Paw Work vNext ready (extension runtime · cloud LLM)';
+        : 'Browser Kitten vNext ready (extension runtime · cloud LLM)';
     }
   } catch {
     statusEl.textContent = t('statusReady');
@@ -3223,7 +3223,7 @@ function exportClipboard(fmt) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `pagewand-clipboard-${stamp}.${ext}`;
+  a.download = `browserbot-clipboard-${stamp}.${ext}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -3588,20 +3588,20 @@ function updatePickerButtonState(active) {
   renderSelectionUI();
 }
 
-function isPawSheetTabUrl(url) {
+function isSheetTabUrl(url) {
   const u = String(url || '');
   return /\/src\/preview\/sheet\.html(?:\?|$)/i.test(u) || /\/src\/preview\/artifactPreview\.html(?:\?|$)/i.test(u);
 }
 
 function pickerBlockedToast(url) {
-  if (isPawSheetTabUrl(url)) {
+  if (isSheetTabUrl(url)) {
     return currentLang === 'en'
-      ? 'Paw is for web pages. Click cells in the sheet — they show above the composer.'
-      : '伸爪用在网页上。格子请直接在表格里点，选区会出现在输入框上方。';
+      ? 'Pick is for web pages. Click cells in the sheet — they show above the composer.'
+      : '点选用在网页上。格子请直接在表格里点，选区会出现在输入框上方。';
   }
   return currentLang === 'en'
-    ? 'Cannot use Paw on this page.'
-    : '当前页面无法伸爪（系统页或扩展页）。';
+    ? 'Cannot pick on this page.'
+    : '当前页面无法点选（系统页或扩展页）。';
 }
 
 async function togglePickerMode() {
@@ -3611,13 +3611,13 @@ async function togglePickerMode() {
       showSidepanelToast(
         currentLang === 'en'
           ? 'Open and focus a normal web tab first.'
-          : '请先打开并点一下普通网页标签，再伸爪。',
+          : '请先打开并点一下普通网页标签，再点选。',
         { error: true }
       );
       return;
     }
     const url = tab.url || tab.pendingUrl || '';
-    if (isPawWorkTabUrl(url)) {
+    if (isBrowserBotTabUrl(url)) {
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'toggle_picker' });
       if (response && response.active !== undefined) updatePickerButtonState(response.active);
       else updatePickerButtonState(!isPickerActive);
@@ -3631,8 +3631,8 @@ async function togglePickerMode() {
     if (!injected) {
       showSidepanelToast(
         currentLang === 'en'
-          ? 'Paw failed — refresh the web page after Reload.'
-          : '伸爪失败：请刷新那个网页后再试（刚 Reload 扩展必须刷新页面）。',
+          ? 'Pick failed — refresh the web page after Reload.'
+          : '点选失败：请刷新那个网页后再试（刚 Reload 扩展必须刷新页面）。',
         { error: true }
       );
       return;
@@ -3645,14 +3645,14 @@ async function togglePickerMode() {
     if (isUnscriptableInjectError(e) || /Receiving end does not exist/i.test(msg)) {
       showSidepanelToast(
         currentLang === 'en'
-          ? 'Paw failed — focus a web tab and refresh it.'
-          : '伸爪失败：请点到普通网页并刷新后再试。',
+          ? 'Pick failed — focus a web tab and refresh it.'
+          : '点选失败：请点到普通网页并刷新后再试。',
         { error: true }
       );
       return;
     }
     console.warn('toggle picker failed', e);
-    showSidepanelToast(currentLang === 'en' ? 'Paw failed — refresh the page' : '伸爪失败，请刷新页面后重试', {
+    showSidepanelToast(currentLang === 'en' ? 'Pick failed — refresh the page' : '点选失败，请刷新页面后重试', {
       error: true
     });
   }
@@ -3669,7 +3669,7 @@ async function exitPickerModeIfActive() {
     if (tab?.id) {
       try {
         const url = tab.url || tab.pendingUrl || '';
-        if (!isPawWorkTabUrl(url)) await ensureContentScriptActive(tab.id);
+        if (!isBrowserBotTabUrl(url)) await ensureContentScriptActive(tab.id);
         const res = await chrome.tabs.sendMessage(tab.id, { action: 'stop_picker' });
         if (res && res.active !== undefined) {
           updatePickerButtonState(!!res.active);
@@ -3740,7 +3740,7 @@ function looksLikeFinishMetaSummary(s) {
     )
   ) {
     if (
-    /\n\n|\*\*|你好[！!]|Hello[,!]|我是 PageWand|我是爪爪|I am PageWand|Paw Work|以下是|Here's what/i.test(
+    /\n\n|\*\*|你好[！!]|Hello[,!]|我是 BrowserBot|我是 Browser Kitten|我是Browser Kitten|I am BrowserBot|I am Browser Kitten|Browser Kitten|以下是|Here's what/i.test(
       t
     )
   ) {
@@ -3781,7 +3781,7 @@ function pickUserFacingAnswer({
   // Pull prose from thought dump: first long Chinese/English block that looks like the reply
   const buf = String(thoughtBuffer || '');
   const m = buf.match(
-    /((?:你好|您好|Hi|Hello|我是 PageWand|I am PageWand)[\s\S]{40,8000}?)(?:\n→\s*finish|\n✓\s*finish|\n—\s*Step|\n\[metrics\]|$)/i
+    /((?:你好|您好|Hi|Hello|我是 BrowserBot|I am BrowserBot)[\s\S]{40,8000}?)(?:\n→\s*finish|\n✓\s*finish|\n—\s*Step|\n\[metrics\]|$)/i
   );
   if (m?.[1] && !looksLikeFinishMetaSummary(m[1])) return m[1].trim();
 
@@ -4119,7 +4119,7 @@ function showWelcome() {
   w.id = 'welcome';
   w.innerHTML = `
     <div class="home-center" id="homeCenter">
-      <div class="home-mark home-mark-paw" aria-hidden="true"></div>
+      <div class="home-mark home-mark-hero" aria-hidden="true"></div>
       <div class="home-composer-slot" id="homeComposerSlot"></div>
       <div class="hint-chips" id="hintChips"></div>
     </div>
@@ -4296,7 +4296,7 @@ function scheduleSelectionSuggestions() {
   const host = document.getElementById('hintChips');
   if (host) {
     host.innerHTML = `<span class="hint-chips-pending">${
-      currentLang === 'en' ? 'Suggestions after you stop selecting…' : '伸爪结束后将生成建议…'
+      currentLang === 'en' ? 'Suggestions after you stop selecting…' : '点选结束后将生成建议…'
     }</span>`;
   }
   suggestionDebounceTimer = setTimeout(() => {
@@ -5048,7 +5048,7 @@ function wireSessionRail() {
   if (!panel || !edge || !fab) return;
   const edgeIcon = fab.querySelector('.session-edge-fab-icon');
   if (edgeIcon && !edgeIcon.querySelector('svg')) {
-    edgeIcon.innerHTML = pawSvg(14, { className: 'paw-svg session-edge-paw' });
+    edgeIcon.innerHTML = brandMarkSvg(14, { className: 'brand-mark-svg session-edge-mark' });
   }
 
   let peekTimer = null;
@@ -6221,11 +6221,11 @@ async function refreshComposerContextWindowState() {
     const model = String(settings.model || selectedModel || '').trim();
     const base = normalizeModelsBaseURL(settings.apiBase || '');
     const key = `${base}\n${model}`;
-    const bag = await chrome.storage.local.get(['pagewand_context_window_evidence_v1']);
+    const bag = await chrome.storage.local.get(['browserbot_context_window_evidence_v1']);
     composerContextWindowState = {
       model,
       base,
-      evidence: bag.pagewand_context_window_evidence_v1?.[key] || null,
+      evidence: bag.browserbot_context_window_evidence_v1?.[key] || null,
       override: settings.contextWindowOverrides?.[key]
     };
   } catch { /* keep last snapshot */ }
@@ -6376,12 +6376,20 @@ function submitClarifyAnswers(answers) {
 }
 
 function submitPlanDecision(approved) {
+  const sid = String(clarifyLiveState?.sessionId || getWorkspaceSessionId());
+  const host = clarifyHostForSession(sid);
+  const cardKind = host?.dataset.cardKind || clarifyLiveState?.kind || 'plan';
+  let startDurableTask = false;
+  if (approved === true && cardKind === 'plan') {
+    const box = host?.querySelector('.plan-start-task-input');
+    startDurableTask = box ? box.checked === true : true;
+  }
   const answers = {
     approved: approved === true,
-    decision: approved === true ? 'approve' : 'decline'
+    decision: approved === true ? 'approve' : 'decline',
+    startDurableTask
   };
   const id = clarifyLiveState?.clarifyId;
-  const sid = String(clarifyLiveState?.sessionId || getWorkspaceSessionId());
   sealPlanPanel(approved === true ? 'approved' : 'declined');
   if (!id) return;
   void workspaceRpc('answerClarify', {
@@ -6501,29 +6509,41 @@ function sealPlanPanel(decision, notes = '') {
       : decision === 'revise'
         ? 'revise'
         : 'declined';
+  const label =
+    kind === 'approved' ? t('planApproved') : kind === 'revise' ? t('planRevised') : t('planDeclined');
+  const title = host.querySelector('.plan-panel-title')?.textContent?.trim() || '';
+  const summary = host.querySelector('.plan-panel-summary')?.textContent?.trim() || '';
+  const stepsHtml = host.querySelector('.plan-panel-steps')?.innerHTML || '';
+  const trimmed = String(notes || '').trim();
+
   host.removeAttribute('id');
   host.classList.add('is-sealed');
   host.classList.toggle('is-approved', kind === 'approved');
   host.classList.toggle('is-declined', kind === 'declined');
   host.classList.toggle('is-revise', kind === 'revise');
-  host.querySelector('.clarify-live-banner')?.remove();
-  host.querySelectorAll('.plan-panel-actions').forEach((el) => el.remove());
-  host.querySelector('.plan-revise-compose')?.remove();
-  const kicker = host.querySelector('.plan-panel-kicker');
-  const label =
-    kind === 'approved' ? t('planApproved') : kind === 'revise' ? t('planRevised') : t('planDeclined');
-  if (kicker) kicker.textContent = label;
   host.setAttribute('aria-label', label);
-  const trimmed = String(notes || '').trim();
-  if (kind === 'revise' && trimmed) {
-    const receipt = document.createElement('div');
-    receipt.className = 'plan-revise-receipt';
-    receipt.innerHTML = `
-      <div class="plan-revise-receipt-kicker">${escapeHtml(t('planReviseNotesLabel'))}</div>
-      <p class="plan-revise-receipt-notes">${escapeHtml(trimmed)}</p>
-    `;
-    host.querySelector('.plan-panel')?.appendChild(receipt);
-  }
+
+  const receipt = document.createElement('details');
+  receipt.className = 'plan-receipt';
+  receipt.innerHTML = `
+    <summary class="plan-receipt-summary">
+      <span class="plan-panel-kicker">${escapeHtml(label)}</span>
+      ${title ? `<span class="plan-receipt-title">${escapeHtml(title)}</span>` : ''}
+    </summary>
+    <div class="plan-receipt-body">
+      ${summary ? `<p class="plan-panel-summary">${escapeHtml(summary)}</p>` : ''}
+      ${stepsHtml ? `<div class="plan-panel-steps">${stepsHtml}</div>` : ''}
+      ${
+        kind === 'revise' && trimmed
+          ? `<div class="plan-revise-receipt">
+              <div class="plan-revise-receipt-kicker">${escapeHtml(t('planReviseNotesLabel'))}</div>
+              <p class="plan-revise-receipt-notes">${escapeHtml(trimmed)}</p>
+            </div>`
+          : ''
+      }
+    </div>
+  `;
+  host.replaceChildren(receipt);
   clarifyLiveState = null;
   clearClarifyingChrome();
 }
@@ -6570,6 +6590,12 @@ function showPlanLive(ev) {
       ${summary ? `<p class="plan-panel-summary">${escapeHtml(summary)}</p>` : ''}
     </div>
     <div class="plan-panel-steps">${steps.map(planStepRowHtml).join('')}</div>
+    ${cardKind === 'plan' ? `<label class="plan-start-task" title="${escapeHtml(t('planStartDurableTaskHint'))}">
+      <input type="checkbox" class="plan-start-task-input" checked>
+      <span class="plan-start-task-copy">
+        <span class="plan-start-task-label">${escapeHtml(t('planStartDurableTask'))}</span>
+      </span>
+    </label>` : ''}
     <div class="plan-panel-actions">
       <button type="button" class="plan-decline-btn">${escapeHtml(t('planDecline'))}</button>
       <button type="button" class="plan-revise-btn">${escapeHtml(t('planRevise'))}</button>
@@ -6804,7 +6830,6 @@ function handleSessionWorkspaceEvent(request) {
       kind !== 'assistant-final' &&
       kind !== 'execution-end' &&
       kind !== 'thought' &&
-      kind !== 'thought-open' &&
       kind !== 'text' &&
       kind !== 'reasoning'
     ) {
@@ -6895,7 +6920,7 @@ function handleSessionWorkspaceEvent(request) {
       uiState(sid).pendingClarify = null;
       const host = clarifyHostForSession(sid);
       if (host?.classList.contains('is-plan')) {
-        // Plan cards seal in place on their own thread; do not transplant or vanish.
+        // Fold the live card to a one-line receipt; do not leave the full plan open.
         if (sid === foreground && !host.classList.contains('is-sealed')) {
           const decision =
             ev.decision === 'revise' ? 'revise' : ev.approved === true || ev.decision === 'approve' ? 'approved' : 'declined';
@@ -7045,7 +7070,7 @@ function settleLiveTurnFromTerminalEvent(ev = {}) {
   const snap = botStatusUi.snapshot();
   paintLiveTurnDisclosure({
     justSettled: disclosureMode(snap) === 'folded',
-    immediate: ev.type === 'execution-end' && (snap.phase === 'stopped' || ev.status === 'aborted' || ev.code === 'user_stop')
+    immediate: disclosureMode(snap) === 'folded'
   });
   const text = streamEventText(ev.content) || String(liveTurnAnswerText || '').trim();
   const sealed = promoteFinalAnswer(text, { force: true }) || {};
@@ -8166,7 +8191,7 @@ async function syncPickerStateFromActiveTab() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
     const url = tab.url || tab.pendingUrl || '';
-    if (isPawWorkTabUrl(url)) {
+    if (isBrowserBotTabUrl(url)) {
       const res = await chrome.tabs.sendMessage(tab.id, { action: 'get_picker_state' });
       if (res && res.active !== undefined) updatePickerButtonState(res.active);
       else updatePickerButtonState(false);
@@ -8650,7 +8675,7 @@ async function sheetSelRpc(method, extra = {}) {
   if (!artifactId) return;
   try {
     const res = await chrome.runtime.sendMessage({
-      target: 'pawwork-background',
+      target: 'browserbot-background',
       action: 'sheet_host',
       sessionId: getWorkspaceSessionId(),
       artifactId,
@@ -9570,8 +9595,8 @@ const bindHintDismissed = new Set();
 
 function loadBindHintDismissed() {
   try {
-    chrome.storage.local.get(['pagewand_bind_hint_dismissed'], (r) => {
-      const o = r?.pagewand_bind_hint_dismissed || {};
+    chrome.storage.local.get(['browserbot_bind_hint_dismissed'], (r) => {
+      const o = r?.browserbot_bind_hint_dismissed || {};
       for (const k of Object.keys(o)) {
         if (o[k]) bindHintDismissed.add(k);
       }
@@ -9586,7 +9611,7 @@ function persistBindHintDismissed() {
   const o = {};
   for (const id of bindHintDismissed) o[id] = true;
   try {
-    chrome.storage.local.set({ pagewand_bind_hint_dismissed: o });
+    chrome.storage.local.set({ browserbot_bind_hint_dismissed: o });
   } catch (_) {}
 }
 
@@ -10034,7 +10059,7 @@ function showCustomModal({
   const confirmBtn = document.getElementById('modalConfirmBtn');
 
   if (!overlay || !titleEl || !inputEl || !confirmBtn || !cancelBtn) {
-    console.warn('[PageWand] app modal missing');
+    console.warn('[BrowserBot] app modal missing');
     return;
   }
 
@@ -10171,7 +10196,7 @@ async function ensureContentScriptActive(tabId) {
       if (isUnscriptableInjectError(err) || /Cannot access a chrome:\/\//i.test(String(err?.message || err))) {
         return false;
       }
-      console.debug('[PageWand] content script inject skipped', err?.message || err);
+      console.debug('[BrowserBot] content script inject skipped', err?.message || err);
       return false;
     }
   }
@@ -10181,14 +10206,14 @@ async function ensureContentScriptActive(tabId) {
 function loadPersistentSessions() {
   // Audit C-6: Runtime is durable SoT; chrome.storage is UI cache only.
   chrome.storage.local.get(
-    ['pagewand_session_ui_cache', 'pagewand_sessions', 'pagewand_active_session_id'],
+    ['browserbot_session_ui_cache', 'browserbot_active_session_id'],
     async (result) => {
-      const cached = result.pagewand_session_ui_cache || result.pagewand_sessions || [];
+      const cached = result.browserbot_session_ui_cache || [];
       if (Array.isArray(cached) && cached.length > 0) {
         sessions = cached;
       }
-      if (result.pagewand_active_session_id) {
-        activeSessionId = result.pagewand_active_session_id;
+      if (result.browserbot_active_session_id) {
+        activeSessionId = result.browserbot_active_session_id;
       }
       try {
         const remote = await workspaceRpc('listSessions', {});
@@ -10275,9 +10300,8 @@ function savePersistentSessions(opts = {}) {
     messages: Array.isArray(s.messages) ? s.messages.slice(-40) : []
   }));
   chrome.storage.local.set({
-    pagewand_session_ui_cache: cache,
-    pagewand_sessions: cache, // legacy key for one-release migrate
-    pagewand_active_session_id: activeSessionId
+    browserbot_session_ui_cache: cache,
+    browserbot_active_session_id: activeSessionId
   });
 }
 
@@ -10448,7 +10472,7 @@ async function showActivePageToast(msg) {
     await chrome.tabs.sendMessage(tab.id, { action: 'show_custom_toast', msg });
     return true;
   } catch (err) {
-    console.warn('[PageWand] Page toast failed:', err);
+    console.warn('[BrowserBot] Page toast failed:', err);
     return false;
   }
 }
@@ -10480,7 +10504,7 @@ async function executeCrossTabImageDownload() {
   // Only download images from user-selected elements — never whole-page scrape
   if (!allElements || allElements.length === 0) {
     // Page toast (same UX as picker / content_script) — not a sidepanel modal
-    await showActivePageToast('⚠️ 请先伸爪选中要下载的图片或包含图片的区域');
+    await showActivePageToast('⚠️ 请先点选要下载的图片或包含图片的区域');
     return;
   }
 
@@ -10966,7 +10990,7 @@ function handleArtifactDownloadEvent(ev) {
 
 
 /**
- * Sanitize download filename; prefer pagewand-gen-*.png/jpg per IG-5 contract.
+ * Sanitize download filename; prefer browserbot-gen-*.png/jpg per IG-5 contract.
  * @param {string} [name]
  * @param {string} [dataUrl]
  * @returns {string}
@@ -10981,13 +11005,13 @@ function resolveImageGenDownloadName(name, dataUrl) {
   let n = (name && String(name).trim()) || '';
   // Reject path-like / oversized names
   if (!n || /[/\\]/.test(n) || n.length > 120) {
-    return `pagewand-gen-${Date.now()}.${ext}`;
+    return `browserbot-gen-${Date.now()}.${ext}`;
   }
-  // Force contract prefix pagewand-gen-*
-  if (!/^pagewand-gen-/i.test(n)) {
+  // Force contract prefix browserbot-gen-*
+  if (!/^browserbot-gen-/i.test(n)) {
     const base = n.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
     const hasExt = /\.(png|jpe?g|webp|gif)$/i.test(base);
-    return hasExt ? `pagewand-gen-${Date.now()}-${base}` : `pagewand-gen-${Date.now()}.${ext}`;
+    return hasExt ? `browserbot-gen-${Date.now()}-${base}` : `browserbot-gen-${Date.now()}.${ext}`;
   }
   if (!/\.(png|jpe?g|webp|gif)$/i.test(n)) {
     n = `${n}.${ext}`;
@@ -11321,8 +11345,8 @@ function openTrajectoryExportModal() {
   if (noteEl) {
     noteEl.value = activeSess.trajectory?.humanStatusNote || '';
   }
-  const warnEl = document.getElementById('trajectoryThoughtWarn');
-  if (warnEl) warnEl.textContent = t('trajectoryThoughtWarn');
+  const warnEl = document.getElementById('trajectoryHumanStatusSelect')?.previousElementSibling;
+  if (warnEl instanceof HTMLElement) warnEl.title = t('trajectoryThoughtWarn');
   if (!overlay) {
     // Fallback: download without modal
     downloadCurrentConversationTrajectory({ humanStatus: 'unknown' });
@@ -11371,7 +11395,7 @@ async function downloadCurrentConversationTrajectory({
     try {
       workspace = await workspaceRpc('getSession', { sessionId: String(activeSess.id) });
     } catch (e) {
-      console.warn('[PageWand] trajectory getSession failed', e);
+      console.warn('[BrowserBot] trajectory getSession failed', e);
     }
     const messages = mergeSessionTranscriptMessages(workspace?.messages, activeSess.messages);
 
@@ -11405,7 +11429,7 @@ async function downloadCurrentConversationTrajectory({
         : `轨迹已下载（${s.turns || 0} 轮 · ${s.tools || 0} 次工具 · ${s.host || 0} 次宿主）`
     );
   } catch (e) {
-    console.error('[PageWand] trajectory export failed', e);
+    console.error('[BrowserBot] trajectory export failed', e);
     showSidepanelToast(
       (currentLang === 'en' ? 'Export failed: ' : '导出失败: ') + (e?.message || e),
       { error: true }
@@ -11421,7 +11445,7 @@ function exportCurrentSessionMarkdown() {
     return;
   }
 
-  let mdContent = `# 爪爪 · 完全解放版 任务记录: ${activeSess.name}\n\n`;
+  let mdContent = `# Browser Kitten 任务记录: ${activeSess.name}\n\n`;
   mdContent += `> 导出时间: ${new Date().toLocaleString()}\n\n`;
 
   activeSess.messages.forEach((msg, idx) => {
@@ -11431,7 +11455,7 @@ function exportCurrentSessionMarkdown() {
       if (msg.thought) {
         mdContent += `<details><summary>🧠 Agent 思考流</summary>\n\n\`\`\`\n${msg.thought}\n\`\`\`\n</details>\n\n`;
       }
-      mdContent += `### 爪爪:\n${msg.content}\n\n`;
+      mdContent += `### Browser Kitten:\n${msg.content}\n\n`;
     }
   });
 
@@ -11439,7 +11463,7 @@ function exportCurrentSessionMarkdown() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `PawWork_Session_${activeSess.name.replace(/[^\w\u4e00-\u9fa5]/g, '_')}_${Date.now()}.md`;
+  a.download = `BrowserKitten_Session_${activeSess.name.replace(/[^\w\u4e00-\u9fa5]/g, '_')}_${Date.now()}.md`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -14013,13 +14037,13 @@ async function saveDebugSettings() {
   updateDevTrajectoryUi();
   /** @type {Record<string, unknown>} */
   const toStore = {
-    pagewand_use_browser_runtime: true,
-    pagewand_allow_python_fallback: false,
+    browserbot_use_browser_runtime: true,
+    browserbot_allow_python_fallback: false,
     [RUNTIME_MODE_STORAGE_KEY]: 'vnext',
     [DEV_TRAJECTORY_STORAGE_KEY]: devTraj
   };
   const captureLabel = document.getElementById('captureShortcutLabel')?.dataset?.shortcut;
-  if (captureLabel) toStore.pagewand_capture_shortcut = captureLabel;
+  if (captureLabel) toStore.browserbot_capture_shortcut = captureLabel;
   await new Promise((resolve) => {
     chrome.storage.local.set(toStore, () => resolve());
   });
@@ -14226,9 +14250,9 @@ function openAgentSettingsModal() {
 
   chrome.storage.local.get(
     [
-      'pagewand_use_browser_runtime',
-      'pagewand_allow_python_fallback',
-      'pagewand_capture_shortcut',
+      'browserbot_use_browser_runtime',
+      'browserbot_allow_python_fallback',
+      'browserbot_capture_shortcut',
       RUNTIME_MODE_STORAGE_KEY,
       DEV_TRAJECTORY_STORAGE_KEY
     ],
@@ -14237,12 +14261,12 @@ function openAgentSettingsModal() {
       if (devTrajCheck) {
         devTrajCheck.checked = res[DEV_TRAJECTORY_STORAGE_KEY] !== false;
       }
-      await refreshCaptureShortcutSettingsUi(res.pagewand_capture_shortcut);
+      await refreshCaptureShortcutSettingsUi(res.browserbot_capture_shortcut);
 
       try {
         await refreshSettingsForm();
       } catch (e) {
-        console.warn('[PageWand] settings form load failed', e);
+        console.warn('[BrowserBot] settings form load failed', e);
         fillSettingsForm(
           {
             id: null,
@@ -14491,7 +14515,7 @@ function renderRichTextContent(container, markdownText) {
     let html = parseOfficeMarkdown(cleanMarkdown);
     html = html.replace(
       /<pre><code class="language-(javascript|js)">([\s\S]*?)<\/code><\/pre>/g,
-      '<details class="pagewand-code-details"><summary>查看脚本</summary><pre><code class="language-javascript">$2</code></pre></details>'
+      '<details class="browserbot-code-details"><summary>查看脚本</summary><pre><code class="language-javascript">$2</code></pre></details>'
     );
     container.innerHTML = sanitizeModelHtml(html);
   } catch (e) {
@@ -14970,7 +14994,7 @@ async function renderSkillCatalogGrid() {
   try {
     skills = await loadUserSkills();
   } catch (e) {
-    console.warn('[PageWand] loadUserSkills failed', e);
+    console.warn('[BrowserBot] loadUserSkills failed', e);
   }
 
   if (!skills.length) {

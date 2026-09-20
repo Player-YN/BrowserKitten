@@ -92,7 +92,7 @@ let applying = false;
 let dirty = false;
 /** @type {Array<{ id: string, params?: unknown, at: number }>} */
 let commandLog = [];
-let pawSheetPlugin = null;
+let sheetHostPlugin = null;
 /** @type {Array<{ promptId?: string, sheets: object[] }>} */
 let undoStack = [];
 /** @type {Array<{ promptId?: string, sheets: object[] }>} */
@@ -147,12 +147,12 @@ function persistSheetUiLang(lang) {
   persistOfficeUiLang(lang);
 }
 
-let pawRibbonInstalled = false;
+let ribbonInstalled = false;
 
-function pawRibbonLocales(lang) {
+function ribbonLocales(lang) {
   if (lang === 'en') {
     return {
-      pawwork: {
+      browserbot: {
         export: 'Export',
         excel: 'Excel (.xlsx)',
         csv: 'CSV',
@@ -170,7 +170,7 @@ function pawRibbonLocales(lang) {
     };
   }
   return {
-    pawwork: {
+    browserbot: {
       export: '导出',
       excel: 'Excel (.xlsx)',
       csv: 'CSV',
@@ -191,7 +191,7 @@ function pawRibbonLocales(lang) {
 function applyUniverLocale(lang) {
   persistSheetUiLang(lang);
   applyOfficeDocumentLang(lang);
-  const runtime = window.__pawSheetRuntime;
+  const runtime = window.__browserBotSheetRuntime;
   if (!univerAPI || !runtime) return;
   const loc = lang === 'en' ? runtime.LocaleType.EN_US : runtime.LocaleType.ZH_CN;
   try {
@@ -254,37 +254,37 @@ function appendRibbonDropdown(parent) {
   }
 }
 
-function installPawRibbonMenus() {
-  if (pawRibbonInstalled) return true;
+function installRibbonMenus() {
+  if (ribbonInstalled) return true;
   if (!univerAPI?.createMenu || !univerAPI?.createSubmenu) return false;
   try {
     appendRibbonDropdown({
-      id: 'paw.export',
-      title: 'pawwork.export',
-      tooltip: 'pawwork.export',
+      id: 'browserbot.export',
+      title: 'browserbot.export',
+      tooltip: 'browserbot.export',
       icon: 'ExportIcon',
       order: 10,
       children: [
-        { id: 'paw.export.xlsx', title: 'pawwork.excel', action: () => downloadNow('xlsx') },
-        { id: 'paw.export.csv', title: 'pawwork.csv', action: () => downloadNow('csv') },
-        { id: 'paw.export.tsv', title: 'pawwork.tsv', action: () => downloadNow('tsv') }
+        { id: 'browserbot.export.xlsx', title: 'browserbot.excel', action: () => downloadNow('xlsx') },
+        { id: 'browserbot.export.csv', title: 'browserbot.csv', action: () => downloadNow('csv') },
+        { id: 'browserbot.export.tsv', title: 'browserbot.tsv', action: () => downloadNow('tsv') }
       ]
     });
     appendRibbonDropdown({
-      id: 'paw.lang',
-      title: 'pawwork.langMenu',
-      tooltip: 'pawwork.langMenu',
+      id: 'browserbot.lang',
+      title: 'browserbot.langMenu',
+      tooltip: 'browserbot.langMenu',
       order: 11,
       children: [
-        { id: 'paw.lang.zh', title: 'pawwork.langZh', action: () => applyUniverLocale('zh') },
-        { id: 'paw.lang.en', title: 'pawwork.langEn', action: () => applyUniverLocale('en') }
+        { id: 'browserbot.lang.zh', title: 'browserbot.langZh', action: () => applyUniverLocale('zh') },
+        { id: 'browserbot.lang.en', title: 'browserbot.langEn', action: () => applyUniverLocale('en') }
       ]
     });
     univerAPI
       .createMenu({
-        id: 'paw.undo-agent',
-        title: 'pawwork.undo',
-        tooltip: 'pawwork.undo',
+        id: 'browserbot.undo-agent',
+        title: 'browserbot.undo',
+        tooltip: 'browserbot.undo',
         icon: 'UndoIcon',
         order: 12,
         action: () => void undoLastAgentEdit()
@@ -292,15 +292,15 @@ function installPawRibbonMenus() {
       .appendTo('ribbon.start.others');
     univerAPI
       .createMenu({
-        id: 'paw.redo-agent',
-        title: 'pawwork.redo',
-        tooltip: 'pawwork.redo',
+        id: 'browserbot.redo-agent',
+        title: 'browserbot.redo',
+        tooltip: 'browserbot.redo',
         icon: 'RedoIcon',
         order: 13,
         action: () => void redoLastAgentEdit()
       })
       .appendTo('ribbon.start.others');
-    pawRibbonInstalled = true;
+    ribbonInstalled = true;
     return true;
   } catch (err) {
     console.warn('[sheet] Univer createMenu failed', err);
@@ -308,18 +308,18 @@ function installPawRibbonMenus() {
   }
 }
 
-function schedulePawRibbonMenus() {
-  if (installPawRibbonMenus()) return;
+function scheduleRibbonMenus() {
+  if (installRibbonMenus()) return;
   try {
     univerAPI.addEvent(univerAPI.Event.LifeCycleChanged, (params) => {
       const stage = params?.stage;
       const Stages = univerAPI.Enum?.LifecycleStages;
       if (!Stages || stage === Stages.Rendered || stage === Stages.Steady) {
-        installPawRibbonMenus();
+        installRibbonMenus();
       }
     });
   } catch {
-    window.setTimeout(() => installPawRibbonMenus(), 0);
+    window.setTimeout(() => installRibbonMenus(), 0);
   }
 }
 
@@ -375,33 +375,33 @@ function bindCommandPolicy() {
   };
 }
 
-function installPawSheetPlugin() {
+function installSheetPlugin() {
   try {
-    pawSheetPlugin?.dispose?.();
+    sheetHostPlugin?.dispose?.();
   } catch {
     /* previous instance */
   }
-  pawSheetPlugin = null;
+  sheetHostPlugin = null;
   const paste = bindPastePolicy();
   const cmds = bindCommandPolicy();
-  installPawRibbonMenus();
-  pawSheetPlugin = {
-    name: 'PawSheetHost',
+  installRibbonMenus();
+  sheetHostPlugin = {
+    name: 'SheetHost',
     dispose() {
       paste.dispose();
       cmds.dispose();
     }
   };
-  return pawSheetPlugin;
+  return sheetHostPlugin;
 }
 
 function disposeUniverRuntime() {
   try {
-    pawSheetPlugin?.dispose?.();
+    sheetHostPlugin?.dispose?.();
   } catch {
     /* */
   }
-  pawSheetPlugin = null;
+  sheetHostPlugin = null;
   try {
     univerAPI?.getActiveWorkbook?.()?.dispose?.();
   } catch {
@@ -451,7 +451,7 @@ function currentSheets() {
 function currentBytes() {
   const sheets = currentSheets();
   if (kind === 'xlsx') {
-    return window.__pawSheetRuntime.writeXlsxBytes(sheets);
+    return window.__browserBotSheetRuntime.writeXlsxBytes(sheets);
   }
   const delim = kind === 'tsv' ? '\t' : ',';
   const text = aoaToCsv(sheets[0]?.rows || [], delim);
@@ -466,7 +466,7 @@ function promoteToXlsx() {
 }
 
 async function bytesForXlsxExport(prefetched = {}) {
-  const runtime = window.__pawSheetRuntime;
+  const runtime = window.__browserBotSheetRuntime;
   let snap =
     prefetched.snap || univerAPI?.getActiveWorkbook?.()?.save?.() || snapshotData();
   const images = prefetched.images || (await collectLiveSheetImages());
@@ -491,7 +491,7 @@ function persistSnapshot() {
 }
 
 async function bytesForPersist() {
-  const runtime = window.__pawSheetRuntime;
+  const runtime = window.__browserBotSheetRuntime;
   const images = await collectLiveSheetImages();
   const snap = persistSnapshot();
   if (images.length || snap) promoteToXlsx();
@@ -732,8 +732,8 @@ function cloneSheets(sheets) {
   }));
 }
 
-function tPaw(key, fallback) {
-  const pack = pawRibbonLocales(sheetUiLang())?.pawwork || {};
+function tHost(key, fallback) {
+  const pack = ribbonLocales(sheetUiLang())?.browserbot || {};
   const v = pack[key];
   return v != null ? String(v) : fallback;
 }
@@ -762,21 +762,21 @@ function showAgentUndoToast(kind = 'applied') {
   const undoBtn = el.querySelector('[data-act="undo"]');
   const redoBtn = el.querySelector('[data-act="redo"]');
   if (kind === 'undone') {
-    if (msgEl) msgEl.textContent = tPaw('undoDone', '已撤销这次提问');
+    if (msgEl) msgEl.textContent = tHost('undoDone', '已撤销这次提问');
   } else if (kind === 'redone') {
-    if (msgEl) msgEl.textContent = tPaw('redoDone', '已重做这次提问');
+    if (msgEl) msgEl.textContent = tHost('redoDone', '已重做这次提问');
   } else if (msgEl) {
-    const many = tPaw('undoToastMany', 'Agent 已按这次提问改了表格 · 还可撤销 {0} 次');
+    const many = tHost('undoToastMany', 'Agent 已按这次提问改了表格 · 还可撤销 {0} 次');
     msgEl.textContent =
-      nUndo > 1 ? many.replace('{0}', String(nUndo)) : tPaw('undoToast', 'Agent 已按这次提问改了表格');
+      nUndo > 1 ? many.replace('{0}', String(nUndo)) : tHost('undoToast', 'Agent 已按这次提问改了表格');
   }
   if (undoBtn) {
-    undoBtn.textContent = `← ${tPaw('undo', '撤销这次提问')}`;
+    undoBtn.textContent = `← ${tHost('undo', '撤销这次提问')}`;
     undoBtn.hidden = nUndo === 0;
     undoBtn.disabled = nUndo === 0;
   }
   if (redoBtn) {
-    redoBtn.textContent = `${tPaw('redo', '重做这次提问')} →`;
+    redoBtn.textContent = `${tHost('redo', '重做这次提问')} →`;
     redoBtn.hidden = nRedo === 0;
     redoBtn.disabled = nRedo === 0;
   }
@@ -846,7 +846,7 @@ async function undoLastAgentEdit() {
       const saved = await applyPromptSnapshot(moved.restore.sheets, moved.restore.snapshot);
       if (!saved?.ok) return;
       showAgentUndoToast('undone');
-      setStatus(tPaw('undoDone', '已撤销这次提问'));
+      setStatus(tHost('undoDone', '已撤销这次提问'));
     });
   } finally {
     applying = false;
@@ -875,7 +875,7 @@ async function redoLastAgentEdit() {
       const saved = await applyPromptSnapshot(moved.restore.sheets, moved.restore.snapshot);
       if (!saved?.ok) return;
       showAgentUndoToast('redone');
-      setStatus(tPaw('redoDone', '已重做这次提问'));
+      setStatus(tHost('redoDone', '已重做这次提问'));
     });
   } finally {
     applying = false;
@@ -1656,10 +1656,10 @@ function wireBar() {
 }
 
 async function loadSheetRuntime() {
-  if (window.__pawSheetRuntime) return window.__pawSheetRuntime;
+  if (window.__browserBotSheetRuntime) return window.__browserBotSheetRuntime;
   try {
     const runtime = await import('./vendor/sheet-runtime.js');
-    window.__pawSheetRuntime = runtime;
+    window.__browserBotSheetRuntime = runtime;
     return runtime;
   } catch (e) {
     const msg = String(e?.message || e || '');
@@ -1685,11 +1685,11 @@ async function mountUniver(workbookData) {
     locales: {
       [runtime.LocaleType.ZH_CN]: runtime.mergeLocales(
         runtime.mergeSheetLocalesZhCN ? runtime.mergeSheetLocalesZhCN() : runtime.sheetsZhCN,
-        pawRibbonLocales('zh')
+        ribbonLocales('zh')
       ),
       [runtime.LocaleType.EN_US]: runtime.mergeLocales(
         runtime.mergeSheetLocalesEnUS ? runtime.mergeSheetLocalesEnUS() : runtime.sheetsEnUS,
-        pawRibbonLocales('en')
+        ribbonLocales('en')
       )
     },
     presets: runtime.createSheetPresets
@@ -1728,11 +1728,11 @@ async function mountUniver(workbookData) {
       const stage = params?.stage;
       if (Stages && stage !== Stages.Steady) return;
       bootWorkbook();
-      installPawSheetPlugin();
+      installSheetPlugin();
     });
   } catch {
     bootWorkbook();
-    installPawSheetPlugin();
+    installSheetPlugin();
   }
   univerAPI.createWorkbook(data);
   try {
@@ -1861,7 +1861,7 @@ async function main() {
     rememberDurable(sheets);
     let embedded = [];
     if (kind === 'xlsx') {
-      const runtime = window.__pawSheetRuntime;
+      const runtime = window.__browserBotSheetRuntime;
       embedded = runtime?.extractXlsxImages?.(item.bytes) || [];
       if (snapshot && embedded.length) {
         snapshot = rewriteWorkbookImages(cloneWorkbookData(snapshot), embedded);
@@ -1909,7 +1909,7 @@ async function main() {
       ) {
         return false;
       }
-      if (msg?.action !== 'pawwork_sheet_rpc') return false;
+      if (msg?.action !== 'browserbot_sheet_rpc') return false;
       executeSheetRpc(msg)
         .then((r) => sendResponse(r))
         .catch((e) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));

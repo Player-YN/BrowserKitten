@@ -8,10 +8,11 @@
  * by dbName so a NEW store instance still recovers prior flushes (restart sim).
  */
 
+import { WORKSPACE_DB_NAME } from '../../../brand.js';
 import { SessionWorkspaceStore } from './store.js';
 import { sweepOrphanScratch } from './gc.js';
 
-const DEFAULT_DB_NAME = 'pawwork-session-workspace-v1';
+const DEFAULT_DB_NAME = WORKSPACE_DB_NAME;
 const IDB_STORE = 'state';
 const STATE_KEY = 'session-workspace';
 const META_KEY = 'workspace-meta';

@@ -5,6 +5,7 @@
  * This is the programmable surface, not a product feature list.
  */
 
+import { SYS_ABI } from '../../../brand.js';
 import { extendDeadlineForWaitFor } from './runDeadline.js';
 import { screenshotToModelParts } from './actionObserve.js';
 
@@ -42,7 +43,7 @@ export const SYS_OPS = Object.freeze([
 ]);
 
 export const SYS_HELP = Object.freeze({
-  abi: 'pawwork-sys-v1',
+  abi: SYS_ABI,
   note:
     'Program the browser machine from run(). chrome / window / document are absent on purpose. Return values must JSON-serialize. Worlds: MAIN = page JS heap + page cookies; USER = own world + DOM, no page JS. sys.cdp is the Chrome DevTools Protocol pipe — not a product feature. User-asked URLs that need login, cookies, Referer, this-machine IP, or might show captcha: sys.fetch as:"page" on their tab. Never acquire/cloud/provider-fetch those. Page and extension fetch from this Chrome share the user public IP; captcha/login still need cookies+origin+Referer (page only).',
   ops: {
@@ -85,7 +86,7 @@ export const SYS_HELP = Object.freeze({
 export const SYS_MODEL_HINT = [
   'Guest is QuickJS — not browser JS, not Node. Globals: await fs.readFile/writeFile/readdir/…, await sleep(ms) to pause, and sys (no chrome/window/document/setTimeout).',
   'run ~15s (timeoutMs max 120s). sys.fetch saveTo cap 8MB → TOO_LARGE. Oversized eval/cdp or DOM/functions → TOO_LARGE / NOT_CLONEABLE.',
-  'sys.help() or inspect view=sys → full catalog (pawwork-sys-v1).',
+  `sys.help() or inspect view=sys → full catalog (${SYS_ABI}).`,
   'await sys.capabilities() → live browser availability and limits.',
   'sys.tabs.list|current|frames({tabId?})',
   'sys.tabs.open({url,active?}) sys.tabs.navigate({url,tabId?}) sys.tabs.reload({tabId?}) sys.tabs.close({tabId?}) sys.tabs.focus({tabId?})',
@@ -143,17 +144,62 @@ export function createGuestSys(opts = {}) {
     const deadlineAt = opts.deadline && typeof opts.deadline.expiresAt === 'number'
       ? opts.deadline.expiresAt
       : opts.deadline;
-    const res = await host(name, payload, { signal: opts.signal, deadline: opts.deadline || deadlineAt });
+    function emitSysHost({ ok, code, result } = {}) {
+      if (name === 'help') return;
+      if (typeof opts.onEvent !== 'function') return;
+      const tabId =
+        (result && result.tabId) ??
+        payload.tabId ??
+        payload.defaultTabId ??
+        defaultTabId;
+      const url = String(
+        (result && (result.url || result.finalUrl)) ||
+        payload.url ||
+        payload.expectedUrl ||
+        ''
+      ).slice(0, 2000);
+      try {
+        opts.onEvent({
+          type: 'host',
+          name: `sys.${name}`,
+          ok: ok === true,
+          ...(code ? { code: String(code).slice(0, 64) } : {}),
+          ...(tabId != null && tabId !== '' ? { tabId } : {}),
+          ...(url ? { url } : {}),
+          ...(opts.sessionId ? { sessionId: String(opts.sessionId) } : {})
+        });
+      } catch {
+        /* sys audit must not fail dispatch */
+      }
+    }
+    let res;
+    try {
+      res = await host(name, payload, { signal: opts.signal, deadline: opts.deadline || deadlineAt });
+    } catch (err) {
+      emitSysHost({ ok: false, code: err?.code || 'SYS_FAILED' });
+      throw err;
+    }
     if (res == null) {
+      emitSysHost({ ok: false, code: 'SYS_DENIED' });
       const err = new Error('SYS_DENIED: no response from browser host');
       err.code = 'SYS_DENIED';
       throw err;
     }
     if (res.ok === false) {
+      emitSysHost({
+        ok: false,
+        code: res.code || 'SYS_FAILED',
+        result: res.result && typeof res.result === 'object' ? res.result : res
+      });
       const err = new Error(res.error || `sys.${name} failed`);
       err.code = res.code || 'SYS_FAILED';
       throw err;
     }
+    emitSysHost({
+      ok: true,
+      code: res.code,
+      result: res.result && typeof res.result === 'object' ? res.result : res
+    });
     const value = res.result !== undefined ? res.result : res;
     if (name === 'screenshot' && value && typeof value.base64 === 'string' && value.base64) {
       visionParts.push(...screenshotToModelParts({

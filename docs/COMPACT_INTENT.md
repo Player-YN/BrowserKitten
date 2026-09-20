@@ -31,9 +31,9 @@
 
 ## 官方实践对照
 
-- [OpenAI Codex `compact.rs`](https://github.com/openai/codex/blob/main/codex-rs/core/src/compact.rs)：收集真实 user messages，保留源身份，按最新优先在有界预算内重建历史。这支持“摘要之外保留用户原文”，不要求爪爪改用 OpenAI 专用 compact API。
+- [OpenAI Codex `compact.rs`](https://github.com/openai/codex/blob/main/codex-rs/core/src/compact.rs)：收集真实 user messages，保留源身份，按最新优先在有界预算内重建历史。这支持“摘要之外保留用户原文”，不要求Browser Kitten改用 OpenAI 专用 compact API。
 - [Claude Code memory](https://code.claude.com/docs/en/memory)：持久记忆与会话上下文分开；有界索引配合详情按需读取。这里采用会话内原文归档，不引入跨 session 的自动偏好推断。
-- [Claude Code hooks](https://code.claude.com/docs/en/hooks)：PreCompact/PostCompact 提供围绕 transcript 和 summary 的保存/恢复时点。爪爪采用宿主每步重注入，无需额外 hook 产品面。
+- [Claude Code hooks](https://code.claude.com/docs/en/hooks)：PreCompact/PostCompact 提供围绕 transcript 和 summary 的保存/恢复时点。Browser Kitten采用宿主每步重注入，无需额外 hook 产品面。
 
 ## 验证与边界
 

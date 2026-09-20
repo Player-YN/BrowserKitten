@@ -16,7 +16,7 @@
  */
 
 import { listArtifacts } from './artifacts.js';
-import { isPawCanvasDoc } from './openClassify.js';
+import { isRemovedCanvasDoc } from './openClassify.js';
 import { isSheetArtifact } from '../../../preview/sheetCodec.js';
 
 export const AMBIGUOUS_CANVAS = 'AMBIGUOUS_CANVAS';
@@ -94,7 +94,7 @@ export function ledgerArtifactId(execution, kind, opts = {}) {
   return keys.length === 1 ? String(ledger.byKind[keys[0]] || '').trim() : '';
 }
 
-export function isOwnedPawCanvas(store, fs, sessionId, artifactId) {
+export function isOwnedRemovedCanvas(store, fs, sessionId, artifactId) {
   return !!readOwnedCanvasText(store, fs, sessionId, artifactId);
 }
 
@@ -104,7 +104,7 @@ export function readOwnedCanvasText(store, fs, sessionId, artifactId) {
   try {
     const raw = fs.readFileBytes(rec.primaryPath);
     const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
-    return isPawCanvasDoc(text) ? text : '';
+    return isRemovedCanvasDoc(text) ? text : '';
   } catch {
     return '';
   }
@@ -131,7 +131,7 @@ export function listMatchingCanvases(store, fs, sessionId, kind) {
     const id = String(a.artifactId || '').trim();
     return (
       id &&
-      isOwnedPawCanvas(store, fs, sessionId, id) &&
+      isOwnedRemovedCanvas(store, fs, sessionId, id) &&
       kindFromOwnedCanvas(store, fs, sessionId, id) === want
     );
   });
@@ -155,7 +155,7 @@ export function resolveVisualCreateTarget(store, fs, sessionId, execution, opts 
   const focused = String(opts.focusedId || '').trim();
   const wantNew = String(opts.artifactMode || '').trim().toLowerCase() === 'new';
 
-  if (explicit && isOwnedPawCanvas(store, fs, sessionId, explicit)) {
+  if (explicit && isOwnedRemovedCanvas(store, fs, sessionId, explicit)) {
     const live = kindFromOwnedCanvas(store, fs, sessionId, explicit);
     if (want && live && live !== want) {
       return {
@@ -171,20 +171,20 @@ export function resolveVisualCreateTarget(store, fs, sessionId, execution, opts 
   if (wantNew) {
     const newKind = inferCreateKind(want, focused, store, fs, sessionId, execution);
     const existingNew = ledgerArtifactId(execution, newKind, { explicitNew: true });
-    if (existingNew && isOwnedPawCanvas(store, fs, sessionId, existingNew)) {
+    if (existingNew && isOwnedRemovedCanvas(store, fs, sessionId, existingNew)) {
       return { ok: true, applyId: existingNew, markExplicitNew: true };
     }
     return { ok: true, applyId: '', create: true, markExplicitNew: true, kind: newKind };
   }
 
   const led = ledgerArtifactId(execution, want);
-  if (led && isOwnedPawCanvas(store, fs, sessionId, led)) {
+  if (led && isOwnedRemovedCanvas(store, fs, sessionId, led)) {
     if (!want || kindFromOwnedCanvas(store, fs, sessionId, led) === want) {
       return { ok: true, applyId: led };
     }
   }
 
-  if (focused && isOwnedPawCanvas(store, fs, sessionId, focused)) {
+  if (focused && isOwnedRemovedCanvas(store, fs, sessionId, focused)) {
     const live = kindFromOwnedCanvas(store, fs, sessionId, focused);
     if (!want || live === want) return { ok: true, applyId: focused };
   }
@@ -273,7 +273,7 @@ export function listMatchingWorkbooks(store, fs, sessionId) {
 
 function inferCreateKind(want, focused, store, fs, sessionId, execution) {
   if (want) return want;
-  if (focused && isOwnedPawCanvas(store, fs, sessionId, focused)) {
+  if (focused && isOwnedRemovedCanvas(store, fs, sessionId, focused)) {
     return kindFromOwnedCanvas(store, fs, sessionId, focused) || 'deck';
   }
   const keys = Object.keys(execution?.visualCreation?.byKind || {}).filter(

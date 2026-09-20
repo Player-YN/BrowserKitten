@@ -58,7 +58,7 @@ def copy_tree() -> list[str]:
 
 def write_readme() -> None:
     (DEST / "README.md").write_text(
-        """# 爪爪 · 完全解放版
+        """# Browser Kitten
 
 Chrome MV3 **unpacked** load root. Not on the Chrome Web Store.
 

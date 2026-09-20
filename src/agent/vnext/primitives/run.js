@@ -65,7 +65,7 @@ export function createRunTool(ctx) {
         files: {
           type: 'object',
           additionalProperties: { type: 'string' },
-          description: 'Optional virtual TS/JS source files keyed by path. Imports may use relative paths or pawwork:stdlib/*.'
+          description: 'Optional virtual TS/JS source files keyed by path. Imports may use relative paths or browserbot:stdlib/*.'
         },
         timeoutMs: { type: 'number' }
       },

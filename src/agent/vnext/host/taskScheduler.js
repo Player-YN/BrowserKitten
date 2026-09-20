@@ -1,6 +1,7 @@
 /** Chrome wakeups only; durable tasks and dispatch ownership live in offscreen. */
-export const TASK_WAKE_ALARM = 'pawwork-task-wake';
-export const TASK_RECONCILE_ALARM = 'pawwork-task-reconcile';
+import { TASK_RECONCILE_ALARM, TASK_WAKE_ALARM } from '../../../brand.js';
+
+export { TASK_WAKE_ALARM, TASK_RECONCILE_ALARM };
 
 export function createTaskScheduler({ alarms, rpc, now = Date.now, onError = console.warn }) {
   let pending = false;

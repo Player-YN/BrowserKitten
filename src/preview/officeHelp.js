@@ -51,7 +51,7 @@ const COPY = {
     reorderSlide: '胶片条聚焦时：Alt+Shift+左右箭头调整幻灯片顺序（不占用方向键微移）',
     pagesMenu: '左上角 Page 菜单可新建 / 切换画布分区（不是幻灯片）',
     insertImage: '「插入图片」从工作区选栅格；也可拖到画布或用引擎 Asset',
-    sitePaw: '侧栏「伸爪」关闭时浏览（链接可跳转）；打开后点击才点选。',
+    sitePick: '侧栏「点选」关闭时浏览（链接可跳转）；打开后点击才点选。',
     designEngine:
       '画板引擎已提供：V 选择 · T 文字 · R 矩形 · O 椭圆 · F 画板 · A 箭头 · L 线 · N 便利贴 · 空格平移 · 方向键微移 · Ctrl+D 复制 · G 编组 · Ctrl+Z 撤销 · Delete 删除 · Ctrl+A 全选 · K 激光笔 · Ctrl+U 插入媒体',
     slidesEngine: '未放映时方向键微移形状；编辑文字时方向键交给输入。默认把当前 16:9 钉在视口（不是只准一页）；总览可漫游。画板工具键仍由引擎处理。',
@@ -82,7 +82,7 @@ const COPY = {
     reorderSlide: 'With filmstrip focus: Alt+Shift+Left/Right reorders slides (canvas arrows still nudge)',
     pagesMenu: 'Top-left Page menu creates canvas pages (not slides)',
     insertImage: 'Insert image from the workspace; or drop / Asset tool',
-    sitePaw: 'Paw off = browse (links work). Paw on = pin elements.',
+    sitePick: 'Pick off = browse (links work). Pick on = pin elements.',
     designEngine:
       'Canvas engine already provides: V select · T text · R rectangle · O ellipse · F frame · A arrow · L line · N note · Space pan · arrows nudge · Ctrl+D duplicate · G group · Ctrl+Z undo · Delete · Ctrl+A select all · K laser · Ctrl+U media',
     slidesEngine: 'While not presenting, arrows nudge shapes. While editing text, arrows stay with the caret. Default view pins the current 16:9 (not a one-page cap); Overview roams. Tool keys stay with the engine.',
@@ -123,7 +123,7 @@ function rowsFor(surface) {
         { keys: [mod, 'D'], text: c.duplicate },
         { keys: ['↑ ↓ ← →'], text: c.nudge }
       ],
-      notes: [c.sitePaw]
+      notes: [c.sitePick]
     };
   }
   return { rows: shared, notes: [] };

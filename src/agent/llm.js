@@ -1,18 +1,24 @@
 /**
  * Provider settings for BYOK OpenAI-compatible HTTPS.
- * Inference goes through AI SDK (`createPageWandLanguageModel`), not this file.
+ * Inference goes through AI SDK (`createBrowserBotLanguageModel`), not this file.
  *
- *   pagewand_providers: [{ id, name, baseURL, apiKey, model, createdAt, image?, lastProbe? }]
- *   pagewand_active_provider_id: string
- * Legacy keys (pagewand_api_key / pagewand_api_base / selected_model) migrate once.
+ *   browserbot_providers: [{ id, name, baseURL, apiKey, model, createdAt, image?, lastProbe? }]
+ *   browserbot_active_provider_id: string
+ * Flat copies (browserbot_api_key / browserbot_api_base / selected_model) stay in sync with the active chat provider.
  *
  * Chat baseURL + model are chat-only. Image APIs are a separate active id
- * (`pagewand_active_image_provider_id`): either purpose:'image' vendors or
+ * (`browserbot_active_image_provider_id`): either purpose:'image' vendors or
  * a leftover nested `image` on a chat record. Never overwrite chat base
  * with an image path. Speech-to-text is purpose:'stt' +
- * `pagewand_active_stt_provider_id` (OpenAI-compatible POST /audio/transcriptions).
+ * `browserbot_active_stt_provider_id` (OpenAI-compatible POST /audio/transcriptions).
  */
 
+import {
+  STORAGE_ACTIVE_IMAGE_PROVIDER_ID,
+  STORAGE_ACTIVE_PROVIDER_ID,
+  STORAGE_ACTIVE_STT_PROVIDER_ID,
+  STORAGE_PROVIDERS
+} from '../brand.js';
 import { normalizeMediaOverrides } from './chatMedia.js';
 import { normalizeContextWindowOverrides } from './contextWindowStore.js';
 
@@ -30,10 +36,10 @@ export const DEFAULT_OPENROUTER_IMAGE_PATH = '/images';
 export const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-2.5-flash-image';
 
 /** chrome.storage.local keys */
-export const PROVIDERS_STORAGE_KEY = 'pagewand_providers';
-export const ACTIVE_PROVIDER_ID_KEY = 'pagewand_active_provider_id';
-export const ACTIVE_IMAGE_PROVIDER_ID_KEY = 'pagewand_active_image_provider_id';
-export const ACTIVE_STT_PROVIDER_ID_KEY = 'pagewand_active_stt_provider_id';
+export const PROVIDERS_STORAGE_KEY = STORAGE_PROVIDERS;
+export const ACTIVE_PROVIDER_ID_KEY = STORAGE_ACTIVE_PROVIDER_ID;
+export const ACTIVE_IMAGE_PROVIDER_ID_KEY = STORAGE_ACTIVE_IMAGE_PROVIDER_ID;
+export const ACTIVE_STT_PROVIDER_ID_KEY = STORAGE_ACTIVE_STT_PROVIDER_ID;
 export const DEFAULT_STT_MODEL = 'whisper-1';
 export const DEFAULT_STT_BASE = 'https://api.openai.com/v1';
 
@@ -102,14 +108,14 @@ export const PROVIDER_PRESETS = [
  *   apiKey?: string,
  *   path?: string,
  *   model?: string
- * }} PageWandProviderImage
+ * }} BrowserBotProviderImage
  *
  * @typedef {{
  *   ok: boolean,
  *   at: number,
  *   count: number,
  *   error?: string
- * }} PageWandProviderProbe
+ * }} BrowserBotProviderProbe
  *
  * @typedef {{
  *   id: string,
@@ -119,9 +125,9 @@ export const PROVIDER_PRESETS = [
  *   model: string,
  *   createdAt: number,
  *   purpose?: 'chat'|'image'|'stt',
- *   image?: PageWandProviderImage,
- *   lastProbe?: PageWandProviderProbe
- * }} PageWandProvider
+ *   image?: BrowserBotProviderImage,
+ *   lastProbe?: BrowserBotProviderProbe
+ * }} BrowserBotProvider
  */
 
 /** Dedicated 生图 vendor (not a chat API). */
@@ -202,7 +208,7 @@ function normalizeLastProbe(raw) {
   if (!raw || typeof raw !== 'object') return undefined;
   const at = Number(raw.at);
   const count = Number(raw.count);
-  /** @type {PageWandProviderProbe} */
+  /** @type {BrowserBotProviderProbe} */
   const out = {
     ok: raw.ok === true,
     at: Number.isFinite(at) ? at : 0,
@@ -214,12 +220,12 @@ function normalizeLastProbe(raw) {
 
 /**
  * MiniMax-style image config defaults. enabled is always false unless overridden.
- * @param {Partial<PageWandProviderImage>} [overrides]
- * @returns {PageWandProviderImage}
+ * @param {Partial<BrowserBotProviderImage>} [overrides]
+ * @returns {BrowserBotProviderImage}
  */
 export function defaultImageConfig(overrides = {}) {
   const o = overrides && typeof overrides === 'object' ? overrides : {};
-  /** @type {PageWandProviderImage} */
+  /** @type {BrowserBotProviderImage} */
   const cfg = {
     enabled: typeof o.enabled === 'boolean' ? o.enabled : false,
     protocol:
@@ -248,11 +254,11 @@ export function defaultImageConfig(overrides = {}) {
  * Normalize optional provider.image. Returns undefined when input is absent/invalid
  * so providers without image config stay lean.
  * @param {unknown} image
- * @returns {PageWandProviderImage|undefined}
+ * @returns {BrowserBotProviderImage|undefined}
  */
 export function normalizeImageConfig(image) {
   if (image == null || typeof image !== 'object') return undefined;
-  return defaultImageConfig(/** @type {Partial<PageWandProviderImage>} */ (image));
+  return defaultImageConfig(/** @type {Partial<BrowserBotProviderImage>} */ (image));
 }
 
 function hasChromeLocalStorage() {
@@ -274,7 +280,7 @@ async function storageGet(keys) {
   }
   if (hasRuntimeBridge()) {
     const res = await chrome.runtime.sendMessage({
-      target: 'pawwork-background',
+      target: 'browserbot-background',
       action: 'storage_local_get',
       keys: list
     });
@@ -292,7 +298,7 @@ async function storageSet(obj) {
   }
   if (hasRuntimeBridge()) {
     const res = await chrome.runtime.sendMessage({
-      target: 'pawwork-background',
+      target: 'browserbot-background',
       action: 'storage_local_set',
       values: obj
     });
@@ -308,8 +314,8 @@ export function generateProviderId() {
 /**
  * Normalize one provider record.
  * Chat fields (baseURL, model) stay chat-only. Optional `image` is preserved/normalized.
- * @param {Partial<PageWandProvider>} p
- * @returns {PageWandProvider|null}
+ * @param {Partial<BrowserBotProvider>} p
+ * @returns {BrowserBotProvider|null}
  */
 export function normalizeProvider(p) {
   if (!p || typeof p !== 'object') return null;
@@ -320,7 +326,7 @@ export function normalizeProvider(p) {
   const model = typeof p.model === 'string' ? p.model.trim() : '';
   const createdAt =
     typeof p.createdAt === 'number' && Number.isFinite(p.createdAt) ? p.createdAt : Date.now();
-  /** @type {PageWandProvider} */
+  /** @type {BrowserBotProvider} */
   const out = { id, name, baseURL, apiKey, model, createdAt };
   const purpose = /** @type {any} */ (p).purpose;
   if (purpose === 'image' || purpose === 'chat' || purpose === 'stt') out.purpose = purpose;
@@ -336,16 +342,16 @@ export function normalizeProvider(p) {
 }
 
 /**
- * Migrate legacy single-key settings → pagewand_providers once.
+ * If only flat copies exist, fold them into browserbot_providers once.
  * Also ensures active id is valid when providers exist.
  * @returns {Promise<{
- *   providers: PageWandProvider[],
+ *   providers: BrowserBotProvider[],
  *   activeProviderId: string|null,
- *   active: PageWandProvider|null,
+ *   active: BrowserBotProvider|null,
  *   activeImageProviderId: string|null,
- *   activeImage: PageWandProvider|null,
+ *   activeImage: BrowserBotProvider|null,
  *   activeSttProviderId: string|null,
- *   activeStt: PageWandProvider|null,
+ *   activeStt: BrowserBotProvider|null,
  *   migrated: boolean
  * }>}
  */
@@ -355,8 +361,8 @@ export async function loadProvidersState() {
     ACTIVE_PROVIDER_ID_KEY,
     ACTIVE_IMAGE_PROVIDER_ID_KEY,
     ACTIVE_STT_PROVIDER_ID_KEY,
-    'pagewand_api_key',
-    'pagewand_api_base',
+    'browserbot_api_key',
+    'browserbot_api_base',
     'selected_model',
     'DEEPSEEK_API_KEY'
   ]);
@@ -370,10 +376,10 @@ export async function loadProvidersState() {
 
   // Migration: old single-key / base / model → one "DeepSeek" provider
   if (providers.length === 0) {
-    const oldKey = res.pagewand_api_key || res.DEEPSEEK_API_KEY || '';
+    const oldKey = res.browserbot_api_key || res.DEEPSEEK_API_KEY || '';
     const hasLegacy =
       !!oldKey ||
-      !!res.pagewand_api_base ||
+      !!res.browserbot_api_base ||
       !!res.selected_model ||
       !!res.DEEPSEEK_API_KEY;
 
@@ -382,7 +388,7 @@ export async function loadProvidersState() {
       const legacy = normalizeProvider({
         id,
         name: 'DeepSeek',
-        baseURL: res.pagewand_api_base || DEFAULT_BASE,
+        baseURL: res.browserbot_api_base || DEFAULT_BASE,
         apiKey: oldKey,
         model: res.selected_model || 'deepseek-v4-flash',
         createdAt: Date.now()
@@ -438,9 +444,8 @@ export async function loadProvidersState() {
 }
 
 /**
- * Persist providers list + optional active id. Also mirrors legacy keys from active provider
- * so older readers / status badges stay consistent.
- * @param {PageWandProvider[]} providers
+ * Persist providers list + optional active id. Also mirrors flat copies from the active provider.
+ * @param {BrowserBotProvider[]} providers
  * @param {string|null} [activeProviderId]
  * @param {string|null} [activeImageProviderId]
  * @param {string|null} [activeSttProviderId]
@@ -487,14 +492,14 @@ export async function saveProvidersState(
     [ACTIVE_STT_PROVIDER_ID_KEY]: sttResolved.activeSttProviderId
   };
 
-  // Mirror active provider → legacy keys (backward compatible)
+  // Mirror the active chat provider onto flat copies.
   if (active) {
     if (active.apiKey) {
-      toStore.pagewand_api_key = active.apiKey;
+      toStore.browserbot_api_key = active.apiKey;
       toStore.DEEPSEEK_API_KEY = active.apiKey;
     }
     if (active.baseURL) {
-      toStore.pagewand_api_base = active.baseURL.replace(/\/$/, '');
+      toStore.browserbot_api_base = active.baseURL.replace(/\/$/, '');
     }
     if (active.model) {
       toStore.selected_model = active.model;
@@ -502,9 +507,9 @@ export async function saveProvidersState(
   }
 
   if (sttResolved.activeStt) {
-    toStore.pagewand_stt_key = sttResolved.activeStt.apiKey || '';
-    toStore.pagewand_stt_base = String(sttResolved.activeStt.baseURL || '').replace(/\/$/, '');
-    toStore.pagewand_stt_model = sttResolved.activeStt.model || DEFAULT_STT_MODEL;
+    toStore.browserbot_stt_key = sttResolved.activeStt.apiKey || '';
+    toStore.browserbot_stt_base = String(sttResolved.activeStt.baseURL || '').replace(/\/$/, '');
+    toStore.browserbot_stt_model = sttResolved.activeStt.model || DEFAULT_STT_MODEL;
   }
 
   await storageSet(toStore);
@@ -568,9 +573,9 @@ export async function setActiveProviderModel(modelId, opts = {}) {
 
 /**
  * Apply an image-model id onto a provider record without touching chat model / key / base.
- * @param {PageWandProvider|null|undefined} provider
+ * @param {BrowserBotProvider|null|undefined} provider
  * @param {string} modelId
- * @returns {PageWandProvider|null}
+ * @returns {BrowserBotProvider|null}
  */
 export function applyProviderImageModel(provider, modelId) {
   const id = String(modelId || '').trim();
@@ -606,7 +611,7 @@ export async function setActiveProviderImageModel(modelId, opts = {}) {
 
 /**
  * Insert or update a provider; optionally make it active.
- * @param {Partial<PageWandProvider>} provider
+ * @param {Partial<BrowserBotProvider>} provider
  * @param {{ makeActive?: boolean }} [opts]
  */
 export async function upsertProvider(provider, opts = {}) {
@@ -676,7 +681,7 @@ export async function deleteProvider(providerId) {
  *   model: string,
  *   providerId: string|null,
  *   providerName: string,
- *   providers: PageWandProvider[],
+ *   providers: BrowserBotProvider[],
  *   activeProviderId: string|null
  * }>}
  */
@@ -725,16 +730,16 @@ export async function loadLlmSettings() {
     };
   }
 
-  // No chat provider yet: fall back to legacy keys if any. Image / STT still attach.
+  // No chat provider yet: fall back to flat copies if any. Image / STT still attach.
   const res = await storageGet([
-    'pagewand_api_key',
-    'pagewand_api_base',
+    'browserbot_api_key',
+    'browserbot_api_base',
     'selected_model',
     'DEEPSEEK_API_KEY'
   ]);
   return {
-    apiKey: res.pagewand_api_key || res.DEEPSEEK_API_KEY || '',
-    apiBase: (res.pagewand_api_base || DEFAULT_BASE).replace(/\/$/, ''),
+    apiKey: res.browserbot_api_key || res.DEEPSEEK_API_KEY || '',
+    apiBase: (res.browserbot_api_base || DEFAULT_BASE).replace(/\/$/, ''),
     model: res.selected_model || 'deepseek-v4-flash',
     providerId: null,
     providerName: '',

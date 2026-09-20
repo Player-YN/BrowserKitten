@@ -23,7 +23,7 @@ export function openDialog(dialog, opts = {}) {
       try {
         dialog.showModal();
       } catch (e) {
-        console.warn('[PageWand] showModal failed — using fallback overlay', e);
+        console.warn('[BrowserBot] showModal failed — using fallback overlay', e);
         dialog.classList.add('pw-dialog-fallback', 'is-fallback-open');
         dialog.setAttribute('open', '');
         d._pwFallbackOpen = true;

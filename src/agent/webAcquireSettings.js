@@ -1,9 +1,9 @@
 /**
  * BYOK web acquire: search (Tavily default, Brave optional) + Firecrawl fetch.
- * Storage key pagewand_web_acquire. Model still only sees acquire search|fetch.
+ * Storage key browserbot_web_acquire. Model still only sees acquire search|fetch.
  */
 
-export const WEB_ACQUIRE_STORAGE_KEY = 'pagewand_web_acquire';
+export const WEB_ACQUIRE_STORAGE_KEY = 'browserbot_web_acquire';
 
 export const SEARCH_PROVIDERS = [
   {

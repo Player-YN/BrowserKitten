@@ -254,7 +254,7 @@ function setPickActive(on) {
   pickActive = !!on;
   document.body.dataset.pawPick = pickActive ? '1' : '';
   paintPick();
-  setStatus(pickActive ? '伸爪中 · 点击以点选' : '浏览中 · 链接可跳转');
+  setStatus(pickActive ? '点选中 · 点击以点选' : '浏览中 · 链接可跳转');
   reportPickerState(pickActive);
 }
 
@@ -528,7 +528,7 @@ function wire() {
     ) {
       return false;
     }
-    if (msg?.action !== 'pawwork_html_preview_patch') return false;
+    if (msg?.action !== 'browserbot_html_preview_patch') return false;
     const aid = String(msg.artifactId || '');
     if (aid && artifactId && aid !== artifactId) {
       sendResponse({ ok: true, ignored: true });
@@ -562,7 +562,7 @@ async function boot() {
         })
         .catch(() => {});
     }
-    setStatus('浏览中 · 点侧栏「伸爪」后再点选');
+    setStatus('浏览中 · 点侧栏「点选」后再点选');
   } catch (e) {
     const bootEl = document.getElementById('boot');
     if (bootEl) {

@@ -137,7 +137,7 @@ export function classifyContextKind(desc = {}, opts = {}) {
 export function isPierceSkipDescriptor(d = {}) {
   const tag = String(d.tag || '').toLowerCase();
   if (tag === 'html' || tag === 'body') return true;
-  if (d.pagewandUi) return true;
+  if (d.hostUi) return true;
   if (d.pointerEvents === 'none') return true;
   if (d.opacity === 0 || d.visibility === 'hidden') return true;
   const name = `${d.id || ''} ${d.className || ''}`;
@@ -151,13 +151,13 @@ function tagOf(el) {
   return String(el?.tagName || '').toLowerCase();
 }
 
-function isPagewandUi(el) {
+function isHostUi(el) {
   if (!el || el.nodeType !== 1) return true;
   const cls = el.classList;
-  if (cls?.contains('pagewand-exit-float-btn') || cls?.contains('pagewand-element-badge')) return true;
-  if (cls?.contains('pagewand-link-opt-bubble')) return true;
-  if (el.id === 'pagewand-region-root' || el.id === 'pagewand-confirm-bar') return true;
-  if (el.closest?.('.pagewand-toast-container, .pagewand-exit-float-btn, .pagewand-link-opt-bubble, #pagewand-confirm-bar, #pagewand-region-root')) {
+  if (cls?.contains('browserbot-exit-float-btn') || cls?.contains('browserbot-element-badge')) return true;
+  if (cls?.contains('browserbot-link-opt-bubble')) return true;
+  if (el.id === 'browserbot-region-root' || el.id === 'browserbot-confirm-bar') return true;
+  if (el.closest?.('.browserbot-toast-container, .browserbot-exit-float-btn, .browserbot-link-opt-bubble, #browserbot-confirm-bar, #browserbot-region-root')) {
     return true;
   }
   return false;
@@ -165,7 +165,7 @@ function isPagewandUi(el) {
 
 function descriptorFromElement(el) {
   if (!el || el.nodeType !== 1) {
-    return { tag: '', pagewandUi: true };
+    return { tag: '', hostUi: true };
   }
   const win = el.ownerDocument?.defaultView;
   let pointerEvents = '';
@@ -215,7 +215,7 @@ function descriptorFromElement(el) {
     hasMediaChild,
     ownTextLen: ownText.length,
     tinyChrome,
-    pagewandUi: isPagewandUi(el)
+    hostUi: isHostUi(el)
   };
 }
 
@@ -461,7 +461,7 @@ export function pierceAndSnap(doc, x, y) {
 
   const strongOnStack = [];
   for (const el of stack) {
-    if (isPagewandUi(el) || isPierceSkipElement(el)) continue;
+    if (isHostUi(el) || isPierceSkipElement(el)) continue;
     const snap = asStrongSnap(el);
     if (snap) strongOnStack.push(snap.element);
   }
@@ -469,12 +469,12 @@ export function pierceAndSnap(doc, x, y) {
   if (stackHit) return asStrongSnap(stackHit);
 
   for (const el of stack) {
-    if (isPagewandUi(el) || isPierceSkipElement(el)) continue;
+    if (isHostUi(el) || isPierceSkipElement(el)) continue;
     const snapped = snapFromElement(el, x, y);
     if (snapped?.element && STRONG_KINDS.has(snapped.kind)) return snapped;
   }
   for (const el of stack) {
-    if (isPagewandUi(el)) continue;
+    if (isHostUi(el)) continue;
     const snapped = snapFromElement(el, x, y);
     if (snapped?.element && tagOf(snapped.element) !== 'html' && tagOf(snapped.element) !== 'body') {
       return snapped;

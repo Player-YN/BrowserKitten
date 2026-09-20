@@ -364,7 +364,7 @@ export function coerceUploadBytes(value) {
 export function applyUploadInPage(args) {
   const spec = args && typeof args === 'object' ? args : {};
   const token = String(spec.token || 'paw-upload');
-  const bag = (globalThis.__pawworkUploadChunks = globalThis.__pawworkUploadChunks || {});
+  const bag = (globalThis.__browserbotUploadChunks = globalThis.__browserbotUploadChunks || {});
   if (spec.phase === 'chunk') {
     if (!bag[token]) bag[token] = [];
     bag[token][Number(spec.index) || 0] = String(spec.b64 || '');
@@ -735,7 +735,7 @@ export async function applyUploadViaCdp(chromeRef, spec, cdp) {
     const dataUrl = `data:${mimeType};base64,${bytesToBase64(bytes)}`;
     const downloadId = await chromeRef.downloads.download({
       url: dataUrl,
-      filename: `pawwork-upload/${crypto.randomUUID ? crypto.randomUUID() : Date.now()}-${sanitizeUploadFilename(filename)}`,
+      filename: `browserbot-upload/${crypto.randomUUID ? crypto.randomUUID() : Date.now()}-${sanitizeUploadFilename(filename)}`,
       saveAs: false,
       conflictAction: 'uniquify'
     });

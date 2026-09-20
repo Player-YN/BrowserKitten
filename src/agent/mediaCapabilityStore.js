@@ -1,20 +1,22 @@
+import { MSG_TARGET_BACKGROUND } from '../brand.js';
+
 /** Configuration-scoped evidence. No credentials or provider response bodies are stored. */
-export const MEDIA_CACHE_KEY = 'pagewand_chat_media_evidence_v1';
-export const MEDIA_AUTO_KEY = 'pagewand_chat_media_auto_check';
+export const MEDIA_CACHE_KEY = 'browserbot_chat_media_evidence_v1';
+export const MEDIA_AUTO_KEY = 'browserbot_chat_media_auto_check';
 export const MEDIA_CHECK_VERSION = 1;
 export const DAY = 86400000;
 
 export async function mediaStorageGet(keys) {
   if (globalThis.chrome?.storage?.local) return (await chrome.storage.local.get(keys)) || {};
   if (!globalThis.chrome?.runtime?.sendMessage) return {};
-  const res = await chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_get', keys });
+  const res = await chrome.runtime.sendMessage({ target: MSG_TARGET_BACKGROUND, action: 'storage_local_get', keys });
   if (!res?.ok) throw new Error('MEDIA_STORAGE_UNAVAILABLE');
   return res.result || {};
 }
 
 export async function mediaStorageSet(values) {
   if (globalThis.chrome?.storage?.local) return chrome.storage.local.set(values);
-  const res = await chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_set', values });
+  const res = await chrome.runtime.sendMessage({ target: MSG_TARGET_BACKGROUND, action: 'storage_local_set', values });
   if (!res?.ok) throw new Error('MEDIA_STORAGE_UNAVAILABLE');
 }
 

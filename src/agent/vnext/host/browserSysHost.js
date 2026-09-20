@@ -1,5 +1,5 @@
 /**
- * Service-worker side of pawwork-sys-v1.
+ * Service-worker side of browserbot-sys-v1.
  * Guest never sees chrome.*. This file is the syscall implementation.
  */
 

@@ -27,9 +27,9 @@ export function isImageArtifact(item = {}) {
 export function isMarkedPreviewHtml(html) {
   const s = String(html || '');
   return (
-    /data-pawwork-preview\s*=\s*["']blocks["']/i.test(s) ||
-    /name=["']pawwork-preview["'][^>]*content=["']blocks["']/i.test(s) ||
-    /content=["']blocks["'][^>]*name=["']pawwork-preview["']/i.test(s)
+    /data-browserbot-preview\s*=\s*["']blocks["']/i.test(s) ||
+    /name=["']browserbot-preview["'][^>]*content=["']blocks["']/i.test(s) ||
+    /content=["']blocks["'][^>]*name=["']browserbot-preview["']/i.test(s)
   );
 }
 
@@ -42,7 +42,7 @@ export function extractMarkedHtmlMeta(html) {
     .map((m) => m[1])
     .join('\n');
   const langMatch = /<html\b[^>]*\blang=["']([^"']+)["']/i.exec(s);
-  const kindMatch = /data-paw-kind\s*=\s*["']([^"']+)["']/i.exec(s);
+  const kindMatch = /data-browserbot-kind\s*=\s*["']([^"']+)["']/i.exec(s);
   let kind = kindMatch?.[1] || '';
   if (!kind && /--paw-slide-w\s*:/i.test(styles)) kind = 'deck';
   if (!kind && /--paw-poster-w\s*:/i.test(styles)) kind = 'poster';
@@ -96,12 +96,12 @@ function stripDangerousHtml(html) {
 export function splitMarkedHtmlPlates(html) {
   const s = String(html || '');
   const plates = [];
-  const re = /<section\b[^>]*\bdata-paw-block\b[^>]*>([\s\S]*?)<\/section>/gi;
+  const re = /<section\b[^>]*\bdata-browserbot-block\b[^>]*>([\s\S]*?)<\/section>/gi;
   let m;
   let i = 0;
   while ((m = re.exec(s))) {
     const open = m[0].slice(0, m[0].indexOf('>') + 1);
-    const idMatch = /data-paw-block-id=["']([^"']+)["']/i.exec(open);
+    const idMatch = /data-browserbot-block-id=["']([^"']+)["']/i.exec(open);
     const inner = m[1] || '';
     const frameMatch = /data-paw-frame=["']([^"']+)["']/i.exec(open);
     const boxMatch = /data-frame-box=["']([^"']+)["']/i.exec(open);
@@ -389,13 +389,13 @@ export function platesToMarkedHtml(plates, meta = {}) {
     .join('\n');
   const styleInner = String(meta.styles || '').trim()
     || 'body{font-family:system-ui,sans-serif;line-height:1.55;color:#1c1915}@page{size:auto;margin:12mm}';
-  const kindAttr = kind ? ` data-paw-kind="${escapeHtml(kind)}"` : '';
+  const kindAttr = kind ? ` data-browserbot-kind="${escapeHtml(kind)}"` : '';
   return `<!DOCTYPE html>
-<html lang="${lang}" data-pawwork-preview="blocks"${kindAttr}>
+<html lang="${lang}" data-browserbot-preview="blocks"${kindAttr}>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="pawwork-preview" content="blocks" />
+  <meta name="browserbot-preview" content="blocks" />
   <title>${title}</title>
   <style>${styleInner}</style>
 </head>

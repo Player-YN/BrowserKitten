@@ -7,7 +7,7 @@
 import { classifyRisk, needsDispatchTicket, ticketBindingFields, RISK_PAYMENT, CONF_KNOWN, RISK_RAW, RISK_DELETE } from './riskClassify.js';
 import { readEffectiveAccessPolicy } from './accessPolicy.js';
 
-export const DISPATCH_TICKETS_KEY = 'pawwork_dispatch_tickets_v1';
+export const DISPATCH_TICKETS_KEY = 'browserbot_dispatch_tickets_v1';
 
 let installed = null;
 let mapQueue = Promise.resolve();

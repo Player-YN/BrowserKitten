@@ -10,6 +10,7 @@ import {
   sealContract,
   setActiveTaskId
 } from './taskContract.js';
+import { ensureSessionAgentsMd } from './sessionAgentsMd.js';
 
 const TASK_PREFIX = 'task:';
 const MAX_PLAN_STEPS = 24;
@@ -327,6 +328,14 @@ function consumeStartCard(store, args) {
   if (reused) {
     const existing = getTask(store, rec.taskId);
     if (!existing) throw taskError('TASK_NOT_FOUND', 'Consumed card is missing its task.');
+    try {
+      ensureSessionAgentsMd(store, sessionId, {
+        title: existing.originalGoal || existing.contract?.goal,
+        summary: existing.summary
+      });
+    } catch {
+      /* workspace notes must not fail the task receipt */
+    }
     return { ok: true, task: existing, yield: false, created: false, reused: true };
   }
   const activeId = getActiveTaskId(store, sessionId);
@@ -359,6 +368,14 @@ function consumeStartCard(store, args) {
   }
   setActiveTaskId(store, sessionId, task.taskId);
   putTaskCard(store, sessionId, { ...rec, status: 'consumed', taskId: task.taskId, finalizedAt: Date.now() });
+  try {
+    ensureSessionAgentsMd(store, sessionId, {
+      title: sealed.goal || task.originalGoal,
+      summary: task.summary
+    });
+  } catch {
+    /* workspace notes must not fail the task receipt */
+  }
   return { ok: true, task: getTask(store, task.taskId), yield: false, created: true };
 }
 
@@ -395,6 +412,58 @@ function consumeAmendCard(store, args) {
     finalizedAt: Date.now()
   });
   return { ok: true, task: updated, yield: false, created: false };
+}
+
+/**
+ * One-click path: an approved ordinary plan card may also consume a host-written
+ * task-start receipt. Does not throw when a non-terminal task is already bound.
+ * @param {import('./store.js').SessionWorkspaceStore} store
+ * @param {{ sessionId: string, executionId?: string, plan?: object, cardId?: string, now?: number, targetPage?: object }} args
+ */
+export function startTaskFromPlanApproval(store, args = {}) {
+  const sessionId = String(args.sessionId || '');
+  const plan = args.plan && typeof args.plan === 'object' ? args.plan : null;
+  const goal = String(plan?.title || '').trim();
+  if (!sessionId || !goal) return { ok: false, created: false, skipped: 'no-plan' };
+  const activeId = getActiveTaskId(store, sessionId);
+  if (activeId) {
+    const active = getTask(store, activeId);
+    if (active && !TERMINAL.has(active.status)) {
+      return { ok: true, created: false, skipped: 'already-active', task: active };
+    }
+  }
+  const draft = normalizeContractDraft({
+    goal,
+    scope: plan.summary || '',
+    constraints: plan.constraints,
+    acceptance: plan.acceptance
+  });
+  if (!draft) return { ok: false, created: false, skipped: 'invalid-draft' };
+  const cardId = String(args.cardId || '').trim() || `plan-task_${Date.now().toString(36)}`;
+  const fingerprint = contractFingerprint(draft);
+  const draftSteps = Array.isArray(plan.steps)
+    ? plan.steps.map((step) => ({
+        title: String(step?.title || step || '').trim(),
+        status: 'pending'
+      })).filter((step) => step.title)
+    : [];
+  putTaskCard(store, sessionId, {
+    cardId,
+    kind: 'task-start',
+    status: 'pending',
+    draft,
+    draftSteps,
+    fingerprint,
+    createdAt: Date.now(),
+    source: 'plan-approval'
+  });
+  return hostTaskMutation(store, {
+    sessionId,
+    executionId: args.executionId,
+    now: args.now,
+    targetPage: args.targetPage,
+    input: { op: 'start', cardId, fingerprint, steps: draftSteps }
+  });
 }
 
 export function hostTaskMutation(store, args = {}) {

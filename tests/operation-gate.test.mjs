@@ -23,7 +23,7 @@ test('Guarded allows known Save, blocks raw; Full Access allows raw; payment nev
     {
       journal,
       readPolicy: async () => ({ mode: 'guarded' }),
-      putTicket: async (ticket) => areas.session.set({ pawwork_dispatch_tickets_v1: { [ticket.operationId]: ticket } }),
+      putTicket: async (ticket) => areas.session.set({ browserbot_dispatch_tickets_v1: { [ticket.operationId]: ticket } }),
       send: async (req) => { sent.push(req); return { ok: true }; }
     }
   );

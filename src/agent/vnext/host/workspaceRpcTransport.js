@@ -1,3 +1,4 @@
+import { MSG_TARGET_OFFSCREEN } from '../../../brand.js';
 import { assertWorkspaceRpc, rpcFailure } from './workspaceRpcContract.js';
 
 function transient(error) {
@@ -10,7 +11,7 @@ export function createWorkspaceRpcTransport({ ensureRuntime, send, sleep = ms =>
     const method = String(request.method || '');
     const params = request.params ?? {};
     const contract = assertWorkspaceRpc(method, params, 'background');
-    const payload = { target: 'pawwork-offscreen', action: 'workspace_rpc_execute', method, params };
+    const payload = { target: MSG_TARGET_OFFSCREEN, action: 'workspace_rpc_execute', method, params };
     let lastError;
     for (let attempt = 0; attempt < attempts; attempt++) {
       // A creation failure happens before dispatch, and is not an unknown write.

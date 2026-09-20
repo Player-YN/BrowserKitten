@@ -1,6 +1,6 @@
 import { mediaModelKey, normalizeMediaOverrides } from '../agent/chatMedia.js';
 
-const AUTO_CHECK_KEY = 'pagewand_chat_media_auto_check';
+const AUTO_CHECK_KEY = 'browserbot_chat_media_auto_check';
 
 /** Never display an active connection's evidence as evidence for an unsaved draft. */
 export function matchesChatMediaConfig({ provider, providerId, base, model, apiKey, overrides }) {
@@ -114,12 +114,16 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
     if (panel) {
       panel.replaceChildren();
       const title = root.createElement('p'); title.className = 'settings-label'; title.textContent = t('chatMediaTitle');
+      title.title = t('chatMediaHint');
       const status = root.createElement('p'); status.id = 'chatMediaStatus'; status.className = 'settings-hint'; status.setAttribute('aria-live', 'polite');
       const recheck = root.createElement('button'); recheck.type = 'button'; recheck.id = 'chatMediaRecheck';
       recheck.className = 'btn btn-secondary settings-mini-btn'; recheck.textContent = t('chatMediaRecheck'); recheck.disabled = true;
+      recheck.title = t('chatMediaHint');
       recheck.addEventListener('click', () => { recheck.disabled = true; void refresh({ start: true, force: true }); });
       const autoLabel = root.createElement('label'); autoLabel.className = 'settings-check-row';
+      autoLabel.title = t('chatMediaCost');
       const auto = root.createElement('input'); auto.type = 'checkbox'; auto.id = 'chatMediaAutoCheck'; auto.checked = automatic;
+      auto.title = t('chatMediaCost');
       const copy = root.createElement('span'); copy.textContent = t('chatMediaAutoCheck'); autoLabel.append(auto, copy);
       auto.addEventListener('change', () => {
         const enabled = auto.checked; auto.disabled = true;
@@ -130,8 +134,7 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
           void refresh({ start: enabled });
         });
       });
-      const cost = root.createElement('p'); cost.className = 'settings-hint'; cost.textContent = t('chatMediaCost');
-      panel.append(title, status, recheck, autoLabel, cost);
+      panel.append(title, status, recheck, autoLabel);
       storage?.local?.get([AUTO_CHECK_KEY], data => { automatic = data?.[AUTO_CHECK_KEY] !== false; auto.checked = automatic; });
     }
     const host = root.getElementById('chatMediaSettings');
@@ -139,9 +142,8 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
     host.replaceChildren();
     const summary = root.createElement('summary');
     summary.textContent = t('chatMediaAdvanced');
+    summary.title = t('chatMediaHint');
     host.append(summary);
-    const hint = root.createElement('p');
-    hint.className = 'settings-hint'; hint.textContent = t('chatMediaHint'); host.append(hint);
     for (const field of fields) {
       const label = root.createElement('label');
       label.className = 'settings-label'; label.htmlFor = `chatMedia-${field}`;
@@ -170,7 +172,7 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
   root.getElementById('agentSettingsModal')?.addEventListener('close', stop);
   root.addEventListener('visibilitychange', () => { if (!visible()) stop(); else void refresh(); });
   storage?.onChanged?.addListener((changes, area) => {
-    if (area === 'local' && visible() && Object.keys(changes).some(k => k === 'pagewand_providers' || k === 'pagewand_active_provider_id' || k === AUTO_CHECK_KEY || k.startsWith('pagewand_chat_media_evidence'))) void refresh();
+    if (area === 'local' && visible() && Object.keys(changes).some(k => k === 'browserbot_providers' || k === 'browserbot_active_provider_id' || k === AUTO_CHECK_KEY || k.startsWith('browserbot_chat_media_evidence'))) void refresh();
   });
   return {
     load(provider) { overrides = normalizeMediaOverrides(provider?.chatMediaOverrides); mount(); },

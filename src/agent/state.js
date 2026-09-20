@@ -1,5 +1,5 @@
 /**
- * PageWand Browser Agent — session / run state helpers
+ * BrowserBot Browser Agent — session / run state helpers
  */
 
 /** Internal safety ceiling only — not a user setting (loops stop on finish/abort). */

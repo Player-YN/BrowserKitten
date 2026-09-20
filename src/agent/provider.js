@@ -1,5 +1,5 @@
 /**
- * PageWand — OpenAI-compatible language model via Vercel AI SDK
+ * BrowserBot — OpenAI-compatible language model via Vercel AI SDK
  * BYOK from active provider in chrome.storage; HTTPS inference only (no cloud agent orchestrator).
  */
 
@@ -9,6 +9,13 @@ import { loadCachedModelsForBase } from './modelCatalog.js';
 import { resolveChatMediaCapabilities, canSendChatMedia, MAX_CHAT_MEDIA_BYTES } from './chatMedia.js';
 import { isAbortLike, toAbortError } from './vnext/host/userStop.js';
 import { classifyMediaRejection, requestMediaFormats } from './mediaRejection.js';
+import {
+  llmProxyFailure,
+  reconstructLlmProxyResponse,
+  resolveLlmFetchUrl,
+  sanitizeLlmProxyHeaders,
+  serializeLlmProxyBody
+} from './llmProxyFetch.js';
 
 const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
 
@@ -252,7 +259,7 @@ export function applyChatReasoningToInit(init = {}, reasoning) {
  * @param {{ model?: string, reasoning?: { enabled?: boolean, effort?: string } }} [opts]
  * @returns {Promise<{ model: import('ai').LanguageModel, settings: object, modelId: string }>}
  */
-export async function createPageWandLanguageModel(opts = {}) {
+export async function createBrowserBotLanguageModel(opts = {}) {
   const settings = opts.settings || await loadLlmSettings();
   if (!settings.apiKey) {
     const err = new Error('NO_API_KEY');
@@ -263,7 +270,7 @@ export async function createPageWandLanguageModel(opts = {}) {
   const modelId = resolveModelName(opts.model || settings.model);
   const baseURL = settings.apiBase || DEFAULT_BASE;
   const providerName =
-    (settings.providerName && String(settings.providerName).trim()) || 'pagewand';
+    (settings.providerName && String(settings.providerName).trim()) || 'browserbot';
 
   const mediaCapabilities = opts.mediaCapabilities || resolveChatMediaCapabilities(
     { ...settings, model: modelId }, (await loadCachedModelsForBase(baseURL)).models
@@ -285,38 +292,49 @@ export async function createPageWandLanguageModel(opts = {}) {
 }
 
 /**
- * Fetch for AI SDK. Side Panel has host_permissions → direct HTTPS works.
- * Falls back to background non-stream proxy only for non-streaming POSTs when direct fails.
+ * Fetch for AI SDK. Extension pages with host_permissions usually succeed
+ * directly (and must, for live SSE). Offscreen can still throw TypeError
+ * Failed to fetch (CORS / unsafe headers / PNA). Then SW `llm_proxy_fetch`
+ * buffers the full HTTPS response — including SSE — so the turn can finish.
  * OpenRouter keeps reasoning / reasoning_details; Groq-class hosts strip them.
  * @param {{ reasoning?: { enabled?: boolean, effort?: string }|null }} [opts]
  * @returns {typeof fetch}
  */
 export function createExtensionFetch(opts = {}) {
-  return async function pagewandFetch(input, init = {}) {
+  return async function browserBotFetch(input, init = {}) {
     const headers = new Headers(init.headers || input?.headers);
     const requestNoRetry = headers.get('x-paw-internal-no-retry') === '1';
     headers.delete('x-paw-internal-no-retry');
-    init = { ...init, headers };
-    const url = typeof input === 'string' ? input : input?.url || '';
+    const url = resolveLlmFetchUrl(input);
     const keepReasoning = /openrouter\.ai/i.test(String(url));
-    const cleanedInit = stripUnsupportedFieldsFromRequestInit(init, opts.reasoning || null, {
+    const cleanedInit = stripUnsupportedFieldsFromRequestInit({
+      ...init,
+      headers: sanitizeLlmProxyHeaders(headers)
+    }, opts.reasoning || null, {
       keepReasoning,
       mediaCapabilities: opts.mediaContext?.current || opts.mediaCapabilities
     });
+    const body = await serializeLlmProxyBody(cleanedInit.body);
+    const fetchInit = {
+      ...cleanedInit,
+      headers: sanitizeLlmProxyHeaders(cleanedInit.headers),
+      body
+    };
+    if (body == null) delete fetchInit.body;
     try {
-      const res = await fetch(input, cleanedInit);
+      const res = await fetch(url || input, fetchInit);
       if (opts.mediaContext && [400, 415, 422].includes(res.status)) {
         try {
-          const mime = classifyMediaRejection(res.status, (await res.clone().text()).slice(0, 16000), requestMediaFormats(cleanedInit));
+          const mime = classifyMediaRejection(res.status, (await res.clone().text()).slice(0, 16000), requestMediaFormats(fetchInit));
           if (mime) await opts.mediaContext.reject(mime);
         } catch { /* evidence persistence must not replace the actual request error */ }
       }
       return keepReasoning ? liftOpenRouterReasoningResponse(res) : res;
     } catch (directErr) {
       if (opts.noRetry || requestNoRetry) throw directErr;
-      if (isAbortLike(directErr, cleanedInit?.signal)) throw toAbortError(directErr);
-      console.warn('[PageWand] direct fetch failed, trying background proxy:', directErr?.message);
-      return proxyFetchAsResponse(input, cleanedInit, directErr);
+      if (isAbortLike(directErr, fetchInit?.signal)) throw toAbortError(directErr);
+      console.warn('[BrowserBot] direct fetch failed, trying background proxy:', directErr?.message);
+      return proxyFetchAsResponse(url || input, fetchInit, directErr, { keepReasoning });
     }
   };
 }
@@ -406,64 +424,37 @@ function liftSseLine(line) {
 }
 
 /**
- * Reconstruct a Response via background `llm_proxy_fetch` (JSON body, non-stream).
- * Used only when side-panel fetch throws (rare with host_permissions).
+ * Reconstruct a Response via background `llm_proxy_fetch`.
+ * SW fetch is privileged (host_permissions, no document CORS). The reply is
+ * one-shot: the worker buffers the vendor body (JSON or SSE) then returns it.
  */
-async function proxyFetchAsResponse(input, init, directErr) {
-  const url = typeof input === 'string' ? input : input?.url || String(input);
+async function proxyFetchAsResponse(input, init, directErr, opts = {}) {
+  const url = resolveLlmFetchUrl(input);
   const method = init?.method || 'POST';
-  const headers = {};
-  if (init?.headers) {
-    const h = init.headers;
-    if (h instanceof Headers) {
-      h.forEach((v, k) => {
-        headers[k] = v;
-      });
-    } else if (Array.isArray(h)) {
-      for (const [k, v] of h) headers[k] = v;
-    } else {
-      Object.assign(headers, h);
-    }
+  const headers = sanitizeLlmProxyHeaders(init?.headers);
+  const body = await serializeLlmProxyBody(init?.body);
+
+  if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
+    throw llmProxyFailure(directErr, new Error('Background proxy unavailable'));
   }
 
-  let body = init?.body ?? null;
-  if (body && typeof body !== 'string') {
-    // AI SDK may pass Uint8Array / ReadableStream — try text decode
-    if (body instanceof Uint8Array) {
-      body = new TextDecoder().decode(body);
-    } else if (typeof body === 'object' && typeof body.toString === 'function') {
-      body = body.toString();
-    }
-  }
-
-  // Streaming body cannot be reconstructed via one-shot proxy
-  if (init?.body && typeof init.body === 'object' && typeof init.body.getReader === 'function') {
-    throw directErr || new Error('Streaming request body not supported by background proxy');
-  }
-
+  let res;
   try {
-    const res = await chrome.runtime.sendMessage({
+    res = await chrome.runtime.sendMessage({
+      target: 'browserbot-background',
       action: 'llm_proxy_fetch',
       url,
       method,
       headers,
       body
     });
-    if (!res) throw new Error(directErr?.message || 'Background proxy returned empty');
-    if (res.error && !res.text && !res.json) {
-      throw new Error(res.error);
-    }
-    const text =
-      res.text != null
-        ? res.text
-        : res.json != null
-          ? JSON.stringify(res.json)
-          : '';
-    return new Response(text, {
-      status: res.status || (res.ok ? 200 : 500),
-      headers: { 'Content-Type': 'application/json' }
-    });
   } catch (proxyErr) {
-    throw directErr || proxyErr;
+    throw llmProxyFailure(directErr, proxyErr);
   }
+  if (!res) throw llmProxyFailure(directErr, new Error('Background proxy returned empty'));
+  if (res.error && res.text == null && res.json == null) {
+    throw llmProxyFailure(directErr, new Error(res.error));
+  }
+  const response = reconstructLlmProxyResponse(res);
+  return opts.keepReasoning ? liftOpenRouterReasoningResponse(response) : response;
 }

@@ -43,7 +43,7 @@ export function isMentionablePageUrl(url) {
 const WORK_TAB_RE = /\/src\/preview\/(design|site|sheet|docs|artifactPreview)\.html/i;
 
 /**
- * Paw work surfaces (extension preview tabs). Not live-web inject targets.
+ * Extension preview tabs. Not live-web inject targets.
  * @returns {'design'|'slides'|'site'|'sheet'|'docs'|'preview'|null}
  */
 export function classifyWorkTab(url) {
@@ -56,7 +56,7 @@ export function classifyWorkTab(url) {
   return file;
 }
 
-export function isPawWorkTabUrl(url) {
+export function isBrowserBotTabUrl(url) {
   return classifyWorkTab(url) != null;
 }
 

@@ -3,6 +3,7 @@
  * Orchestrator injects session/lang/toast deps via createTrajectoryUi().
  */
 
+import { TRAJECTORY_SCHEMA } from '../brand.js';
 import { mergeSessionTranscriptMessages } from './sessionIsolation.js';
 
 /**
@@ -51,6 +52,7 @@ export function createTrajectoryUi(deps) {
     }
     btn.disabled = false;
     btn.textContent = deps.t('downloadTaskTrajectory');
+    btn.title = deps.t('trajectoryThoughtWarn');
     btn.dataset.runId = String(runId);
     btn.onclick = (e) => {
       e.preventDefault();
@@ -60,13 +62,7 @@ export function createTrajectoryUi(deps) {
         title: extra.title || task.title || ''
       });
     };
-    let warn = row.querySelector('.task-traj-warn');
-    if (!warn) {
-      warn = document.createElement('p');
-      warn.className = 'task-traj-warn';
-      row.appendChild(warn);
-    }
-    warn.textContent = deps.t('trajectoryThoughtWarn');
+    row.querySelector('.task-traj-warn')?.remove();
     deps.scrollTaskStream?.();
   }
 
@@ -104,7 +100,7 @@ export function createTrajectoryUi(deps) {
       const serialize =
         deps.serializeBehaviorTrajectory ||
         ((opts) => ({
-          schema: 'pagewand.trajectory/v3',
+          schema: TRAJECTORY_SCHEMA,
           kind: 'audit',
           exportedAt: new Date().toISOString(),
           conversation: {
@@ -124,7 +120,7 @@ export function createTrajectoryUi(deps) {
       });
       const json = deps.trajectoryToDownloadJson(doc);
       const sid = String(activeSess.id || runId || 'session').replace(/[^\w.-]+/g, '_').slice(0, 40);
-      const filename = `pagewand-trajectory-${sid}.json`;
+      const filename = `browserbot-trajectory-${sid}.json`;
       const thoughtWarn = deps.t('trajectoryThoughtWarn');
       if (thoughtWarn) deps.showToast(thoughtWarn);
       const s = doc.summary || {};
@@ -183,7 +179,7 @@ export function createTrajectoryUi(deps) {
       setTimeout(() => URL.revokeObjectURL(url), 2000);
       deps.showToast(doneMsg);
     } catch (e) {
-      console.warn('[PageWand] task trajectory download failed', e);
+      console.warn('[BrowserBot] task trajectory download failed', e);
       deps.showToast(
         currentLang === 'en' ? 'Download failed' : '下载失败: ' + (e?.message || e),
         { error: true }

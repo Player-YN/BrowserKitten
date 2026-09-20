@@ -1,9 +1,9 @@
 /**
- * PageWand user Skills — local persistence (chrome.storage.local)
+ * BrowserBot user Skills — local persistence (chrome.storage.local)
  * Product persistence model: solidify successful workflows → re-run via Agent Runtime.
  */
 
-export const SKILLS_STORAGE_KEY = 'pagewand_user_skills';
+export const SKILLS_STORAGE_KEY = 'browserbot_user_skills';
 export const MAX_USER_SKILLS = 80;
 export const MAX_SCRIPT_HINTS = 5;
 export const MAX_SCRIPT_HINT_CHARS = 8000;
@@ -239,7 +239,7 @@ export function buildSkillRunPrompt(skill) {
   const prompt =
     skill.promptTemplate ||
     skill.name ||
-    'Execute the saved PageWand skill on the current page.';
+    'Execute the saved Browser Kitten skill on the current page.';
 
   // User-turn recipe: compact, actionable; no permission expansion claims
   const lines = [

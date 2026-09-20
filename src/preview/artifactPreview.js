@@ -347,7 +347,7 @@ function wire() {
     ) {
       return false;
     }
-    if (msg?.action !== 'pawwork_html_preview_patch') return false;
+    if (msg?.action !== 'browserbot_html_preview_patch') return false;
     const aid = String(msg.artifactId || '');
     if (aid && artifactId && aid !== artifactId) {
       sendResponse({ ok: true, ignored: true });

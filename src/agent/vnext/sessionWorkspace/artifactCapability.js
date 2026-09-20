@@ -9,7 +9,7 @@ import {
   DOCS_OPEN_KINDS,
   RASTER_OPEN_KINDS,
   SHEET_OPEN_KINDS,
-  isPawCanvasDoc
+  isRemovedCanvasDoc
 } from './openClassify.js';
 
 export const PRIMARY_FAMILIES = ['docs', 'data', 'web', 'media', 'files'];
@@ -141,7 +141,7 @@ export function resolveArtifactCapability(kind, item = {}) {
   let k = String(kind || '');
 
   const rawText = itemText(item);
-  if (item.legacyCanvas === true || k === 'json-canvas' || (rawText && isPawCanvasDoc(rawText))) {
+  if (item.legacyCanvas === true || k === 'json-canvas' || (rawText && isRemovedCanvasDoc(rawText))) {
     return pack({
       kind: k || 'json-canvas',
       family: 'legacy',

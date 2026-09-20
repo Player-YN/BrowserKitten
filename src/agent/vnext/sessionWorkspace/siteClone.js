@@ -1,6 +1,6 @@
 /**
  * Host-owned faithful site clone.
- * Compiles a self-contained data-paw-kind=site HTML from complete DOM + CSS.
+ * Compiles a self-contained data-browserbot-kind=site HTML from complete DOM + CSS.
  * Node-safe — no DOMParser, no model JavaScript execution.
  */
 
@@ -88,7 +88,7 @@ export function stripActiveContent(html) {
 }
 
 /**
- * Stamp data-paw-kind=site, layout nodes, and text/img nodes.
+ * Stamp data-browserbot-kind=site, layout nodes, and text/img nodes.
  * Preserves existing data-paw-node ids.
  */
 export function stampCloneHtml(html, opts = {}) {
@@ -98,8 +98,8 @@ export function stampCloneHtml(html, opts = {}) {
   if (!/<html\b/i.test(next)) {
     next = `<!DOCTYPE html><html>${next}</html>`;
   }
-  if (!/data-paw-kind\s*=\s*["']site["']/i.test(next)) {
-    next = next.replace(/<html\b([^>]*)>/i, '<html$1 data-paw-kind="site">');
+  if (!/data-browserbot-kind\s*=\s*["']site["']/i.test(next)) {
+    next = next.replace(/<html\b([^>]*)>/i, '<html$1 data-browserbot-kind="site">');
   }
   if (lang && !/\slang\s*=/i.test(next.match(/<html\b[^>]*>/i)?.[0] || '')) {
     next = next.replace(/<html\b/i, `<html lang="${escapeAttr(lang)}"`);
@@ -221,7 +221,7 @@ export function neutralizeFontFaces(css) {
     }
     return block.replace(CSS_URL_RE, (full, q, href) => {
       if (/^data:/i.test(href) || /^local\(/i.test(href)) return full;
-      return 'local("Paw Fallback")';
+      return 'local("Browser Kitten Fallback")';
     });
   });
   return { css: next, unresolvedFonts: unique(unresolvedFonts) };
@@ -1286,4 +1286,4 @@ function guessImageMime(name) {
 }
 
 export const WEB_CLONE_DESCRIPTION =
-  'Clone a whole page into one self-contained data-paw-kind=site artifact (host captures DOM+CSS+assets; do not rewrite from inspect snippets). source=active|url|path. assets=bundle. motion=declarative (CSS keyframes/transitions retained).';
+  'Clone a whole page into one self-contained data-browserbot-kind=site artifact (host captures DOM+CSS+assets; do not rewrite from inspect snippets). source=active|url|path. assets=bundle. motion=declarative (CSS keyframes/transitions retained).';

@@ -556,17 +556,17 @@ function buildHtml(pages, opts, warning) {
   const styles = visual
     ? `:root{--paw-poster-w:${Math.min(720, w)}px;--paw-poster-h:${h}px}
 body{margin:0;background:#e7e5e4}
-section[data-paw-block]{position:relative;width:var(--paw-poster-w);height:var(--paw-poster-h);margin:16px auto;background:#fff;overflow:hidden}
-section[data-paw-block] img{width:100%;height:100%;object-fit:cover;display:block}`
+section[data-browserbot-block]{position:relative;width:var(--paw-poster-w);height:var(--paw-poster-h);margin:16px auto;background:#fff;overflow:hidden}
+section[data-browserbot-block] img{width:100%;height:100%;object-fit:cover;display:block}`
     : kind === 'deck'
       ? `:root{--paw-slide-w:${w}px;--paw-slide-h:${h}px}
 body{margin:0;background:#e7e5e4;font-family:Helvetica,Arial,sans-serif;color:#1c1917}
-section[data-paw-block]{position:relative;width:var(--paw-slide-w);height:var(--paw-slide-h);margin:16px auto;background:#fff;overflow:hidden}
-section[data-paw-block] p{white-space:pre-wrap;margin:0}`
+section[data-browserbot-block]{position:relative;width:var(--paw-slide-w);height:var(--paw-slide-h);margin:16px auto;background:#fff;overflow:hidden}
+section[data-browserbot-block] p{white-space:pre-wrap;margin:0}`
       : `:root{--paw-poster-w:${w}px;--paw-poster-h:${h}px}
 body{margin:0;background:#e7e5e4;font-family:Helvetica,Arial,sans-serif;color:#1c1917}
-section[data-paw-block]{position:relative;width:var(--paw-poster-w);height:var(--paw-poster-h);margin:16px auto;background:#fff;overflow:hidden}
-section[data-paw-block] p{white-space:pre-wrap;margin:0}`;
+section[data-browserbot-block]{position:relative;width:var(--paw-poster-w);height:var(--paw-poster-h);margin:16px auto;background:#fff;overflow:hidden}
+section[data-browserbot-block] p{white-space:pre-wrap;margin:0}`;
   const plates = pages.map((p) => ({
     id: p.id,
     html: p.html,

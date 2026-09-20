@@ -1,5 +1,5 @@
 /**
- * PageWand Draft Store — durable draft for preview/refine (refresh-safe).
+ * BrowserBot Draft Store — durable draft for preview/refine (refresh-safe).
  *
  * Source of truth = serialized draft JSON in chrome.storage.local (or memory in tests).
  * Large image blobs stay as dataUrl strings on image blocks (capped); optional IDB later.
@@ -24,7 +24,7 @@
  */
 
 /**
- * @typedef {Object} PageWandDraft
+ * @typedef {Object} BrowserBotDraft
  * @property {string} draftId
  * @property {'editing'|'ready_for_export'|'delivered'|'purged'} status
  * @property {number} version
@@ -39,12 +39,12 @@
  * @property {string} [sessionId]
  */
 
-export const DRAFTS_STORAGE_KEY = 'pagewand_drafts_v1';
+export const DRAFTS_STORAGE_KEY = 'browserbot_drafts_v1';
 export const MAX_DRAFTS = 20;
 export const MAX_BLOCKS = 200;
 export const MAX_IMAGE_DATAURL_CHARS = 400_000;
 
-/** @type {Map<string, PageWandDraft>|null} */
+/** @type {Map<string, BrowserBotDraft>|null} */
 let memoryFallback = null;
 
 function storageAvailable() {
@@ -139,8 +139,8 @@ export function normalizeBlock(b) {
 }
 
 /**
- * @param {Partial<PageWandDraft>} input
- * @returns {PageWandDraft|null}
+ * @param {Partial<BrowserBotDraft>} input
+ * @returns {BrowserBotDraft|null}
  */
 export function normalizeDraft(input) {
   if (!input || typeof input !== 'object') return null;
@@ -161,7 +161,7 @@ export function normalizeDraft(input) {
   }
   const statusRaw = String(input.status || 'editing');
   const status = ['editing', 'ready_for_export', 'delivered', 'purged'].includes(statusRaw)
-    ? /** @type {PageWandDraft['status']} */ (statusRaw)
+    ? /** @type {BrowserBotDraft['status']} */ (statusRaw)
     : 'editing';
   return {
     draftId:
@@ -204,12 +204,12 @@ export function normalizeDraft(input) {
 }
 
 /**
- * @returns {Promise<Record<string, PageWandDraft>>}
+ * @returns {Promise<Record<string, BrowserBotDraft>>}
  */
 async function loadAllMap() {
   if (!storageAvailable()) {
     if (!memoryFallback) memoryFallback = new Map();
-    /** @type {Record<string, PageWandDraft>} */
+    /** @type {Record<string, BrowserBotDraft>} */
     const o = {};
     for (const [k, v] of memoryFallback) o[k] = v;
     return o;
@@ -217,7 +217,7 @@ async function loadAllMap() {
   const res = await storageGet([DRAFTS_STORAGE_KEY]);
   const raw = res[DRAFTS_STORAGE_KEY];
   if (!raw || typeof raw !== 'object') return {};
-  /** @type {Record<string, PageWandDraft>} */
+  /** @type {Record<string, BrowserBotDraft>} */
   const out = {};
   for (const [id, d] of Object.entries(raw)) {
     const n = normalizeDraft(d);
@@ -227,13 +227,13 @@ async function loadAllMap() {
 }
 
 /**
- * @param {Record<string, PageWandDraft>} map
+ * @param {Record<string, BrowserBotDraft>} map
  */
 async function saveAllMap(map) {
   // Cap count by updatedAt
   const entries = Object.values(map).sort((a, b) => b.updatedAt - a.updatedAt);
   const kept = entries.slice(0, MAX_DRAFTS);
-  /** @type {Record<string, PageWandDraft>} */
+  /** @type {Record<string, BrowserBotDraft>} */
   const next = {};
   for (const d of kept) next[d.draftId] = d;
 
@@ -245,8 +245,8 @@ async function saveAllMap(map) {
 }
 
 /**
- * @param {Partial<PageWandDraft>} input
- * @returns {Promise<PageWandDraft>}
+ * @param {Partial<BrowserBotDraft>} input
+ * @returns {Promise<BrowserBotDraft>}
  */
 export async function createDraft(input = {}) {
   const draft = normalizeDraft({
@@ -264,7 +264,7 @@ export async function createDraft(input = {}) {
 
 /**
  * @param {string} draftId
- * @returns {Promise<PageWandDraft|null>}
+ * @returns {Promise<BrowserBotDraft|null>}
  */
 export async function loadDraft(draftId) {
   if (!draftId) return null;
@@ -274,8 +274,8 @@ export async function loadDraft(draftId) {
 
 /**
  * @param {string} draftId
- * @param {Partial<PageWandDraft> & { blocks?: DraftBlock[], bumpVersion?: boolean }} patch
- * @returns {Promise<PageWandDraft|null>}
+ * @param {Partial<BrowserBotDraft> & { blocks?: DraftBlock[], bumpVersion?: boolean }} patch
+ * @returns {Promise<BrowserBotDraft|null>}
  */
 export async function saveDraft(draftId, patch = {}) {
   const map = await loadAllMap();
@@ -310,7 +310,7 @@ export async function purgeDraft(draftId) {
 }
 
 /**
- * @returns {Promise<PageWandDraft[]>}
+ * @returns {Promise<BrowserBotDraft[]>}
  */
 export async function listDrafts() {
   const map = await loadAllMap();

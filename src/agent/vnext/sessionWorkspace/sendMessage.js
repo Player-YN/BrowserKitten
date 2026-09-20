@@ -10,10 +10,11 @@ import { getBoundGroupsCompact } from './groups.js';
 import { listBoundItemIndex } from './itemLabel.js';
 import { getArtifactIndexCompact, listArtifacts } from './artifacts.js';
 import { compactShelfSnapshot } from './artifactShelf.js';
-import { isPawCanvasDoc } from './openClassify.js';
+import { isRemovedCanvasDoc } from './openClassify.js';
 import { buildSessionAgentInstructions, buildWorldStateBlock, compactOpenTabOverview } from './prompt.js';
 import { formatTaskInstructions } from './taskInstructions.js';
 import { userRequestedPlan } from './planContract.js';
+import { sessionAgentsPresent } from './sessionAgentsMd.js';
 import { runLearnTurn, userRequestedLearn } from './learnFromTrajectory.js';
 import { createSessionTools } from './tools.js';
 import { inventoryFromSession } from './canvasInventory.js';
@@ -201,7 +202,7 @@ export async function sendMessage(store, input) {
     try {
       const rec = (listArtifacts(store, sessionId) || []).find((a) => a.artifactId === activeHtml.artifactId);
       const raw = rec?.primaryPath ? fs.readFile(rec.primaryPath) : '';
-      if (isPawCanvasDoc(raw)) {
+      if (isRemovedCanvasDoc(raw)) {
         activeHtml = {
           ...activeHtml,
           overview: { ...(activeHtml.overview || {}), kind: 'json-canvas', engine: 'removed' }
@@ -266,7 +267,8 @@ export async function sendMessage(store, input) {
     userRequestedLearn: learnRequested,
     tabOverview,
     taskContinuation,
-    taskContext
+    taskContext,
+    agentsMd: { present: sessionAgentsPresent(store, sessionId) }
   });
 
   let thoughtBuf = '';
@@ -833,7 +835,7 @@ export async function sendMessage(store, input) {
 /**
  * Resolve LanguageModel for ToolLoopAgent.
  * Priority: explicit model → callModel adapter (tests) → null (offline).
- * Product service injects real LanguageModel via createPageWandLanguageModel.
+ * Product service injects real LanguageModel via createBrowserBotLanguageModel.
  *
  * @param {{ model?: any, callModel?: Function }} input
  */

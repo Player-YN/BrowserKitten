@@ -95,15 +95,17 @@ Trajectory controls live in **`trajectoryUi.js`** (`createTrajectoryUi({ t, getL
 
 1. Prefer new UI helpers here; keep agent imports in `sidepanel.js` until a full domain split.
 2. Target: no single new file > ~400 LOC; orchestrator shrinks over time.
-3. Theme storage: `pagewand_theme_mode` (+ legacy `pagewand_theme`). Resolved theme also sets `color-scheme` on `html`/`body`.
+3. Theme storage: `browserbot_theme_mode`. Resolved theme also sets `color-scheme` on `html`/`body`.
 4. React scaffold is archived under `archive/ui-react-scaffold/`.
 5. i18n: edit strings in `i18n.js`; orchestrator keeps `currentLang` + `applyI18n()`.
 
 Durable task cards（`taskStatus.js`）≠ 对话流里的 live `.task-card`（仍在 `sidepanel.js` 的 `createTaskCard`）。
 
+`/plan` 与 task-start/amend 确认卡在线程里是 `.clarify-live.is-plan`。普通计划卡多一项默认勾选的「同时开启长任务」；task-start/amend 不加这项。批准 / 拒绝 / 提交修改后立刻收成一行 `.plan-receipt`（默认折叠，只留「已批准|未批准|需修改 · 标题」），不把完整步骤留在画面上。展开才能再看摘要和步骤。
+
 对话流里右对齐的粉胶囊是 **用户气泡**（`.msg.user`）。文案刚好是「继续」时也不是控件：durable `resume` 只出现在 `paused` 任务卡上；clarify 的「继续」只在多问题澄清条里。思考条复用逻辑在 `thinkUi.js`（一轮一条，禁止再叠一条「思考中」）。有真实 provider thought 时块必须在：流式与封条后都可展开，默认折叠，`aria-expanded` 与 Enter/Space。行动摘要不能顶替它。`#turnJumpRail` 走右槽，不盖思考条展开箭头。
 
-`#botStatus` 已降级为隐藏 polite announcer（另有 `#botStatusLive` / `#botStatusAssertive`）。完成后不再在会话顶画完成/目标页/瞄准/任务大卡。运行中的 `.turn-disclosure` 只画一行宿主 current 动作（`liveActionBrief`）：灰字 + 直播 流光只扫字形；工具间隙保持上一句，不卸挂；不画 next、租约占用、政策 chip、页面 snapshot「读取当前标签」、也不画「成功 页面·…」行。无 provider thought 时披露仍占思考块下方同一位置，不造假思考块。成功完成压成该回合一行 `完成 · {duration} · {n} 个交付物`（默认折叠，按需 hydrate）。Stop 直接折成 `已停止`。只有等待用户、宿主审批、租约冲突、失败、durable 暂停保持展开。`#accessPolicyChip` 在 composer 浮层常驻，不跟大卡隐藏。审批/付款卡在披露下方，折叠完成墙不得盖住它们。next 仍只来自 `task.nextAction`，且不画进直播摘要。历史摘要按 `executionId` 展开时才 hydrate，同时只开一张，内存完整投影只留 8 轮。思考块合同不变（卡片 chrome），状态不从 thought 推断。Stop 走 `abortCurrentExecution({sessionId})`。选区是可选瞄准，不是权限门。
+`#botStatus` 已降级为隐藏 polite announcer（另有 `#botStatusLive` / `#botStatusAssertive`）。完成后不再在会话顶画完成/目标页/瞄准/任务大卡。运行中的 `.turn-disclosure` 是 Sider 式小图标活动列表：每行左侧小灰 emoji（思考 💡 / 读取 📖 / 运行 🔧 / 页面 ✨ / 写入 ✏️），右侧短灰字；流光/脉冲只扫**最新一行**活动标签字形（思考条「思考中」有行动行后不再扫字，只留圆点）；先前行保持静止灰字，不卸挂（窄栏仍只留当前行）。不画 next、租约占用、政策 chip、页面 snapshot「读取当前标签」、也不把 inspect/`run`/page-read 算进交付物。无 provider thought 时披露仍占思考块下方同一位置，不造假思考块。完成 / 停止 / 失败 / 取消一律立刻折成一行 `完成|已停止|失败 · {duration} · {n} 个交付物`（默认折叠，按需 hydrate；`n` 只计会话 artifact），不留开放的活动列表或「客代码」行。只有等待用户、宿主审批、租约冲突、durable 暂停、needs_human 保持展开。`#accessPolicyChip` 在 composer 浮层常驻，不跟大卡隐藏。审批/付款卡在披露下方，折叠完成墙不得盖住它们。next 仍只来自 `task.nextAction`，且不画进直播摘要。历史摘要按 `executionId` 展开时才 hydrate，同时只开一张，内存完整投影只留 8 轮。思考块合同不变（卡片 chrome），状态不从 thought 推断。Stop 走 `abortCurrentExecution({sessionId})`。选区是可选瞄准，不是权限门。
 
 交付物轨主 chip 是五家族（`docs` / `data` / `web` / `media` / `files`）。`design`/`slides` 不是主 chip，legacy 数据折进其它。打开面与徽标由 `artifactCapability.js` 单一映射驱动；未知文件进检查器，text-like 安全只读，未知 HTML/JS 不在 extension origin 执行。
 

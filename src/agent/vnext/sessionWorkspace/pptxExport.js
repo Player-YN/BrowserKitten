@@ -362,17 +362,17 @@ function slideXml(tree, bgHex = '') {
 
 function themeXml() {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="${NS_A}" name="PawWork">
+<a:theme xmlns:a="${NS_A}" name="Browser Kitten">
 <a:themeElements>
-<a:clrScheme name="Paw"><a:dk1><a:srgbClr val="121214"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
+<a:clrScheme name="Office"><a:dk1><a:srgbClr val="121214"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
 <a:dk2><a:srgbClr val="1A1A1F"/></a:dk2><a:lt2><a:srgbClr val="F5F2F4"/></a:lt2>
 <a:accent1><a:srgbClr val="F43F8C"/></a:accent1><a:accent2><a:srgbClr val="E879F9"/></a:accent2>
 <a:accent3><a:srgbClr val="34D399"/></a:accent3><a:accent4><a:srgbClr val="FBBF24"/></a:accent4>
 <a:accent5><a:srgbClr val="A78BFA"/></a:accent5><a:accent6><a:srgbClr val="FB7185"/></a:accent6>
 <a:hlink><a:srgbClr val="F43F8C"/></a:hlink><a:folHlink><a:srgbClr val="E11D74"/></a:folHlink></a:clrScheme>
-<a:fontScheme name="Paw"><a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
+<a:fontScheme name="Office"><a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
 <a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>
-<a:fmtScheme name="Paw"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>
+<a:fmtScheme name="Office"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>
 <a:lnStyleLst><a:ln w="12700" cap="flat"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
 <a:ln w="12700" cap="flat"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
 <a:ln w="12700" cap="flat"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst>
@@ -441,8 +441,8 @@ function coreXml(title) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>${xmlEscape(title)}</dc:title>
-<dc:creator>Paw Work</dc:creator>
-<cp:lastModifiedBy>Paw Work</cp:lastModifiedBy>
+<dc:creator>Browser Kitten</dc:creator>
+<cp:lastModifiedBy>Browser Kitten</cp:lastModifiedBy>
 <dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created>
 <dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>
 </cp:coreProperties>`;
@@ -451,7 +451,7 @@ function coreXml(title) {
 function appXml(slides) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-<Application>Paw Work</Application>
+<Application>Browser Kitten</Application>
 <Slides>${slides}</Slides>
 </Properties>`;
 }
@@ -471,7 +471,7 @@ function plateKind(p) {
  */
 export function platesToPptxBytes(plates, opts = {}) {
   const list = Array.isArray(plates) && plates.length ? plates : [{ html: '<p></p>', title: 'Slide' }];
-  const title = opts.title || 'Paw Work';
+  const title = opts.title || 'Browser Kitten';
   const ink = themeInk(opts.theme || {});
   const files = [];
   const mediaOverrides = [];

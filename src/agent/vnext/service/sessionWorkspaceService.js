@@ -38,7 +38,8 @@ import {
 } from '../sessionWorkspace/groups.js';
 import { MediaCapabilityChecks } from '../../mediaCapabilityChecks.js';
 import { ContextWindowChecks } from '../../contextWindowProbe.js';
-import { createPageWandLanguageModel } from '../../provider.js';
+import { MSG_TARGET_BACKGROUND, WORKSPACE_DB_NAME } from '../../../brand.js';
+import { createBrowserBotLanguageModel } from '../../provider.js';
 import { runSelectionSuggest } from '../sessionWorkspace/selectionSuggest.js';
 import {
   findCatalogModel,
@@ -151,13 +152,13 @@ export class SessionWorkspaceService {
     const store =
       opts.store ||
       (await createDurableSessionWorkspaceStore({
-        dbName: opts.dbName || 'pawwork-session-workspace-v1'
+        dbName: opts.dbName || WORKSPACE_DB_NAME
       }));
     // Optional eager model for tests; product always re-resolves in sendMessage
     let model = opts.model || null;
     if (!model && !opts.callModel) {
       try {
-        const built = await createPageWandLanguageModel();
+        const built = await createBrowserBotLanguageModel();
         model = built.model;
       } catch (e) {
         // Boot without key is OK — user may configure later; sendMessage re-tries
@@ -223,7 +224,7 @@ export class SessionWorkspaceService {
 
   async resolveLanguageModel(opts = {}) {
     try {
-      const built = await createPageWandLanguageModel({
+      const built = await createBrowserBotLanguageModel({
         reasoning: opts.reasoning || null,
         settings: opts.settings,
         mediaCapabilities: opts.mediaCapabilities,
@@ -421,7 +422,7 @@ export class SessionWorkspaceService {
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
       try {
         const res = await chrome.runtime.sendMessage({
-          target: 'pawwork-background',
+          target: MSG_TARGET_BACKGROUND,
           action: 'workspace_policy_get'
         });
         if (res?.ok && res.result) return res.result;
@@ -438,7 +439,7 @@ export class SessionWorkspaceService {
     }
     if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
       const res = await chrome.runtime.sendMessage({
-        target: 'pawwork-background',
+        target: MSG_TARGET_BACKGROUND,
         action: 'workspace_ticket_put',
         ticket
       });
@@ -459,7 +460,7 @@ export class SessionWorkspaceService {
       }
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         await chrome.runtime.sendMessage({
-          target: 'pawwork-background',
+          target: MSG_TARGET_BACKGROUND,
           action: 'workspace_ticket_drop',
           operationId: id
         });
@@ -481,7 +482,7 @@ export class SessionWorkspaceService {
       }
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         const res = await chrome.runtime.sendMessage({
-          target: 'pawwork-background',
+          target: MSG_TARGET_BACKGROUND,
           action: 'workspace_ticket_drop',
           sessionId: sid,
           executionId: eid
@@ -543,7 +544,7 @@ export class SessionWorkspaceService {
   async _pageAction(message, signal) {
     this._throwIfAborted(signal);
     const out = await chrome.runtime.sendMessage({
-      target: 'pawwork-background',
+      target: MSG_TARGET_BACKGROUND,
       action: 'workspace_page_action',
       ...message
     });
@@ -1021,7 +1022,7 @@ export class SessionWorkspaceService {
     if (typeof this._peekTabLeaseFn === 'function') return this._peekTabLeaseFn(tabId);
     if (typeof globalThis.chrome?.runtime?.sendMessage !== 'function') return null;
     const res = await chrome.runtime.sendMessage({
-      target: 'pawwork-background', action: 'workspace_tab_lease_peek', tabId
+      target: MSG_TARGET_BACKGROUND, action: 'workspace_tab_lease_peek', tabId
     });
     if (!res?.ok) throw Object.assign(new Error(res?.error || 'Cannot verify browser ownership.'), {
       code: res?.code || 'LEASE_STORE_UNAVAILABLE'
@@ -1036,7 +1037,7 @@ export class SessionWorkspaceService {
         await this._releaseTabLeasesFn(sessionId, executionId);
       } else if (typeof globalThis.chrome?.runtime?.sendMessage === 'function') {
         const res = await chrome.runtime.sendMessage({
-          target: 'pawwork-background', action: 'workspace_tab_lease_release', sessionId, executionId
+          target: MSG_TARGET_BACKGROUND, action: 'workspace_tab_lease_release', sessionId, executionId
         });
         if (!res?.ok) throw new Error(res?.error || 'Browser resource release was not acknowledged.');
       }
@@ -1067,7 +1068,7 @@ export class SessionWorkspaceService {
         target = this._resolveTaskPage
           ? await this._resolveTaskPage(task.targetPage)
           : await chrome.runtime.sendMessage({
-              target: 'pawwork-background',
+              target: MSG_TARGET_BACKGROUND,
               action: 'workspace_task_resolve_page',
               page: task.targetPage
             });
@@ -1266,7 +1267,7 @@ export class SessionWorkspaceService {
       policy = await writeAccessPolicy({ mode, rememberProfile });
     } else if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
       const res = await chrome.runtime.sendMessage({
-        target: 'pawwork-background',
+        target: MSG_TARGET_BACKGROUND,
         action: 'workspace_policy_set',
         mode,
         rememberProfile
@@ -1746,21 +1747,21 @@ export class SessionWorkspaceService {
         callModel: injectedCallModel || undefined,
         hostSheet: (payload) =>
           chrome.runtime.sendMessage({
-            target: 'pawwork-background',
+            target: MSG_TARGET_BACKGROUND,
             action: 'sheet_host',
             sessionId,
             ...payload
           }),
         hostCanvas: (payload) =>
           chrome.runtime.sendMessage({
-            target: 'pawwork-background',
+            target: MSG_TARGET_BACKGROUND,
             action: 'canvas_host',
             sessionId,
             ...payload
           }),
         hostPageCapture: (payload) =>
           chrome.runtime.sendMessage({
-            target: 'pawwork-background',
+            target: MSG_TARGET_BACKGROUND,
             action: 'workspace_capture_page_blueprint',
             sessionId,
             tabId: payload?.tabId ?? activeTab?.tabId ?? activeTab?.id,
@@ -1782,7 +1783,7 @@ export class SessionWorkspaceService {
         mediaContext,
         hostFindTab: (url) =>
           chrome.runtime.sendMessage({
-            target: 'pawwork-background',
+            target: MSG_TARGET_BACKGROUND,
             action: 'workspace_find_tab',
             sessionId,
             url

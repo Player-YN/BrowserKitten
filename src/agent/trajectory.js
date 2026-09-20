@@ -1,5 +1,5 @@
 /**
- * PageWand agent trajectory — record / serialize / redact for dev export.
+ * BrowserBot agent trajectory — record / serialize / redact for dev export.
  *
  * Human owns completion: conversation.humanStatus is only set by the user
  * (export modal or sticky control). Model `finish` ≠ human completed.
@@ -18,7 +18,7 @@ export const TRAJECTORY_SCHEMA = BEHAVIOR_TRAJECTORY_SCHEMA;
 export { serializeBehaviorTrajectory, BEHAVIOR_TRAJECTORY_SCHEMA };
 
 /** chrome.storage.local key: enable dev trajectory download UI (default true when unset) */
-export const DEV_TRAJECTORY_STORAGE_KEY = 'pagewand_dev_trajectory';
+export const DEV_TRAJECTORY_STORAGE_KEY = 'browserbot_dev_trajectory';
 
 /** Per tool result / observation cap for trajectory export (debug-friendly) */
 export const TRAJECTORY_OBS_MAX_CHARS = 8000;
@@ -50,6 +50,10 @@ export const MAX_EXPORT_MESSAGE_CHARS = 12000;
 /** Secret-like key name patterns (redacted in args/results deep walk) */
 const SECRET_KEY_RE =
   /^(api[_-]?key|apikey|authorization|auth|password|passwd|secret|token|access[_-]?token|refresh[_-]?token|bearer|private[_-]?key|sk[-_])/i;
+
+/** Ordinary arrays share this cap; events / wire / audit keep their persist length. */
+export const REDACT_ARRAY_CAP = 100;
+const PRESERVE_ARRAY_KEYS = new Set(['events', 'wire']);
 
 const HUMAN_STATUS_VALUES = new Set([
   'unknown',
@@ -100,14 +104,18 @@ export function truncateForTrajectory(text, maxChars = TRAJECTORY_OBS_MAX_CHARS)
 /**
  * Deep-clone-ish redact of objects: strip secret keys, truncate long strings.
  * Never leave raw API keys in exported JSON.
+ * Turn `events`, `wire`, and `sessionAudit.events` keep their full persist
+ * length. Other arrays may still cap; the cut is marked.
  * @param {unknown} value
- * @param {{ maxString?: number, depth?: number }} [opts]
+ * @param {{ maxString?: number, depth?: number, skipClip?: boolean, preserveArray?: boolean, arrayCap?: number }} [opts]
  * @returns {unknown}
  */
 export function redactSecrets(value, opts = {}) {
   const maxString = opts.maxString ?? TRAJECTORY_OBS_MAX_CHARS;
   const depth = opts.depth ?? 0;
   const skipClip = opts.skipClip === true;
+  const preserveArray = opts.preserveArray === true;
+  const arrayCap = Number.isFinite(opts.arrayCap) ? opts.arrayCap : REDACT_ARRAY_CAP;
   if (depth > 12) return '[max depth]';
   if (value == null) return value;
   if (typeof value === 'string') {
@@ -120,7 +128,15 @@ export function redactSecrets(value, opts = {}) {
   }
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (Array.isArray(value)) {
-    return value.slice(0, 100).map((v) => redactSecrets(v, { maxString, depth: depth + 1, skipClip }));
+    const childOpts = { maxString, depth: depth + 1, skipClip, arrayCap };
+    if (preserveArray) {
+      return value.map((v) => redactSecrets(v, childOpts));
+    }
+    const mapped = value.slice(0, arrayCap).map((v) => redactSecrets(v, childOpts));
+    if (value.length > arrayCap) {
+      mapped.push({ truncated: true, omitted: value.length - arrayCap });
+    }
+    return mapped;
   }
   if (typeof value === 'object') {
     /** @type {Record<string, unknown>} */
@@ -137,7 +153,13 @@ export function redactSecrets(value, opts = {}) {
         continue;
       }
       const childSkip = skipClip || k === 'thought' || k === 'text' || eventSkip;
-      out[k] = redactSecrets(v, { maxString, depth: depth + 1, skipClip: childSkip });
+      out[k] = redactSecrets(v, {
+        maxString,
+        depth: depth + 1,
+        skipClip: childSkip,
+        preserveArray: PRESERVE_ARRAY_KEYS.has(k),
+        arrayCap
+      });
     }
     return out;
   }
@@ -656,7 +678,7 @@ export function trajectoryDownloadFilename(sessionId, date = new Date()) {
     .replace(/[^\w\-]+/g, '_')
     .slice(0, 40);
   const d = date.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  return `pagewand-trajectory-${sid}-${d}.json`;
+  return `browserbot-trajectory-${sid}-${d}.json`;
 }
 
 // Re-export for tests / consumers that only need observation cap alignment

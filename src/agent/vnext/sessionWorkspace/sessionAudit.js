@@ -1,10 +1,12 @@
 /**
  * Session-scoped append-only audit ring. Not a call journal, not exactly-once.
- * Host facts only: task / lease / abort / deadline / STALE / action outcome.
+ * Host facts only: task / lease / abort / deadline / STALE / action / sys dispatch.
  * Never stores guest sys code or large bodies.
  */
 
-export const SESSION_AUDIT_SCHEMA = 'pawwork.session-audit/v1';
+import { SESSION_AUDIT_SCHEMA } from '../../../brand.js';
+
+export { SESSION_AUDIT_SCHEMA };
 export const SESSION_AUDIT_CAP = 200;
 
 const KEEP = new Set([
@@ -17,7 +19,8 @@ const KEEP = new Set([
   'execution-start',
   'execution-end',
   'journal',
-  'policy'
+  'policy',
+  'host'
 ]);
 
 export function sessionAuditKey(sessionId) {
@@ -68,6 +71,7 @@ export function slimAuditEvent(ev = {}) {
   if (ev.executionId) row.executionId = String(ev.executionId).slice(0, 80);
   if (ev.sessionId) row.sessionId = String(ev.sessionId).slice(0, 80);
   if (ev.tabId != null && ev.tabId !== '') row.tabId = ev.tabId;
+  if (ev.url) row.url = String(ev.url).slice(0, 2000);
   if (ev.title) row.title = String(ev.title).slice(0, 120);
   if (ev.holderSessionId) row.holderSessionId = String(ev.holderSessionId).slice(0, 80);
   if (ev.name) row.name = String(ev.name).slice(0, 80);

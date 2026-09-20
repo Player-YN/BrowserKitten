@@ -160,7 +160,7 @@ test('name-only html stays neutral until first open persists a hint', async () =
     sessionId: 's',
     name: 'legacy.html',
     mimeType: 'text/html',
-    content: '<html data-paw-kind="site"><body>hi</body></html>'
+    content: '<html data-browserbot-kind="site"><body>hi</body></html>'
   });
   const id = created.artifact.artifactId;
   const rec = store.get('artifacts', id);
@@ -201,7 +201,7 @@ test('unknown binary inspector is bounded', () => {
 });
 
 test('shelf and openClassify share the capability mapping', () => {
-  const item = { name: 'site.html', text: '<html data-paw-kind="site"></html>' };
+  const item = { name: 'site.html', text: '<html data-browserbot-kind="site"></html>' };
   assert.equal(inferArtifactShelfFolder(item), 'web');
   assert.equal(previewEntryForItem(item).entry, 'site.html');
   assert.equal(capabilityForItem(item).family, 'web');

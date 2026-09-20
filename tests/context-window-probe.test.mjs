@@ -188,8 +188,8 @@ test('request does not await on sendMessage and never learns from the user hop',
     storage: {
       local: {
         get: async () => ({
-          pagewand_providers: [{ id: 'prov', baseURL: base, model, apiKey: 'secret-key' }],
-          pagewand_active_provider_id: 'prov'
+          browserbot_providers: [{ id: 'prov', baseURL: base, model, apiKey: 'secret-key' }],
+          browserbot_active_provider_id: 'prov'
         })
       }
     }

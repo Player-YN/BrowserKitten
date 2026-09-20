@@ -48,11 +48,21 @@ export function createAccessPolicyUi(deps) {
 
   function paintSettings() {
     const modeEl = deps.getSettingsMode?.();
-    const hintEl = deps.getSettingsHint?.();
     if (modeEl) modeEl.textContent = accessChipLabel(policy, t);
-    if (hintEl) hintEl.textContent = policy.mode === 'full' ? t('accessFullHint') : t('accessGuardedHint');
+    const title = accessChipTitle(policy, t);
     const toggle = deps.getSettingsToggle?.();
-    if (toggle) toggle.checked = policy.mode === 'full';
+    if (toggle) {
+      toggle.checked = policy.mode === 'full';
+      toggle.title = title;
+      const row = toggle.closest?.('label') || deps.getSettingsToggleRow?.();
+      if (row) row.title = title;
+    }
+    const card = deps.getSettingsCard?.();
+    if (card) card.title = title;
+    const heading = card?.querySelector?.('#settingsAccessTitle');
+    if (heading) heading.title = title;
+    const modeTitle = deps.getSettingsMode?.();
+    if (modeTitle) modeTitle.title = title;
   }
 
   function setPolicy(next) {

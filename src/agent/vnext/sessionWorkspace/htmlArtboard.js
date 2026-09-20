@@ -30,7 +30,7 @@ export function isArtboardKind(kind) {
 }
 
 export function htmlKindFromMarkup(html = '') {
-  const m = /data-paw-kind\s*=\s*["']([^"']+)["']/i.exec(String(html || ''));
+  const m = /data-browserbot-kind\s*=\s*["']([^"']+)["']/i.exec(String(html || ''));
   if (m) return String(m[1]).trim().toLowerCase();
   if (/--paw-poster-w\s*:/i.test(html)) return 'poster';
   if (/--paw-slide-w\s*:/i.test(html)) return 'deck';

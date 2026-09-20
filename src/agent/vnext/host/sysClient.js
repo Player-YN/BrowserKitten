@@ -3,7 +3,7 @@ export async function callBrowserSys({ op, params, sessionId, executionId, signa
   signal?.throwIfAborted();
   const callId = crypto.randomUUID();
   const envelope = {
-    target: 'pawwork-background',
+    target: 'browserbot-background',
     action: 'workspace_sys',
     sessionId,
     executionId,

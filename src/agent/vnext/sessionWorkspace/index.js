@@ -81,7 +81,7 @@ export {
   looksLikeZipBytes,
   looksLikePdfBytes,
   isUtf8OpenKind,
-  isPawCanvasDoc
+  isRemovedCanvasDoc
 } from './openClassify.js';
 export {
   capabilityForItem,
@@ -115,6 +115,13 @@ export {
 } from './taskTitle.js';
 export { buildSessionAgentInstructions, buildWorldStateBlock, SYSTEM_PROMPT_VERSION } from './prompt.js';
 export {
+  SESSION_AGENTS_PATH,
+  SESSION_STATUS_PATH,
+  ensureSessionAgentsMd,
+  formatAgentsMdInstructions,
+  readSessionAgentsMd
+} from './sessionAgentsMd.js';
+export {
   appendSessionAudit,
   readSessionAudit,
   SESSION_AUDIT_SCHEMA,
@@ -127,7 +134,7 @@ export {
   listVisitedPages,
   isInjectableTabUrl,
   classifyWorkTab,
-  isPawWorkTabUrl,
+  isBrowserBotTabUrl,
   workTabListenLabel,
   PAGES_MENTION_ID
 } from './pageContext.js';
@@ -135,7 +142,10 @@ export {
   buildWireFromTurn,
   replayWireMessages,
   attachWorldToLastUser,
-  createWireRecorder
+  createWireRecorder,
+  projectJsonForWire,
+  projectWireForDownload,
+  WIRE_MAX_ARRAY
 } from './wireTranscript.js';
 export {
   COMPACT_RATIO,
@@ -272,6 +282,7 @@ export {
   normalizePlanStep,
   isPlanApproved,
   classifyPlanDecision,
+  wantsDurableTaskFromPlan,
   planRevisionNotes,
   userRequestedPlan,
   formatFrozenPlanInstructions,

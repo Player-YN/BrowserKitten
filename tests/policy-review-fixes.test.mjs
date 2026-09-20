@@ -240,8 +240,10 @@ test('P1: verifier stays honest — no postcondition is not verified; delete nee
 });
 
 test('P1: storage bridge source denies policy keys; policy writes stay on RPC', () => {
+  const brand = readFileSync(join(root, 'src/brand.js'), 'utf8');
+  assert.match(brand, /browserbot_access_policy/);
   const bg = readFileSync(join(root, 'src/background.js'), 'utf8');
-  assert.match(bg, /pagewand_access_policy/);
+  assert.match(bg, /STORAGE_ACCESS_POLICY/);
   assert.match(bg, /STORAGE_BRIDGE_DENIED/);
   assert.match(bg, /workspace_policy_set/);
   assert.match(bg, /workspace_ticket_drop/);
@@ -333,7 +335,7 @@ test('P2: listJournal and exportJournal return real session rows', async () => {
   assert.equal(listed.operations.length, 1);
   assert.equal(listed.operations[0].operationId, 'op-q');
   const exported = await service.exportJournal({ sessionId: 's' });
-  assert.equal(exported.schema, 'pawwork.call-journal/v1');
+  assert.equal(exported.schema, 'browserbot.call-journal/v1');
   assert.equal(exported.operations[0].operationId, 'op-q');
   assert.equal(exported.operations[0].payload, undefined);
 });

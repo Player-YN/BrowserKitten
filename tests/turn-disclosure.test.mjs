@@ -2,18 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ACTIVITY_ICON,
+  activityIconKind,
   applyExecutionStatus,
   collapseConsecutiveSummary,
+  countsDeliverable,
   createExecutionStatus,
   currentFromToolCall,
   disclosureMode,
   foldStubFromState,
+  formatActivityRow,
   formatFoldLine,
   formatSummaryRowText,
   hydrateStatusFromEvents,
   isPageReadStatus,
+  latestActivityShine,
   liveActionBrief,
+  liveActivityVisual,
   persistLiveActionBrief,
+  shouldFoldDisclosureImmediately,
   projectGlobalPhase,
   rememberEndedProjection,
   shouldKeepApprovalVisible,
@@ -264,15 +271,29 @@ test('TAB_LEASED is sticky and lease copy has no profile hint', () => {
   assert.equal(/profile|新.*配置/i.test(I18N.zh.botLeaseConflict), false);
 });
 
-test('failed is sticky; completed is not', () => {
+test('failed completed stopped and cancelled all fold immediately', () => {
   let failed = createExecutionStatus();
   failed = applyExecutionStatus(failed, { type: 'execution-start', executionId: 'e1' });
   failed = applyExecutionStatus(failed, { type: 'execution-end', status: 'failed' });
-  assert.equal(disclosureMode(failed), 'sticky');
+  assert.equal(disclosureMode(failed), 'folded');
+  assert.equal(shouldFoldDisclosureImmediately(failed), true);
   let done = createExecutionStatus();
   done = applyExecutionStatus(done, { type: 'execution-start', executionId: 'e2' });
   done = applyExecutionStatus(done, { type: 'execution-end', status: 'completed' });
   assert.equal(disclosureMode(done), 'folded');
+  assert.equal(shouldFoldDisclosureImmediately(done), true);
+  let stopped = createExecutionStatus();
+  stopped = applyExecutionStatus(stopped, { type: 'execution-start', executionId: 'e3' });
+  stopped = applyExecutionStatus(stopped, { type: 'abort', aborted: true });
+  stopped = applyExecutionStatus(stopped, { type: 'execution-end', status: 'aborted', code: 'user_stop' });
+  assert.equal(disclosureMode(stopped), 'folded');
+  assert.equal(shouldFoldDisclosureImmediately(stopped), true);
+  let cancelled = createExecutionStatus();
+  cancelled = applyExecutionStatus(cancelled, { type: 'execution-start', executionId: 'e4' });
+  cancelled = applyExecutionStatus(cancelled, { type: 'execution-end', status: 'cancelled' });
+  assert.equal(cancelled.phase, 'stopped');
+  assert.equal(disclosureMode(cancelled), 'folded');
+  assert.equal(shouldFoldDisclosureImmediately(cancelled), true);
 });
 
 test('two turns keep separate disclosure stubs and no top wall', () => {
@@ -384,10 +405,185 @@ test('think Enter does not toggle disclosure', () => {
   assert.equal(disclosureOpen, false);
 });
 
+test('activity rows map small muted icons and keep run as activity', () => {
+  assert.equal(activityIconKind({ tool: 'inspect', kind: 'read', view: 'skill' }), 'read');
+  assert.equal(activityIconKind({ tool: 'inspect', kind: 'read', view: 'sys' }), 'read');
+  assert.equal(activityIconKind({ tool: 'run', kind: 'run' }), 'run');
+  assert.equal(activityIconKind({ tool: 'action', kind: 'action', op: 'click' }), 'browser');
+  assert.equal(activityIconKind({ tool: 'web', kind: 'web' }), 'browser');
+  assert.equal(activityIconKind({ tool: 'run', kind: 'write', op: 'write_artifact' }), 'write');
+  assert.equal(activityIconKind({ kind: 'think' }), 'think');
+  assert.equal(ACTIVITY_ICON.read, '📖');
+  assert.equal(ACTIVITY_ICON.run, '🔧');
+  assert.equal(ACTIVITY_ICON.browser, '✨');
+  assert.equal(ACTIVITY_ICON.write, '✏️');
+  assert.equal(ACTIVITY_ICON.think, '💡');
+  const runRow = formatActivityRow({ tool: 'run', kind: 'run', label: '运行访客代码', count: 17 }, zh);
+  assert.equal(runRow.iconKind, 'run');
+  assert.equal(runRow.icon, '🔧');
+  assert.match(runRow.label, /运行访客代码/);
+  assert.doesNotMatch(runRow.label, /交付物|deliverable/);
+  const thinkLive = liveActivityVisual({ phase: 'running', current: null }, I18N.zh.liveProgress, zh);
+  assert.equal(thinkLive.iconKind, 'think');
+  assert.equal(thinkLive.icon, '💡');
+  const runLive = liveActivityVisual(
+    { phase: 'running', current: { tool: 'run', op: '', status: 'running', text: '正在运行访客代码' } },
+    '正在运行访客代码',
+    zh
+  );
+  assert.equal(runLive.iconKind, 'run');
+  assert.equal(runLive.icon, '🔧');
+});
+
+test('after complete or stop the live activity list is folded away', () => {
+  let state = createExecutionStatus({ sessionId: 's' });
+  state = applyExecutionStatus(state, { type: 'execution-start', executionId: 'e1', startedAt: 1_000 });
+  state = applyExecutionStatus(state, {
+    type: 'tool-call',
+    toolCallId: 'c1',
+    name: 'run',
+    args: { code: '1' }
+  });
+  assert.equal(disclosureMode(state), 'live');
+  assert.equal(planLiveDisclosurePaint(state).hidden, false);
+  state = applyExecutionStatus(state, {
+    type: 'tool-result',
+    toolCallId: 'c1',
+    name: 'run',
+    ok: true,
+    result: { ok: true }
+  });
+  state = applyExecutionStatus(state, { type: 'execution-end', status: 'completed', endedAt: 8_000 });
+  assert.equal(disclosureMode(state), 'folded');
+  assert.equal(shouldFoldDisclosureImmediately(state), true);
+  assert.equal(shouldFoldDisclosureImmediately(state, { justSettled: true }), true);
+  const stub = foldStubFromState(state, zh);
+  assert.match(stub.line, /^完成 ·/);
+  assert.doesNotMatch(stub.line, /客代码|运行访客|交付物/);
+  assert.equal(stub.mode, 'folded');
+  const openList = planLiveDisclosurePaint(state, liveActionBrief(state), I18N.zh.liveProgress, { mode: 'folded' });
+  assert.equal(openList.keepMounted, !!openList.text);
+  assert.equal(disclosureMode(state) === 'live' || disclosureMode(state) === 'sticky', false);
+
+  let stopped = createExecutionStatus({ sessionId: 's' });
+  stopped = applyExecutionStatus(stopped, { type: 'execution-start', executionId: 'e2', startedAt: 1_000 });
+  stopped = applyExecutionStatus(stopped, {
+    type: 'tool-call',
+    toolCallId: 'c2',
+    name: 'run',
+    args: { code: '1' }
+  });
+  stopped = applyExecutionStatus(stopped, { type: 'abort', aborted: true });
+  stopped = applyExecutionStatus(stopped, { type: 'execution-end', status: 'aborted', code: 'user_stop', endedAt: 4_000 });
+  assert.equal(disclosureMode(stopped), 'folded');
+  assert.equal(shouldFoldDisclosureImmediately(stopped), true);
+  assert.match(foldStubFromState(stopped, zh).line, /^已停止 ·/);
+});
+
 test('fold line i18n omits deliverables when count is 0', () => {
   assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 0 }, zh), '完成 · 12S');
   assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 1 }, zh), '完成 · 12S · 1 个交付物');
   assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 2 }, en), 'Done · 12S · 2 deliverables');
+});
+
+test('run inspect and page-read never become deliverable chips or increment the count', () => {
+  assert.equal(countsDeliverable('run', { code: '1 + 1' }, { ok: true }), false);
+  assert.equal(countsDeliverable('inspect', { view: 'sys' }, { ok: true }), false);
+  assert.equal(countsDeliverable('inspect', { view: 'html' }, { ok: true }), false);
+  assert.equal(countsDeliverable('action', { op: 'snapshot' }, { ok: true }), false);
+  assert.equal(countsDeliverable('run', { op: 'write_scratch' }, { ok: true, path: '/scratch/x.js' }), false);
+  assert.equal(countsDeliverable('run', { op: 'write_artifact' }, { ok: true }), true);
+  assert.equal(countsDeliverable('run', { code: 'await fs.writeFile("/artifacts/a.html","x")' }, { ok: true, artifacts: [{ name: 'a.html' }] }), true);
+
+  let state = createExecutionStatus({ sessionId: 's' });
+  state = applyExecutionStatus(state, { type: 'execution-start', executionId: 'e1', startedAt: 1_000 });
+  state = applyExecutionStatus(state, {
+    type: 'tool-call',
+    toolCallId: 'sys',
+    name: 'inspect',
+    args: { view: 'sys' }
+  });
+  state = applyExecutionStatus(state, {
+    type: 'tool-result',
+    toolCallId: 'sys',
+    name: 'inspect',
+    ok: true,
+    result: { ok: true, view: 'sys' }
+  });
+  state = applyExecutionStatus(state, {
+    type: 'tool-call',
+    toolCallId: 'html',
+    name: 'inspect',
+    args: { view: 'html' }
+  });
+  state = applyExecutionStatus(state, {
+    type: 'tool-result',
+    toolCallId: 'html',
+    name: 'inspect',
+    ok: true,
+    result: { ok: true, view: 'html' }
+  });
+  state = applyExecutionStatus(state, {
+    type: 'tool-call',
+    toolCallId: 'snap',
+    name: 'action',
+    args: { op: 'snapshot' }
+  });
+  state = applyExecutionStatus(state, {
+    type: 'tool-result',
+    toolCallId: 'snap',
+    name: 'action',
+    ok: true,
+    result: { ok: true }
+  });
+  for (let i = 1; i <= 17; i += 1) {
+    state = applyExecutionStatus(state, {
+      type: 'tool-call',
+      toolCallId: `run${i}`,
+      name: 'run',
+      args: { code: `sys.help()` }
+    });
+    state = applyExecutionStatus(state, {
+      type: 'tool-result',
+      toolCallId: `run${i}`,
+      name: 'run',
+      ok: true,
+      result: { ok: true }
+    });
+  }
+  assert.equal(state.artifactCount, 0);
+  assert.equal(
+    state.summary.some((row) => /交付物|deliverable/i.test(formatSummaryRowText(row, zh))),
+    false
+  );
+  assert.equal(
+    state.summary.filter((row) => row.tool === 'run').every((row) => row.kind === 'run'),
+    true
+  );
+  assert.match(formatSummaryRowText(collapseConsecutiveSummary(state.summary).find((row) => row.tool === 'run'), zh), /运行访客代码/);
+  state = applyExecutionStatus(state, { type: 'execution-end', status: 'aborted', code: 'user_stop', endedAt: 13_000 });
+  const stub = foldStubFromState(state, zh);
+  assert.match(stub.line, /^已停止 ·/);
+  assert.doesNotMatch(stub.line, /交付物|deliverable/);
+  assert.equal(stub.artifactCount, 0);
+
+  let wrote = createExecutionStatus({ sessionId: 's' });
+  wrote = applyExecutionStatus(wrote, { type: 'execution-start', executionId: 'e2' });
+  wrote = applyExecutionStatus(wrote, {
+    type: 'tool-call',
+    toolCallId: 'w1',
+    name: 'run',
+    args: { op: 'write_artifact', path: '/artifacts/mainpin.html' }
+  });
+  wrote = applyExecutionStatus(wrote, {
+    type: 'tool-result',
+    toolCallId: 'w1',
+    name: 'run',
+    ok: true,
+    result: { ok: true, artifactId: 'art-1', registered: true }
+  });
+  assert.equal(wrote.artifactCount, 1);
+  assert.match(foldStubFromState(wrote, zh).line, /1 个交付物/);
 });
 
 test('liveProgress commentary never becomes execution current', () => {
@@ -611,6 +807,41 @@ test('live brief persists through page-read hops and settled success', () => {
   assert.equal(planLiveDisclosurePaint(empty).hidden, true);
 });
 
+test('live brief stays mounted and shimmers through think hops', () => {
+  let state = createExecutionStatus({ sessionId: 's' });
+  state = applyExecutionStatus(state, { type: 'execution-start', executionId: 'e1' });
+  const idleLive = planLiveDisclosurePaint(state, '', I18N.zh.liveProgress);
+  assert.equal(idleLive.hidden, false);
+  assert.equal(idleLive.keepMounted, true);
+  assert.equal(idleLive.text, I18N.zh.liveProgress);
+  state = applyExecutionStatus(state, {
+    type: 'tool-call',
+    toolCallId: 'c1',
+    name: 'run',
+    args: { code: 'await sys.help()' }
+  });
+  const running = liveActionBrief(state);
+  assert.match(running, /运行访客代码|Running guest code/);
+  state = applyExecutionStatus(state, {
+    type: 'tool-result',
+    toolCallId: 'c1',
+    name: 'run',
+    ok: true,
+    result: { ok: true }
+  });
+  state = applyExecutionStatus(state, { type: 'thought', text: '接下来继续找下载链接' });
+  state = applyExecutionStatus(state, { type: 'thought-open', text: '接下来继续找下载链接' });
+  state = applyExecutionStatus(state, { type: 'model-start' });
+  assert.equal(disclosureMode(state), 'live');
+  assert.equal(liveActionBrief(state), running);
+  const plan = planLiveDisclosurePaint(state, '', I18N.zh.liveProgress);
+  assert.equal(plan.hidden, false);
+  assert.equal(plan.keepMounted, true);
+  assert.equal(plan.text, running);
+  assert.equal(plan.shineTarget, 'turn-disclosure-current-text');
+  assert.equal(state.artifactCount, 0);
+});
+
 test('live brief stays after settle until product folds', () => {
   let state = createExecutionStatus({ sessionId: 's' });
   state = applyExecutionStatus(state, { type: 'execution-start', executionId: 'e1', startedAt: 1_000 });
@@ -635,6 +866,49 @@ test('live brief stays after settle until product folds', () => {
   assert.equal(liveActionBrief(state), '');
 });
 
+test('shine follows the latest activity row, not the think header', () => {
+  let state = createExecutionStatus({ sessionId: 's' });
+  state = applyExecutionStatus(state, { type: 'execution-start', executionId: 'e1' });
+  let shine = latestActivityShine(state);
+  assert.equal(shine.shineOn, 'fallback');
+  assert.equal(shine.thinkHeaderShimmer, false);
+  assert.equal(planLiveDisclosurePaint(state, '', I18N.zh.liveProgress).shineOn, 'fallback');
+  state = applyExecutionStatus(state, {
+    type: 'tool-call',
+    toolCallId: 'read1',
+    name: 'inspect',
+    args: { view: 'skill' }
+  });
+  shine = latestActivityShine(state);
+  assert.equal(shine.shineOn, 'latest-row');
+  assert.equal(shine.rowId, 'read1');
+  assert.equal(shine.thinkHeaderShimmer, false);
+  const first = planLiveDisclosurePaint(state);
+  assert.equal(first.shineOn, 'latest-row');
+  assert.equal(first.shineRowId, 'read1');
+  assert.equal(first.thinkHeaderShimmer, false);
+  assert.equal(first.shineTarget, 'turn-disclosure-current-text');
+  state = applyExecutionStatus(state, {
+    type: 'tool-result',
+    toolCallId: 'read1',
+    name: 'inspect',
+    ok: true,
+    result: { ok: true }
+  });
+  state = applyExecutionStatus(state, {
+    type: 'tool-call',
+    toolCallId: 'read2',
+    name: 'inspect',
+    args: { view: 'groups' }
+  });
+  shine = latestActivityShine(state);
+  assert.equal(shine.rowId, 'read2');
+  assert.notEqual(shine.rowId, 'read1');
+  const hop = planLiveDisclosurePaint(state);
+  assert.equal(hop.shineRowId, 'read2');
+  assert.notEqual(hop.shineRowId, 'read1');
+});
+
 test('live shine targets glyphs, not the row chrome', () => {
   assert.equal(LIVE_ACTION_SHINE.glyphClass, 'turn-disclosure-current-text');
   assert.equal(LIVE_ACTION_SHINE.rowClass, 'turn-disclosure-current');
@@ -646,6 +920,7 @@ test('live shine targets glyphs, not the row chrome', () => {
   });
   assert.equal(plan.shineTarget, 'turn-disclosure-current-text');
   assert.equal(plan.shineClip, 'text');
+  assert.equal(plan.thinkHeaderShimmer, false);
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const css = readFileSync(join(root, 'src/sidepanel.css'), 'utf8');
   const motion = readFileSync(join(root, 'src/sidepanel/css/motion.css'), 'utf8');
@@ -654,7 +929,9 @@ test('live shine targets glyphs, not the row chrome', () => {
   const shineBlock = css.slice(shineAt, shineAt + 1200);
   assert.match(shineBlock, /\.turn-disclosure-current-text/);
   assert.match(shineBlock, /background-clip:\s*text/);
+  assert.match(shineBlock, /liveBriefPulse/);
   assert.equal(/\.turn-disclosure\.is-live \.turn-disclosure-current,/.test(shineBlock), false);
+  assert.match(css, /\.think-block\.is-live:has\(\+\s*\.turn-disclosure/);
   assert.match(motion, /\.turn-disclosure-current-text/);
   assert.match(motion, /-webkit-text-fill-color:\s*var\(--text-muted\)/);
 });

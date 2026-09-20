@@ -130,8 +130,8 @@ test('catalog cache requires an exact normalized base URL before exposing media 
     assert.deepEqual((await loadCachedModelsForBase(source)).models, rows);
     // Simulate a legacy/cache-key collision: exact base validation remains the
     // last guard even if a caller obtains the same host cache slot.
-    const key = Object.keys(bag.pagewand_model_catalog_cache)[0];
-    bag.pagewand_model_catalog_cache[key].baseURL = 'https://gateway.example/v2';
+    const key = Object.keys(bag.browserbot_model_catalog_cache)[0];
+    bag.browserbot_model_catalog_cache[key].baseURL = 'https://gateway.example/v2';
     assert.deepEqual(await loadCachedModelsForBase(source), { models: [], fetchedAt: null });
   } finally { globalThis.chrome = previous; }
 });

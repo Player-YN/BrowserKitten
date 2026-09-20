@@ -7,6 +7,7 @@
  * Guest run(code) has guest FS + sys (browser ABI). No store, no chrome.*, no group APIs.
  */
 
+import { SYS_ABI } from '../../../brand.js';
 import { acquireLease } from './execution.js';
 import {
   createArtifact,
@@ -61,8 +62,11 @@ import {
   classifyPlanDecision,
   normalizePlan,
   pinFrozenPlan,
-  unpinFrozenPlan
+  unpinFrozenPlan,
+  wantsDurableTaskFromPlan
 } from './planContract.js';
+import { startTaskFromPlanApproval } from './tasks.js';
+import { ensureSessionAgentsMd } from './sessionAgentsMd.js';
 import {
   applyCommandsToWorkbookData,
   capRangeRead,
@@ -84,7 +88,7 @@ import { SITE_MOTION_CAPABILITY } from './siteMotionSchema.js';
 import { guestPathToDataUrl, isGuestArtifactPath, rewriteGuestImageSrcs } from './htmlMedia.js';
 import { applyDocCommands, emptyDocSnapshot } from './docsApply.js';
 import { pdfBytesToHtml, looksLikePdf, PDF_RECONSTRUCTION_WARNING } from './pdfIngest.js';
-import { classifyOpenArtifact, isPawCanvasDoc, isUtf8OpenKind } from './openClassify.js';
+import { classifyOpenArtifact, isRemovedCanvasDoc, isUtf8OpenKind } from './openClassify.js';
 import { resolveHtmlUpsertTarget } from './htmlArtboard.js';
 import { createOfficeTools } from './officeTools.js';
 import { sessionToolToModelOutput } from './canvasPreview.js';
@@ -144,7 +148,7 @@ export function createSessionTools(env) {
         : content instanceof Uint8Array
           ? new TextDecoder().decode(content.slice(0, 8000))
           : String(content || '').slice(0, 8000);
-    if (/data-paw-kind\s*=\s*["'](site|web)["']/i.test(head)) return 'site';
+    if (/data-browserbot-kind\s*=\s*["'](site|web)["']/i.test(head)) return 'site';
     return readHtmlPreviewKind(content);
   }
 
@@ -298,7 +302,7 @@ export function createSessionTools(env) {
           type: 'string',
           enum: ['groups', 'group', 'item', 'artifacts', 'files', 'skill', 'workbook', 'range', 'html', 'sys'],
           description:
-            'Which surface to read. view=sys returns the browser ABI catalog (pawwork-sys-v1); it does not call sys.'
+            `Which surface to read. view=sys returns the browser ABI catalog (${SYS_ABI}); it does not call sys.`
         },
         plateId: { type: 'string', description: 'HTML plate id (view=html)' },
         slotId: { type: 'string', description: 'HTML slot id (view=html)' },
@@ -456,7 +460,7 @@ export function createSessionTools(env) {
           return { ok: false, view, error: e instanceof Error ? e.message : String(e) };
         }
         const selected = pinnedSiteIds(sess.activeHtml?.selections);
-        if (isPawCanvasDoc(html)) {
+        if (isRemovedCanvasDoc(html)) {
           return {
             ok: true,
             view,
@@ -467,7 +471,7 @@ export function createSessionTools(env) {
             selected
           };
         }
-        if (/data-paw-kind\s*=\s*["']site["']/i.test(html)) {
+        if (/data-browserbot-kind\s*=\s*["']site["']/i.test(html)) {
           const nodes = listSiteNodes(html);
           return {
             ok: true,
@@ -899,7 +903,7 @@ export function createSessionTools(env) {
           type: 'string',
           enum: RUN_OPS,
           description:
-            'Registration ABI. The enum is the name list; aliases normalize at runtime (createWorkbook→sheet, createDocument→doc). Omit and pass code: execute on the guest machine. Categories: persist (write_artifact, update_artifact, write_package_file); scratch (write_scratch, read); register workbook (sheet, createWorkbook); register document (doc, createDocument); register html/site (write_artifact + data-paw-kind=site); register pdf-derived (ingestPdf); shelf; skill. Daily edits of an open canvas use sheet / doc / web, not these ops.'
+            'Registration ABI. The enum is the name list; aliases normalize at runtime (createWorkbook→sheet, createDocument→doc). Omit and pass code: execute on the guest machine. Categories: persist (write_artifact, update_artifact, write_package_file); scratch (write_scratch, read); register workbook (sheet, createWorkbook); register document (doc, createDocument); register html/site (write_artifact + data-browserbot-kind=site); register pdf-derived (ingestPdf); shelf; skill. Daily edits of an open canvas use sheet / doc / web, not these ops.'
         },
         name: { type: 'string' },
         artifactId: { type: 'string' },
@@ -971,7 +975,9 @@ export function createSessionTools(env) {
           signal: sysController.signal,
           deadline: runDeadline,
           hostSys: typeof env.hostSys === 'function' ? env.hostSys : null,
-          defaultTabId: env.activeTab?.tabId ?? env.activeTab?.id ?? null
+          defaultTabId: env.activeTab?.tabId ?? env.activeTab?.id ?? null,
+          onEvent,
+          sessionId
         });
         let result;
         try {
@@ -1220,8 +1226,8 @@ export function createSessionTools(env) {
           ok: false,
           op,
           code: 'NO_CANVAS',
-          error: 'Design/Slides (tldraw Paw Canvas) is removed.',
-          hint: 'Deliver HTML as a site (data-paw-kind=site + web) or a document (run op=doc / data-paw-kind=document).'
+          error: 'Design/Slides (tldraw canvas) is removed.',
+          hint: 'Deliver HTML as a site (data-browserbot-kind=site + web) or a document (run op=doc / data-browserbot-kind=document).'
         };
       }
       if (op === 'doc') {
@@ -1537,6 +1543,27 @@ export function createSessionTools(env) {
         }
         if (plan && classified.kind === 'approved') {
           const pinned = pinFrozenPlan(execution, plan) || plan;
+          try {
+            ensureSessionAgentsMd(store, sessionId, {
+              title: pinned?.title || plan?.title,
+              summary: pinned?.summary || plan?.summary
+            });
+          } catch {
+            /* workspace notes must not fail the plan receipt */
+          }
+          if (wantsDurableTaskFromPlan(answers)) {
+            try {
+              startTaskFromPlanApproval(store, {
+                sessionId,
+                executionId: execution?.executionId,
+                plan: pinned || plan,
+                cardId: `plan-task_${clarifyId}`,
+                now: Date.now()
+              });
+            } catch {
+              /* already-active / card errors must not unwind the plan pin */
+            }
+          }
           if (pinned && onEvent) {
             try {
               onEvent({ type: 'plan-pinned', sessionId, plan: pinned });

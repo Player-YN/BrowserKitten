@@ -85,7 +85,7 @@ function looksLikeImageFile(ref) {
 
 function looksLikeHtmlText(text) {
   const t = String(text || '').trim();
-  return /^<!doctype html/i.test(t) || /^<html[\s>]/i.test(t) || /data-paw-kind\s*=/i.test(t);
+  return /^<!doctype html/i.test(t) || /^<html[\s>]/i.test(t) || /data-browserbot-kind\s*=/i.test(t);
 }
 
 function isEmptyObject(value) {

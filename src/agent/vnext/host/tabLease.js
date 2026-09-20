@@ -124,7 +124,7 @@ export function preparePageActionTarget(request = {}) {
 }
 
 // Only the SW configures this adapter. Offscreen remains the workspace owner.
-export const TAB_LEASE_STORAGE_KEY = 'pawwork_browser_leases_v1';
+export const TAB_LEASE_STORAGE_KEY = 'browserbot_browser_leases_v1';
 let leaseStorage = null;
 let hydrated = false;
 let leaseQueue = Promise.resolve();

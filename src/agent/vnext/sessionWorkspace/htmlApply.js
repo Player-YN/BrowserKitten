@@ -163,7 +163,7 @@ export function defaultPasteboardBox(index, size, kind) {
  */
 export function serializePlateSection(p, opts = {}) {
   const id = escapeAttr(p?.id || 'plate');
-  const parts = [`data-paw-block`, `data-paw-block-id="${id}"`];
+  const parts = [`data-browserbot-block`, `data-browserbot-block-id="${id}"`];
   if (p?.pdf) parts.push('data-paw-pdf="reconstructed"');
   const frame = escapeAttr(p?.frame || p?.id || id);
   parts.push(`data-paw-frame="${frame}"`);
@@ -351,8 +351,8 @@ function findTopLevelPlates(bodyInner) {
       i += 1;
       continue;
     }
-    if (hasAttrToken(el.raw, 'data-paw-block')) {
-      const id = String(el.attrs['data-paw-block-id'] || '').trim() || `plate-${plates.length + 1}`;
+    if (hasAttrToken(el.raw, 'data-browserbot-block')) {
+      const id = String(el.attrs['data-browserbot-block-id'] || '').trim() || `plate-${plates.length + 1}`;
       plates.push(makePlate(id, el.innerHtml, el.attrs));
       i = el.end;
       continue;
@@ -441,7 +441,7 @@ export function parseMarkedHtml(html) {
     const body = extractBodyInner(s).trim();
     if (body) plates = [makePlate('page', body)];
   }
-  const kindMatch = /data-paw-kind\s*=\s*["']([^"']+)["']/i.exec(s);
+  const kindMatch = /data-browserbot-kind\s*=\s*["']([^"']+)["']/i.exec(s);
   return { title, lang, styles, plates, pdf, kind: kindMatch?.[1] || '' };
 }
 
@@ -458,15 +458,15 @@ export function serializeMarkedHtml(doc) {
   const pdf = !!(doc && doc.pdf);
   const pdfAttr = pdf ? ' data-paw-pdf="reconstructed"' : '';
   const kind = String(doc?.kind || '').trim();
-  const kindAttr = kind ? ` data-paw-kind="${escapeAttr(kind)}"` : '';
+  const kindAttr = kind ? ` data-browserbot-kind="${escapeAttr(kind)}"` : '';
   const pdfMeta = pdf ? `\n  <meta name="paw-pdf" content="reconstructed" />` : '';
   const parts = (doc?.plates || []).map((p) => serializePlateSection(p, { kind })).join('\n');
   return `<!DOCTYPE html>
-<html lang="${lang}" data-pawwork-preview="blocks"${pdfAttr}${kindAttr}>
+<html lang="${lang}" data-browserbot-preview="blocks"${pdfAttr}${kindAttr}>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="pawwork-preview" content="blocks" />${pdfMeta}
+  <meta name="browserbot-preview" content="blocks" />${pdfMeta}
   <title>${title}</title>
   ${style}
 </head>

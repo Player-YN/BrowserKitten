@@ -8,7 +8,7 @@ import { createSessionTools } from '../src/agent/vnext/sessionWorkspace/tools.js
 import { executeListenAction } from '../src/agent/vnext/sessionWorkspace/listenAction.js';
 import { SessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspace/store.js';
 import { createSessionGuestFs } from '../src/agent/vnext/sessionWorkspace/fs.js';
-import { createPageWandLanguageModel, stripUnsupportedFieldsFromRequestInit } from '../src/agent/provider.js';
+import { createBrowserBotLanguageModel, stripUnsupportedFieldsFromRequestInit } from '../src/agent/provider.js';
 
 const base = 'https://openrouter.ai/api/v1';
 const model = 'test/media';
@@ -65,7 +65,7 @@ test('override normalization and partial provider updates preserve model scoping
   const p = normalizeProvider({ id: 'chat', baseURL: base, model, apiKey: 'chat-key', chatMediaOverrides: { [key]: { audio: true, transport: 'openrouter', extra: 'drop' } } });
   assert.deepEqual(p.chatMediaOverrides[key], { audio: true, transport: 'openrouter' });
   const prev = globalThis.chrome;
-  globalThis.chrome = fakeStorage({ pagewand_providers: [p, { id: 'stt', purpose: 'stt', apiKey: 'stt-key', model: 'whisper-1', baseURL: 'https://stt.test/v1' }], pagewand_active_provider_id: 'chat', pagewand_active_stt_provider_id: 'stt' });
+  globalThis.chrome = fakeStorage({ browserbot_providers: [p, { id: 'stt', purpose: 'stt', apiKey: 'stt-key', model: 'whisper-1', baseURL: 'https://stt.test/v1' }], browserbot_active_provider_id: 'chat', browserbot_active_stt_provider_id: 'stt' });
   try {
     await upsertProvider({ id: 'chat', baseURL: base, model: 'new' });
     let loaded = await loadLlmSettings();
@@ -160,7 +160,7 @@ test('real bundled AI SDK serializes media tool output into native request parts
     return new Response(JSON.stringify({ id: 'test', object: 'chat.completion', created: 1, model, choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { 'content-type': 'application/json' } });
   };
   try {
-    const built = await createPageWandLanguageModel({ settings: { ...settings, apiKey: 'fake' }, mediaCapabilities: caps });
+    const built = await createBrowserBotLanguageModel({ settings: { ...settings, apiKey: 'fake' }, mediaCapabilities: caps });
     const output = createSessionTools(env()).acquire.toModelOutput({ output: { ok: true, path: '/scratch/movie.mp4', modelParts: [{ type: 'file', mediaType: 'video/mp4', data: 'QUJD'.repeat(20) }] } });
     await built.model.doGenerate({ prompt: [
       { role: 'user', content: [{ type: 'text', text: 'understand media' }] },
@@ -178,7 +178,7 @@ test('real bundled AI SDK serializes media tool output into native request parts
 test('product send freezes settings for the turn and re-resolves a changed model next turn', async () => {
   const { SessionWorkspaceService } = await import('../src/agent/vnext/service/sessionWorkspaceService.js');
   const previous = globalThis.chrome;
-  const bag = { pagewand_providers: [{ id: 'chat', baseURL: base, model, apiKey: 'fake' }], pagewand_active_provider_id: 'chat' };
+  const bag = { browserbot_providers: [{ id: 'chat', baseURL: base, model, apiKey: 'fake' }], browserbot_active_provider_id: 'chat' };
   globalThis.chrome = fakeStorage(bag);
   try {
     await cacheModelsForBase(base, catalog);
@@ -186,7 +186,7 @@ test('product send freezes settings for the turn and re-resolves a changed model
     const turns = [];
     service.resolveLanguageModel = async (opts) => {
       // Simulate the settings changing after the send's snapshot was taken.
-      bag.pagewand_providers[0] = { ...bag.pagewand_providers[0], model: 'deepseek-chat' };
+      bag.browserbot_providers[0] = { ...bag.browserbot_providers[0], model: 'deepseek-chat' };
       return { modelId: opts.settings.model };
     };
     service.runtime.sendMessage = async (input) => { turns.push(input); return { finalText: 'ok' }; };

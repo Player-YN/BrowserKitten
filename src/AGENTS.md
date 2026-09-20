@@ -10,7 +10,7 @@ Service worker 会被 Chrome 杀掉。会话仓库、AI SDK、`run` 沙箱客户
 |----|------|------|
 | Service worker | `background.js` | `manifest.background.type=module`。标签 / 下载 / 预览页 / office RPC / offscreen 转发 / **`workspace_page_action` 跨 frame 扇出** / **`workspace_sys`** / **tab 租约（storage.session）** / **`chrome.alarms` 唤醒 due task** |
 | Offscreen | `offscreen/runtime.html` + `runtime.js` | `SessionWorkspaceService.create()`；收 `workspace_rpc_execute`。内嵌 sandbox iframe，**不**把 workspace boot 闸在 handshake 上 |
-| Content script | `content_script.js` | `matches: <all_urls>`，`run_at: document_idle`，**`all_frames: true`**。伸爪选区 + 每 frame 的 action。经典脚本（IIFE），`executeScript` 可再注入 |
+| Content script | `content_script.js` | `matches: <all_urls>`，`run_at: document_idle`，**`all_frames: true`**。点选选区 + 每 frame 的 action。经典脚本（IIFE），`executeScript` 可再注入 |
 | Sidepanel | `sidepanel.html` + `sidepanel.js` | 对话 UI。`workspaceRpc` → background。编排器仍是 `sidepanel.js` |
 | Sandbox | `sandbox/runtime.html` | `manifest.sandbox`；无 `chrome.*`。`run` 的访客代码 + FS / `sys` postMessage |
 | Preview | `preview/` | 扩展页标签：sheet / docs / site / artifactPreview / print |
@@ -21,14 +21,14 @@ CSP：`extension_pages` 允许 `'wasm-unsafe-eval'`（QuickJS / Univer）；sand
 
 ## 消息总线
 
-约定：`target` + `action`。Offscreen / SW 用 `pawwork-*`；部分截图/选区消息仍用 `pagewand_*`。
+约定：`target` + `action`。Offscreen / SW 用 `browserbot-*`；部分截图/选区消息仍用 `browserbot_*`。
 
 ```text
 侧栏 / 预览页
-  chrome.runtime.sendMessage { target: pawwork-background, action, … }
-    workspace_rpc          → ensurePawWorkOffscreen + 契约检查（仅只读调用最多重试 8 次；写入不重试）
+  chrome.runtime.sendMessage { target: browserbot-background, action, … }
+    workspace_rpc          → ensureBrowserBotOffscreen + 契约检查（仅只读调用最多重试 8 次；写入不重试）
     workspace_page_action  → handleWorkspacePageAction → 各 frame content_script
-    sheet_host             → 打开/复用 sheet.html，再 pawwork_sheet_rpc
+    sheet_host             → 打开/复用 sheet.html，再 browserbot_sheet_rpc
     canvas_host            → docs.html 同类 RPC（无 Design/Slides）
     workspace_fetch / workspace_sys / workspace_capture_* / workspace_find_tab / …
     workspace_tab_lease_peek|release / workspace_task_resolve_page
@@ -39,10 +39,10 @@ offscreen → SW
   session_workspace_event  → 侧栏刷新（execution-start/end、流式、artifact_preview、task-updated、task-schedule-changed、…）
 
 content_script → SW
-  伸爪选区、pagewand_region_selected、截图、toast
+  点选选区、browserbot_region_selected、截图、toast
 ```
 
-Offscreen URL：`src/offscreen/runtime.html`。SW `ensurePawWorkOffscreen()`。
+Offscreen URL：`src/offscreen/runtime.html`。SW `ensureBrowserBotOffscreen()`。
 
 `workspace_sys` 只接受本扩展 offscreen URL 的 sender；调用携带 callId/sessionId/executionId/deadline，取消走同一消息入口。`workspace_rpc` 只在接收端连接尚未建立时重试；响应丢失不代表未执行，不自动重放可能有副作用的请求。
 
@@ -50,9 +50,9 @@ Offscreen URL：`src/offscreen/runtime.html`。SW `ensurePawWorkOffscreen()`。
 
 ```text
 sidepanel  workspaceRpc(method, params)     # vnext/host/workspaceClient.js
-  → { target: pawwork-background, action: workspace_rpc }
+  → { target: browserbot-background, action: workspace_rpc }
   → background.forwardWorkspaceRpc
-  → { target: pawwork-offscreen, action: workspace_rpc_execute }
+  → { target: browserbot-offscreen, action: workspace_rpc_execute }
   → SessionWorkspaceService[method]
 ```
 
@@ -63,7 +63,7 @@ sidepanel  workspaceRpc(method, params)     # vnext/host/workspaceClient.js
 ```text
 SessionWorkspaceService.sendMessage
   hostPageAction(payload)
-  → { target: pawwork-background, action: workspace_page_action }
+  → { target: browserbot-background, action: workspace_page_action }
   → handleWorkspacePageAction
   → chrome.tabs.sendMessage({ action: workspace_page_action, … }, { frameId })
   → content_script 本 frame 执行
@@ -101,19 +101,19 @@ Content script：
 
 `background.js` 按 artifact 打开 `chrome-extension://…/src/preview/*.html?sessionId&artifactId`，并用 tab 缓存 + `*_tab_ready` 握手。office 工具经 `sheet_host` / `canvas_host` 把读写打到已打开的页。种类 → 页面映射见 [preview/AGENTS.md](preview/AGENTS.md)。
 
-会话相关预览标签可进 `tabGroups`（`pawTabGroups` / `attachTabToSessionGroup`）。
+会话相关预览标签可进 `tabGroups`（`browserTabGroups` / `attachTabToSessionGroup`）。
 
 ## 持久化（宿主键）
 
 | 存哪 | 键 / 库 | 用途 |
 |------|---------|------|
-| IndexedDB + OPFS | `pawwork-session-workspace-v1` | 会话 / group / artifact / fsNodes / `meta`（含可选 `task:*`）（offscreen） |
-| `chrome.storage.local` | `pagewand_providers`、`pagewand_active_provider_id` | BYOK |
-| 同上 | `pagewand_chat_media_evidence_v1`、`pagewand_chat_media_auto_check` | 连接范围的媒体校验证据与自动校验开关；offscreen 调度，SW 监听配置变更触发，普通发送只读 |
-| 同上 | `pagewand_context_window_evidence_v1`、`pagewand_context_window_auto_check` | 精确 base+model 的上下文窗口探测结果与自动探测开关；目录已有窗口则不 chat-probe；发送只读、不 await |
-| 同上 | `pagewand_web_acquire` | acquire 搜索/抓取设置 |
-| 同上 | `pagewand_theme_mode`（兼 `pagewand_theme`） | 侧栏主题 |
-| 同上 | `pagewand_user_skills` | 用户固化 skill（`agent/skills.js`，侧栏） |
+| IndexedDB + OPFS | `browserbot-session-workspace-v1` | 会话 / group / artifact / fsNodes / `meta`（含可选 `task:*`）（offscreen） |
+| `chrome.storage.local` | `browserbot_providers`、`browserbot_active_provider_id` | BYOK |
+| 同上 | `browserbot_chat_media_evidence_v1`、`browserbot_chat_media_auto_check` | 连接范围的媒体校验证据与自动校验开关；offscreen 调度，SW 监听配置变更触发，普通发送只读 |
+| 同上 | `browserbot_context_window_evidence_v1`、`browserbot_context_window_auto_check` | 精确 base+model 的上下文窗口探测结果与自动探测开关；目录已有窗口则不 chat-probe；发送只读、不 await |
+| 同上 | `browserbot_web_acquire` | acquire 搜索/抓取设置 |
+| 同上 | `browserbot_theme_mode`（兼 `browserbot_theme`） | 侧栏主题 |
+| 同上 | `browserbot_user_skills` | 用户固化 skill（`agent/skills.js`，侧栏） |
 
 ## 其它宿主事实
 
@@ -123,4 +123,4 @@ Content script：
 
 ### 媒体观察
 
-`action snapshot` 附 `mediaElements`（最多 6 项，含 frame/document 的媒体播放和源线索）；它只提示可用证据，不自动选择路径。`action op=record` 经 SW tabCapture → offscreen 录制可见标签画面+声音（默认 8 秒，最大 30 秒），只在当前模型可接收原生视频时执行。`pagewand_record_grant:{sessionId}:{tabId}` 是独立侧栏视频授权，听音 grant 不覆盖它。两种采集共用生命周期清理，但 listen 保持 `video:false`。详见 [CHAT_MEDIA_INPUT.md](../docs/CHAT_MEDIA_INPUT.md)。
+`action snapshot` 附 `mediaElements`（最多 6 项，含 frame/document 的媒体播放和源线索）；它只提示可用证据，不自动选择路径。`action op=record` 经 SW tabCapture → offscreen 录制可见标签画面+声音（默认 8 秒，最大 30 秒），只在当前模型可接收原生视频时执行。`browserbot_record_grant:{sessionId}:{tabId}` 是独立侧栏视频授权，听音 grant 不覆盖它。两种采集共用生命周期清理，但 listen 保持 `video:false`。详见 [CHAT_MEDIA_INPUT.md](../docs/CHAT_MEDIA_INPUT.md)。

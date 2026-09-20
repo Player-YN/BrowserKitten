@@ -1,22 +1,22 @@
 <div align="center">
 
-# 爪爪 · PawWork
+# Browser Kitten
 
-[![license](https://img.shields.io/github/license/Player-YN/PawWork_ZhuaZhua)](LICENSE)
+[![license](https://img.shields.io/github/license/Player-YN/BrowserKitten)](LICENSE)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](manifest.json)
 [![unpacked](https://img.shields.io/badge/load-unpacked-111111)](#load-it)
 
-Treat the already-logged-in Chrome as a programmable computer. 爪爪 is the agent on that machine.
+Treat the already-logged-in Chrome as a programmable computer. Browser Kitten is the agent on that machine.
 
 </div>
 
-**爪爪 · 完全解放版** (`PawWork_ZhuaZhua`) is a Chrome MV3 **unpacked** extension. It runs a side-panel agent that can drive the current tab (`action`), execute guest JS against the browser (`sys` inside `run`), and keep sheet / Univer doc / site HTML artifacts in the session.
+**Browser Kitten** is a Chrome MV3 **unpacked** extension. It runs a side-panel agent that can drive the current tab (`action`), execute guest JS against the browser (`sys` inside `run`), and keep sheet / Univer doc / site HTML artifacts in the session.
 
 Not on the Chrome Web Store. No hosted model — bring your own key.
 
 ## Load it
 
-1. Clone this repo, **or** download a [Release zip](https://github.com/Player-YN/PawWork_ZhuaZhua/releases)
+1. Clone this repo, **or** download a [Release zip](https://github.com/Player-YN/BrowserKitten/releases)
 2. Chrome → `chrome://extensions` → Developer mode → **Load unpacked** → select the folder (`manifest.json` is at its root)
 3. Open the side panel → paste an OpenAI-compatible API key (BYOK; stored in `chrome.storage.local`) → send a task on a normal `http(s)` page
 
@@ -38,7 +38,7 @@ node tests/browser-smoke.cjs <path-to-playwright>  # loads the real extension
 
 Side panel → service worker → offscreen `SessionWorkspaceService` → AI SDK `ToolLoopAgent`. Process layering, domain objects, tool contracts, and the unimplemented boundaries are documented in [AGENTS.md](AGENTS.md) and the nested `AGENTS.md` files under `src/`.
 
-Release packaging: `python scripts/pack_extension.py --zip dist/pawwork.zip`.
+Release packaging: `python scripts/pack_extension.py --zip dist/browserbot.zip`.
 
 ## License
 
@@ -53,7 +53,7 @@ Release packaging: `python scripts/pack_extension.py --zip dist/pawwork.zip`.
 
 ```sh
 node --test tests/*.test.mjs
-python3 scripts/pack_extension.py --zip dist/PawWork_ChromeBOT_1.2.0_extension.zip
+python3 scripts/pack_extension.py --zip dist/BrowserKitten_ChromeBOT_1.2.0_extension.zip
 python3 scripts/verify_extension.py extension --source .
 ```
 

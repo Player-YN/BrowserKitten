@@ -17,10 +17,10 @@ export async function runMediaCheck({ settings, caps, kind, signal, sampleFactor
   try { sample = await sampleFactory(kind, signal); }
   catch (error) { throw Object.assign(new Error('SAMPLE_UNAVAILABLE'), { code: 'SAMPLE_UNAVAILABLE' }); }
   signal.throwIfAborted();
-  const { createPageWandLanguageModel } = await import('./provider.js');
+  const { createBrowserBotLanguageModel } = await import('./provider.js');
   const trialCaps = structuredClone(caps);
   trialCaps.inputs[kind] = { state: 'supported', source: 'check-only' };
-  const built = await createPageWandLanguageModel({ settings, mediaCapabilities: trialCaps, noRetry: true });
+  const built = await createBrowserBotLanguageModel({ settings, mediaCapabilities: trialCaps, noRetry: true });
   // doGenerate is a single SDK transport call, without generateText/ToolLoopAgent retries.
   const result = await built.model.doGenerate({
     abortSignal: signal, maxOutputTokens: 1024,

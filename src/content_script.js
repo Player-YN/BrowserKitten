@@ -1,9 +1,9 @@
-// Content script: 伸爪 picker + live-page `action` (snapshot/mutate) per frame.
+// Content script: 点选 picker + live-page `action` (snapshot/mutate) per frame.
 // Page JS evaluation is not here — guest `sys.eval` / page fetch go through SW userScripts.
 // Classic script: executeScript injects this as a non-module. Wrap in IIFE so
 // re-inject after Reload does not redeclare top-level const.
 
-(function pagewandContentBoot() {
+(function contentBoot() {
   let extId = '';
   try {
     extId = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) || '';
@@ -22,7 +22,7 @@
       return m;
     })
     .catch((err) => {
-      console.warn('[PageWand] pickContext load failed', err);
+      console.warn('[BrowserBot] pickContext load failed', err);
       pickMod = {
         pierceAndSnap: (doc, x, y) => {
           const el = doc.elementFromPoint?.(x, y);
@@ -125,8 +125,8 @@
     }
   });
 
-  // Inject PageWand Global SDK for DeepSeek AI Agent Scripts (Content Script Isolated World)
-  window.PageWand = {
+  // Inject BrowserBot Global SDK for DeepSeek AI Agent Scripts (Content Script Isolated World)
+  window.BrowserBot = {
     getSelectedElements: () => selectedElements.map(item => item.element).filter(Boolean),
     downloadImages: (targets, count) => {
       let targetCount = typeof count === 'number' ? count : (typeof targets === 'number' ? targets : 0);
@@ -181,15 +181,15 @@
     getDomSnapshot: (opts) => buildLiveDomSnapshot(opts || {})
   };
 
-  const styleId = 'pagewand-highlight-styles';
+  const styleId = 'browserbot-highlight-styles';
   if (!document.getElementById(styleId)) {
     const styleEl = document.createElement('style');
     styleEl.id = styleId;
     styleEl.textContent = `
-      .pagewand-hovered { outline: 2.5px dashed #6366f1 !important; outline-offset: 2px !important; cursor: crosshair !important; transition: outline 0.08s ease-in-out !important; }
-      .pagewand-selected { outline: 3px solid #8b5cf6 !important; outline-offset: 2px !important; background-color: rgba(139, 92, 246, 0.28) !important; box-shadow: 0 0 14px rgba(139, 92, 246, 0.5) !important; transition: all 0.15s ease-in-out !important; }
-      .pagewand-tag-focused { outline: 3.5px dashed #f97316 !important; outline-offset: 3px !important; background-color: rgba(249, 115, 22, 0.38) !important; box-shadow: 0 0 22px rgba(249, 115, 22, 0.9) !important; z-index: 99999 !important; transition: all 0.1s ease-in-out !important; }
-      @keyframes pagewand-scope-breathe {
+      .browserbot-hovered { outline: 2.5px dashed #6366f1 !important; outline-offset: 2px !important; cursor: crosshair !important; transition: outline 0.08s ease-in-out !important; }
+      .browserbot-selected { outline: 3px solid #8b5cf6 !important; outline-offset: 2px !important; background-color: rgba(139, 92, 246, 0.28) !important; box-shadow: 0 0 14px rgba(139, 92, 246, 0.5) !important; transition: all 0.15s ease-in-out !important; }
+      .browserbot-tag-focused { outline: 3.5px dashed #f97316 !important; outline-offset: 3px !important; background-color: rgba(249, 115, 22, 0.38) !important; box-shadow: 0 0 22px rgba(249, 115, 22, 0.9) !important; z-index: 99999 !important; transition: all 0.1s ease-in-out !important; }
+      @keyframes browserbot-scope-breathe {
         0%, 100% {
           outline-color: rgba(99, 102, 241, 0.45) !important;
           box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.25) !important;
@@ -199,70 +199,70 @@
           box-shadow: 0 0 22px 4px rgba(99, 102, 241, 0.45) !important;
         }
       }
-      .pagewand-scope-preview {
+      .browserbot-scope-preview {
         outline: 3px solid rgba(99, 102, 241, 0.85) !important;
         outline-offset: 3px !important;
         background-color: rgba(99, 102, 241, 0.12) !important;
         border-radius: 4px !important;
-        animation: pagewand-scope-breathe 1.6s ease-in-out infinite !important;
+        animation: browserbot-scope-breathe 1.6s ease-in-out infinite !important;
         z-index: 99998 !important;
         transition: background-color 0.2s ease !important;
       }
-      body.pagewand-picking-mode, body.pagewand-picking-mode * { cursor: crosshair !important; }
-      .pagewand-toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 999999; pointer-events: none; }
-      .pagewand-toast { background: #0f172a; color: #f8fafc; border: 1.5px solid #8b5cf6; padding: 10px 18px; border-radius: 8px; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; font-weight: 600; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4); pointer-events: auto; animation: pagewandToastIn 0.2s ease-out; transition: all 0.2s ease; }
-      .pagewand-exit-float-btn { position: fixed; top: 16px; right: 16px; background: #f43f5e; color: #ffffff; border: 2px solid #ffffff; padding: 8px 16px; border-radius: 20px; font-family: system-ui, -apple-system, sans-serif; font-size: 12px; font-weight: 700; box-shadow: 0 8px 20px rgba(244, 63, 94, 0.4); z-index: 9999999; cursor: pointer; display: flex; align-items: center; gap: 6px; animation: pagewandToastIn 0.2s ease-out; }
-      .pagewand-exit-float-btn:hover { background: #e11d48; transform: scale(1.05); }
-      @keyframes pagewandToastIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      body.browserbot-picking-mode, body.browserbot-picking-mode * { cursor: crosshair !important; }
+      .browserbot-toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 999999; pointer-events: none; }
+      .browserbot-toast { background: #0f172a; color: #f8fafc; border: 1.5px solid #8b5cf6; padding: 10px 18px; border-radius: 8px; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; font-weight: 600; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4); pointer-events: auto; animation: toastIn 0.2s ease-out; transition: all 0.2s ease; }
+      .browserbot-exit-float-btn { position: fixed; top: 16px; right: 16px; background: #f43f5e; color: #ffffff; border: 2px solid #ffffff; padding: 8px 16px; border-radius: 20px; font-family: system-ui, -apple-system, sans-serif; font-size: 12px; font-weight: 700; box-shadow: 0 8px 20px rgba(244, 63, 94, 0.4); z-index: 9999999; cursor: pointer; display: flex; align-items: center; gap: 6px; animation: toastIn 0.2s ease-out; }
+      .browserbot-exit-float-btn:hover { background: #e11d48; transform: scale(1.05); }
+      @keyframes toastIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
       /* In-page form submit confirmation (agent invoke gate — not side panel) */
-      #pagewand-confirm-bar {
+      #browserbot-confirm-bar {
         position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
         z-index: 2147483646; max-width: min(560px, calc(100vw - 32px)); width: max-content;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-        pointer-events: auto; animation: pagewandToastIn 0.2s ease-out;
+        pointer-events: auto; animation: toastIn 0.2s ease-out;
       }
-      #pagewand-confirm-bar .pagewand-confirm-inner {
+      #browserbot-confirm-bar .browserbot-confirm-inner {
         display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
         background: #0f172a; color: #f8fafc;
         border: 1.5px solid #a78bfa; border-radius: 12px;
         padding: 12px 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
       }
-      #pagewand-confirm-bar .pagewand-confirm-text { font-size: 13px; font-weight: 600; line-height: 1.4; flex: 1 1 180px; }
-      #pagewand-confirm-bar .pagewand-confirm-detail { font-size: 11px; font-weight: 500; color: #cbd5e1; margin-top: 2px; }
-      #pagewand-confirm-bar .pagewand-confirm-actions { display: flex; gap: 8px; flex-shrink: 0; }
-      #pagewand-confirm-bar button {
+      #browserbot-confirm-bar .browserbot-confirm-text { font-size: 13px; font-weight: 600; line-height: 1.4; flex: 1 1 180px; }
+      #browserbot-confirm-bar .browserbot-confirm-detail { font-size: 11px; font-weight: 500; color: #cbd5e1; margin-top: 2px; }
+      #browserbot-confirm-bar .browserbot-confirm-actions { display: flex; gap: 8px; flex-shrink: 0; }
+      #browserbot-confirm-bar button {
         cursor: pointer; border-radius: 8px; font-size: 13px; font-weight: 700;
         padding: 8px 14px; border: 1.5px solid transparent; font-family: inherit;
       }
-      #pagewand-confirm-bar button[data-pw-confirm="cancel"] {
+      #browserbot-confirm-bar button[data-pw-confirm="cancel"] {
         background: transparent; color: #e2e8f0; border-color: #475569;
       }
-      #pagewand-confirm-bar button[data-pw-confirm="cancel"]:hover { background: #1e293b; }
-      #pagewand-confirm-bar button[data-pw-confirm="ok"] {
+      #browserbot-confirm-bar button[data-pw-confirm="cancel"]:hover { background: #1e293b; }
+      #browserbot-confirm-bar button[data-pw-confirm="ok"] {
         background: #7c3aed; color: #fff; border-color: #a78bfa;
       }
-      #pagewand-confirm-bar button[data-pw-confirm="ok"]:hover { background: #6d28d9; }
+      #browserbot-confirm-bar button[data-pw-confirm="ok"]:hover { background: #6d28d9; }
 
 
       /* Region screenshot (Windows Snip style) */
-      #pagewand-region-root {
+      #browserbot-region-root {
         position: fixed; inset: 0; z-index: 2147483646;
         cursor: crosshair !important;
         user-select: none !important;
         -webkit-user-select: none !important;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
       }
-      #pagewand-region-root, #pagewand-region-root * {
+      #browserbot-region-root, #browserbot-region-root * {
         cursor: crosshair !important;
         box-sizing: border-box;
       }
-      #pagewand-region-dim {
+      #browserbot-region-dim {
         position: absolute; inset: 0;
         background: rgba(15, 23, 42, 0.45);
         pointer-events: none;
       }
-      #pagewand-region-box {
+      #browserbot-region-box {
         position: absolute;
         border: 2px solid #a78bfa;
         background: transparent;
@@ -271,8 +271,8 @@
         pointer-events: none;
         z-index: 2;
       }
-      #pagewand-region-box.pagewand-region-active { display: block; }
-      #pagewand-region-size {
+      #browserbot-region-box.browserbot-region-active { display: block; }
+      #browserbot-region-size {
         position: absolute; left: 0; top: -26px;
         background: #0f172a; color: #f8fafc;
         border: 1px solid #8b5cf6; border-radius: 4px;
@@ -280,7 +280,7 @@
         padding: 2px 8px; white-space: nowrap;
         pointer-events: none;
       }
-      #pagewand-region-hint {
+      #browserbot-region-hint {
         position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
         background: #0f172a; color: #f8fafc;
         border: 1.5px solid #8b5cf6; border-radius: 999px;
@@ -300,27 +300,27 @@
   let regionDragging = false;
 
   function ensureRegionStyles() {
-    if (document.getElementById('pagewand-region-styles')) return;
+    if (document.getElementById('browserbot-region-styles')) return;
     const el = document.createElement('style');
-    el.id = 'pagewand-region-styles';
+    el.id = 'browserbot-region-styles';
     el.textContent = `
-      #pagewand-region-root {
+      #browserbot-region-root {
         position: fixed; inset: 0; z-index: 2147483646;
         cursor: crosshair !important;
         user-select: none !important;
         -webkit-user-select: none !important;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
       }
-      #pagewand-region-root, #pagewand-region-root * {
+      #browserbot-region-root, #browserbot-region-root * {
         cursor: crosshair !important;
         box-sizing: border-box;
       }
-      #pagewand-region-dim {
+      #browserbot-region-dim {
         position: absolute; inset: 0;
         background: rgba(15, 23, 42, 0.45);
         pointer-events: none;
       }
-      #pagewand-region-box {
+      #browserbot-region-box {
         position: absolute;
         border: 2px solid #a78bfa;
         background: transparent;
@@ -329,8 +329,8 @@
         pointer-events: none;
         z-index: 2;
       }
-      #pagewand-region-box.pagewand-region-active { display: block; }
-      #pagewand-region-size {
+      #browserbot-region-box.browserbot-region-active { display: block; }
+      #browserbot-region-size {
         position: absolute; left: 0; top: -26px;
         background: #0f172a; color: #f8fafc;
         border: 1px solid #8b5cf6; border-radius: 4px;
@@ -338,7 +338,7 @@
         padding: 2px 8px; white-space: nowrap;
         pointer-events: none;
       }
-      #pagewand-region-hint {
+      #browserbot-region-hint {
         position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
         background: #0f172a; color: #f8fafc;
         border: 1.5px solid #8b5cf6; border-radius: 999px;
@@ -371,14 +371,14 @@
     if (!regionCaptureActive) return;
     stopRegionCaptureUi('cancel');
     try {
-      extSend({ action: 'pagewand_region_cancelled' });
+      extSend({ action: 'browserbot_region_cancelled' });
     } catch (_) {}
   }
 
   function finishRegionSelect(rect) {
     stopRegionCaptureUi('select');
     extSend({
-      action: 'pagewand_region_selected',
+      action: 'browserbot_region_selected',
       region: {
         x: rect.x,
         y: rect.y,
@@ -406,17 +406,17 @@
 
   function updateRegionBox(rect) {
     if (!regionRoot) return;
-    const box = regionRoot.querySelector('#pagewand-region-box');
-    const dim = regionRoot.querySelector('#pagewand-region-dim');
-    const sizeEl = regionRoot.querySelector('#pagewand-region-size');
+    const box = regionRoot.querySelector('#browserbot-region-box');
+    const dim = regionRoot.querySelector('#browserbot-region-dim');
+    const sizeEl = regionRoot.querySelector('#browserbot-region-size');
     if (!box) return;
     if (!rect || rect.width < 1 || rect.height < 1) {
-      box.classList.remove('pagewand-region-active');
+      box.classList.remove('browserbot-region-active');
       if (dim) dim.style.opacity = '1';
       return;
     }
     if (dim) dim.style.opacity = '0'; // box-shadow provides the dim cut-out
-    box.classList.add('pagewand-region-active');
+    box.classList.add('browserbot-region-active');
     box.style.left = rect.x + 'px';
     box.style.top = rect.y + 'px';
     box.style.width = rect.width + 'px';
@@ -493,12 +493,12 @@
     stopRegionCaptureUi('restart');
 
     regionRoot = document.createElement('div');
-    regionRoot.id = 'pagewand-region-root';
-    regionRoot.setAttribute('data-pagewand', 'region-capture');
+    regionRoot.id = 'browserbot-region-root';
+    regionRoot.setAttribute('data-browserbot', 'region-capture');
     regionRoot.innerHTML =
-      '<div id="pagewand-region-dim"></div>' +
-      '<div id="pagewand-region-box"><span id="pagewand-region-size"></span></div>' +
-      '<div id="pagewand-region-hint">拖拽选择截图区域 · Esc / 右键 取消</div>';
+      '<div id="browserbot-region-dim"></div>' +
+      '<div id="browserbot-region-box"><span id="browserbot-region-size"></span></div>' +
+      '<div id="browserbot-region-hint">拖拽选择截图区域 · Esc / 右键 取消</div>';
     mount.appendChild(regionRoot);
 
     regionCaptureActive = true;
@@ -520,19 +520,19 @@
   }
 
   function showToast(msg) {
-    let container = document.querySelector('.pagewand-toast-container');
-    if (!container) { container = document.createElement('div'); container.className = 'pagewand-toast-container'; document.body.appendChild(container); }
-    const toast = document.createElement('div'); toast.className = 'pagewand-toast'; toast.innerText = msg; container.appendChild(toast);
+    let container = document.querySelector('.browserbot-toast-container');
+    if (!container) { container = document.createElement('div'); container.className = 'browserbot-toast-container'; document.body.appendChild(container); }
+    const toast = document.createElement('div'); toast.className = 'browserbot-toast'; toast.innerText = msg; container.appendChild(toast);
     setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(-10px)'; setTimeout(() => toast.remove(), 200); }, 3000);
   }
 
   function showExitFloatButton() {
     removeExitFloatButton();
-    const btn = document.createElement('button'); btn.className = 'pagewand-exit-float-btn'; btn.innerHTML = `退出伸爪 (Esc)`;
-    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); stopPicker(); notifyPickerState(); showToast('已退出伸爪'); });
+    const btn = document.createElement('button'); btn.className = 'browserbot-exit-float-btn'; btn.innerHTML = `退出点选 (Esc)`;
+    btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); stopPicker(); notifyPickerState(); showToast('已退出点选'); });
     document.body.appendChild(btn);
   }
-  function removeExitFloatButton() { const existing = document.querySelector('.pagewand-exit-float-btn'); if (existing) existing.remove(); }
+  function removeExitFloatButton() { const existing = document.querySelector('.browserbot-exit-float-btn'); if (existing) existing.remove(); }
 
   function matchCustomShortcut(e, shortcutStr) {
     if (!shortcutStr) return false;
@@ -547,12 +547,12 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && pickerActive) {
       if (linkOptBubble) { hideLinkOptionBubble(); return; }
-      stopPicker(); notifyPickerState(); showToast('已退出伸爪'); return;
+      stopPicker(); notifyPickerState(); showToast('已退出点选'); return;
     }
     if (userCustomShortcut && matchCustomShortcut(e, userCustomShortcut)) {
       e.preventDefault(); e.stopPropagation();
-      if (pickerActive) { stopPicker(); showToast('已退出伸爪'); }
-      else { startPicker(); showToast('已开启伸爪'); }
+      if (pickerActive) { stopPicker(); showToast('已退出点选'); }
+      else { startPicker(); showToast('已开启点选'); }
       notifyPickerState();
     }
   }, true);
@@ -572,7 +572,7 @@
     }
     let selector = el.tagName.toLowerCase();
     if (el.className && typeof el.className === 'string') {
-      const classes = el.className.trim().split(/\s+/).filter(c => c && !c.startsWith('pagewand-'));
+      const classes = el.className.trim().split(/\s+/).filter(c => c && !c.startsWith('browserbot-'));
       if (classes.length > 0) selector += `.${classes.slice(0, 2).join('.')}`;
     }
     let parent = el.parentElement;
@@ -589,25 +589,25 @@
     if (!pickerActive) return;
     const snapped = pierceAndSnap(document, e.clientX, e.clientY);
     const element = snapped?.element || document.elementFromPoint(e.clientX, e.clientY);
-    if (!element || element.classList.contains('pagewand-exit-float-btn')) return;
-    if (hoveredElement && hoveredElement !== element) hoveredElement.classList.remove('pagewand-hovered');
+    if (!element || element.classList.contains('browserbot-exit-float-btn')) return;
+    if (hoveredElement && hoveredElement !== element) hoveredElement.classList.remove('browserbot-hovered');
     hoveredElement = element;
-    if (!hoveredElement.classList.contains('pagewand-selected')) hoveredElement.classList.add('pagewand-hovered');
+    if (!hoveredElement.classList.contains('browserbot-selected')) hoveredElement.classList.add('browserbot-hovered');
   }
 
   function handleClick(e) {
     if (!pickerActive) return;
-    if (e.target?.closest?.('.pagewand-link-opt-bubble')) return;
+    if (e.target?.closest?.('.browserbot-link-opt-bubble')) return;
     hideLinkOptionBubble();
     const snapped = pierceAndSnap(document, e.clientX, e.clientY);
     const element = snapped?.element;
-    if (!element || element.classList.contains('pagewand-exit-float-btn')) return;
+    if (!element || element.classList.contains('browserbot-exit-float-btn')) return;
     e.preventDefault(); e.stopPropagation();
 
     const existingIndex = selectedElements.findIndex((item) => item.element === element);
     if (existingIndex !== -1) {
-      element.classList.remove('pagewand-selected');
-      element.classList.remove('pagewand-hovered');
+      element.classList.remove('browserbot-selected');
+      element.classList.remove('browserbot-hovered');
       selectedElements.splice(existingIndex, 1);
     } else {
       const href = contextHrefOf(element);
@@ -637,18 +637,18 @@
             url: window.location.href,
             pageTitle: document.title
           });
-          element.classList.remove('pagewand-hovered');
-          element.classList.add('pagewand-selected');
+          element.classList.remove('browserbot-hovered');
+          element.classList.add('browserbot-selected');
           setTimeout(() => {
             try {
-              element.classList.remove('pagewand-selected');
+              element.classList.remove('browserbot-selected');
             } catch (_) {}
           }, 280);
         }
         return;
       }
-      element.classList.remove('pagewand-hovered');
-      element.classList.add('pagewand-selected');
+      element.classList.remove('browserbot-hovered');
+      element.classList.add('browserbot-selected');
       selectedElements.push({
         element: element,
         selector: generateSelector(element),
@@ -692,7 +692,7 @@
   function showLinkOptionBubble(e, element, href) {
     hideLinkOptionBubble();
     const bubble = document.createElement('div');
-    bubble.className = 'pagewand-link-opt-bubble';
+    bubble.className = 'browserbot-link-opt-bubble';
     bubble.style.position = 'absolute';
     bubble.style.left = `${Math.max(4, window.scrollX + (e.clientX || 0) + 8)}px`;
     bubble.style.top = `${Math.max(4, window.scrollY + (e.clientY || 0) + 8)}px`;
@@ -736,7 +736,7 @@
       const urls = extractImageUrlsFromContainer(element);
       if (!urls.length && /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?|#|$)/i.test(href)) urls.push(href);
       if (!urls.length) {
-        showToast('⚠️ 选中的元素中未找到可下载图片（可伸爪点选 img 或图片容器）');
+        showToast('⚠️ 选中的元素中未找到可下载图片（可点选点选 img 或图片容器）');
         return;
       }
       urls.forEach((u, i) => clickDownload(`image_${i + 1}_${Date.now()}`, u));
@@ -779,25 +779,25 @@
   }
 
   function refreshHighlightClasses() {
-    document.querySelectorAll('.pagewand-element-badge').forEach(b => b.remove());
+    document.querySelectorAll('.browserbot-element-badge').forEach(b => b.remove());
     const keep = new Set(selectedElements.map((item) => item.element).filter(Boolean));
-    document.querySelectorAll('.pagewand-selected').forEach((el) => {
-      if (!keep.has(el)) el.classList.remove('pagewand-selected');
+    document.querySelectorAll('.browserbot-selected').forEach((el) => {
+      if (!keep.has(el)) el.classList.remove('browserbot-selected');
     });
 
     selectedElements.forEach((item, idx) => {
       if (item && item.element) {
-        item.element.classList.add('pagewand-selected');
-        item.element.classList.remove('pagewand-hovered');
+        item.element.classList.add('browserbot-selected');
+        item.element.classList.remove('browserbot-hovered');
 
         try {
           const rect = item.element.getBoundingClientRect();
           const badge = document.createElement('div');
-          badge.className = 'pagewand-element-badge';
+          badge.className = 'browserbot-element-badge';
           const labelSpan = document.createElement('span');
           labelSpan.textContent = badgeLabel(item);
           const xBtn = document.createElement('span');
-          xBtn.className = 'pagewand-badge-x';
+          xBtn.className = 'browserbot-badge-x';
           xBtn.title = '点击取消选中该元素';
           xBtn.textContent = '✖';
           badge.append(labelSpan, xBtn);
@@ -939,11 +939,11 @@
     if (mode === 'replace') {
       selectedElements.forEach((item) => {
         try {
-          item.element?.classList?.remove('pagewand-selected', 'pagewand-hovered');
+          item.element?.classList?.remove('browserbot-selected', 'browserbot-hovered');
         } catch (_) {}
       });
       selectedElements = [];
-      document.querySelectorAll('.pagewand-element-badge').forEach((b) => b.remove());
+      document.querySelectorAll('.browserbot-element-badge').forEach((b) => b.remove());
     }
 
     const added = [];
@@ -969,17 +969,17 @@
         if (seen.has(el)) continue;
         // Skip our own UI chrome
     if (
-      el.id === 'pagewand-region-root' ||
-      el.closest?.('#pagewand-region-root, .pagewand-link-opt-bubble') ||
-      el.classList?.contains('pagewand-exit-float-btn') ||
-      el.classList?.contains('pagewand-element-badge') ||
-      el.classList?.contains('pagewand-link-opt-bubble')
+      el.id === 'browserbot-region-root' ||
+      el.closest?.('#browserbot-region-root, .browserbot-link-opt-bubble') ||
+      el.classList?.contains('browserbot-exit-float-btn') ||
+      el.classList?.contains('browserbot-element-badge') ||
+      el.classList?.contains('browserbot-link-opt-bubble')
     ) {
           continue;
         }
         seen.add(el);
-        el.classList.add('pagewand-selected');
-        el.classList.remove('pagewand-hovered');
+        el.classList.add('browserbot-selected');
+        el.classList.remove('browserbot-hovered');
         const entry = {
           element: el,
           selector: generateSelector(el),
@@ -1030,7 +1030,7 @@
 
   function blockPickerNavigation(e) {
     if (!pickerActive) return;
-    if (e.target?.closest?.('.pagewand-exit-float-btn, .pagewand-element-badge, .pagewand-link-opt-bubble')) return;
+    if (e.target?.closest?.('.browserbot-exit-float-btn, .browserbot-element-badge, .browserbot-link-opt-bubble')) return;
     if (e.type !== 'mouseup') e.preventDefault();
     e.stopPropagation();
     if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
@@ -1048,7 +1048,7 @@
 
   function startPicker() {
     void pickReady;
-    pickerActive = true; document.body.classList.add('pagewand-picking-mode');
+    pickerActive = true; document.body.classList.add('browserbot-picking-mode');
     document.addEventListener('mousemove', handleMouseMove, true);
     document.addEventListener('click', handleClick, true);
     document.addEventListener('mousedown', blockPickerNavigation, true);
@@ -1056,11 +1056,11 @@
     document.addEventListener('auxclick', blockPickerNavigation, true);
     document.addEventListener('submit', blockPickerNavigation, true);
     document.addEventListener('keydown', blockPickerKeyNav, true);
-    showExitFloatButton(); showToast('已开启伸爪 · 在页面上点击元素（不会跳转）');
+    showExitFloatButton(); showToast('已开启点选 · 在页面上点击元素（不会跳转）');
   }
   function stopPicker() {
-    pickerActive = false; document.body.classList.remove('pagewand-picking-mode');
-    if (hoveredElement) { hoveredElement.classList.remove('pagewand-hovered'); hoveredElement = null; }
+    pickerActive = false; document.body.classList.remove('browserbot-picking-mode');
+    if (hoveredElement) { hoveredElement.classList.remove('browserbot-hovered'); hoveredElement = null; }
     document.removeEventListener('mousemove', handleMouseMove, true);
     document.removeEventListener('click', handleClick, true);
     document.removeEventListener('mousedown', blockPickerNavigation, true);
@@ -1076,8 +1076,8 @@
   let scopePreviewElements = [];
 
   function clearScopePreview() {
-    document.querySelectorAll('.pagewand-scope-preview').forEach((el) => {
-      el.classList.remove('pagewand-scope-preview');
+    document.querySelectorAll('.browserbot-scope-preview').forEach((el) => {
+      el.classList.remove('browserbot-scope-preview');
     });
     scopePreviewElements = [];
   }
@@ -1123,7 +1123,7 @@
         });
       } catch (_) {}
     }
-    found.forEach((el) => el.classList.add('pagewand-scope-preview'));
+    found.forEach((el) => el.classList.add('browserbot-scope-preview'));
     scopePreviewElements = found;
     if (found[0] && typeof found[0].scrollIntoView === 'function') {
       try {
@@ -1143,8 +1143,8 @@
   }
 
   function clearSelection() {
-    document.querySelectorAll('.pagewand-selected, .pagewand-hovered, .pagewand-tag-focused').forEach(el => { el.classList.remove('pagewand-selected'); el.classList.remove('pagewand-hovered'); el.classList.remove('pagewand-tag-focused'); });
-    document.querySelectorAll('.pagewand-element-badge').forEach(b => b.remove());
+    document.querySelectorAll('.browserbot-selected, .browserbot-hovered, .browserbot-tag-focused').forEach(el => { el.classList.remove('browserbot-selected'); el.classList.remove('browserbot-hovered'); el.classList.remove('browserbot-tag-focused'); });
+    document.querySelectorAll('.browserbot-element-badge').forEach(b => b.remove());
     selectedElements = []; hoveredElement = null; notifySidePanel({ cleared: true }); showToast('🧹 已清除选中状态');
   }
 
@@ -1152,9 +1152,9 @@
     if (index >= 0 && index < selectedElements.length) {
       const item = selectedElements[index];
       if (item && item.element) {
-        item.element.classList.remove('pagewand-selected');
-        item.element.classList.remove('pagewand-hovered');
-        item.element.classList.remove('pagewand-tag-focused');
+        item.element.classList.remove('browserbot-selected');
+        item.element.classList.remove('browserbot-hovered');
+        item.element.classList.remove('browserbot-tag-focused');
       }
       selectedElements.splice(index, 1);
       refreshHighlightClasses();
@@ -1166,8 +1166,8 @@
     if (index >= 0 && index < selectedElements.length) {
       const item = selectedElements[index];
       if (item && item.element) {
-        if (isHovered) item.element.classList.add('pagewand-tag-focused');
-        else item.element.classList.remove('pagewand-tag-focused');
+        if (isHovered) item.element.classList.add('browserbot-tag-focused');
+        else item.element.classList.remove('browserbot-tag-focused');
       }
     }
   }
@@ -1250,8 +1250,8 @@
     } catch (_) {
       try { el.scrollIntoView(true); } catch (__) {}
     }
-    el.classList.add('pagewand-tag-focused');
-    setTimeout(() => el.classList.remove('pagewand-tag-focused'), 2000);
+    el.classList.add('browserbot-tag-focused');
+    setTimeout(() => el.classList.remove('browserbot-tag-focused'), 2000);
     return true;
   }
 
@@ -1511,7 +1511,7 @@
    */
   async function downloadSelectedImages(requestedCount = 0) {
     if (!selectedElements.length) {
-      showToast('⚠️ 请先伸爪选中图片或包含图片的区域');
+      showToast('⚠️ 请先点选图片或包含图片的区域');
       return { status: 'no_selection', count: 0 };
     }
 
@@ -1526,7 +1526,7 @@
     rawUrls = [...new Set(rawUrls.filter(Boolean))];
 
     if (rawUrls.length === 0) {
-      showToast('⚠️ 选中的元素中未找到可下载图片（可伸爪点选 img 或图片容器）');
+      showToast('⚠️ 选中的元素中未找到可下载图片（可点选点选 img 或图片容器）');
       return { status: 'no_images_in_selection', count: 0 };
     }
 
@@ -1566,7 +1566,7 @@
       csvRows.push(`"${idx + 1}","${item.tag}","${cleanSelector}","${cleanText}"`);
     });
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csvRows.join('\n'));
-    const a = document.createElement('a'); a.href = csvContent; a.download = `pagewand_extracted_data_${Date.now()}.csv`;
+    const a = document.createElement('a'); a.href = csvContent; a.download = `browserbot_extracted_data_${Date.now()}.csv`;
     document.body.appendChild(a); a.click(); a.remove(); showToast(`📊 成功导出 ${selectedElements.length} 条数据到 CSV！`);
   }
 
@@ -2125,7 +2125,7 @@ ${fragment}
 
   function buildSelectionMarkdown(cleanItems, order) {
     const lines = [
-      '# PageWand selection export',
+      '# BrowserBot selection export',
       `- order: ${order}`,
       `- items: ${cleanItems.length}`,
       `- url: ${location.href}`,
@@ -2267,7 +2267,7 @@ ${fragment}
     let filename =
       typeof request.filename === 'string' && request.filename.trim()
         ? request.filename.trim().replace(/[\\/:*?"<>|]/g, '_')
-        : `pagewand_selection_${Date.now()}.${format}`;
+        : `browserbot_selection_${Date.now()}.${format}`;
     // Ensure extension if user omitted it
     if (typeof request.filename === 'string' && request.filename.trim() && !/\.\w{1,8}$/.test(filename)) {
       filename = `${filename}.${format}`;
@@ -2701,11 +2701,11 @@ ${fragment}
     if (format === 'json') {
       content = JSON.stringify(rows, null, 2);
       mime = 'application/json;charset=utf-8';
-      filename = `pagewand_data_${Date.now()}.json`;
+      filename = `browserbot_data_${Date.now()}.json`;
     } else {
       content = pwRowsToCsv(rows);
       mime = 'text/csv;charset=utf-8';
-      filename = `pagewand_data_${Date.now()}.csv`;
+      filename = `browserbot_data_${Date.now()}.csv`;
     }
 
     if (download) {
@@ -3275,7 +3275,7 @@ ${fragment}
     }
     return {
       elements: [],
-      error: 'No target: provide selector or select elements with the PageWand picker',
+      error: 'No target: provide selector or select elements with the Browser Kitten picker',
       source: 'none'
     };
   }
@@ -3342,8 +3342,8 @@ ${fragment}
     const matched = [];
     for (const el of candidates) {
       if (!el || el.nodeType !== 1) continue;
-      // Skip PageWand UI chrome
-      if (el.closest && (el.closest('.pagewand-toast-container') || el.closest('.pagewand-exit-float-btn') || el.closest('#pagewand-confirm-bar') || el.id === 'pagewand-region-root')) continue;
+      // Skip BrowserBot UI chrome
+      if (el.closest && (el.closest('.browserbot-toast-container') || el.closest('.browserbot-exit-float-btn') || el.closest('#browserbot-confirm-bar') || el.id === 'browserbot-region-root')) continue;
       if (tagFilter) {
         if ((el.tagName || '').toLowerCase() !== tagFilter) continue;
       }
@@ -3438,13 +3438,13 @@ ${fragment}
 
   /** Heuristic: submit control or clear submit CTA (primary: type=submit / form submitter). */
   function dismissSubmitConfirmBar(reason) {
-    const bar = document.getElementById('pagewand-confirm-bar');
+    const bar = document.getElementById('browserbot-confirm-bar');
     if (bar) {
       try { bar.remove(); } catch (_) {}
     }
-    if (typeof pagewandConfirmResolve === 'function') {
-      const r = pagewandConfirmResolve;
-      pagewandConfirmResolve = null;
+    if (typeof confirmResolve === 'function') {
+      const r = confirmResolve;
+      confirmResolve = null;
       try { r({ confirmed: false, reason: reason || 'dismissed' }); } catch (_) {}
     }
   }
@@ -3569,15 +3569,15 @@ ${fragment}
         error: 'Invalid selector: ' + (e.message || String(e))
       };
     }
-    // Skip PageWand UI chrome
+    // Skip BrowserBot UI chrome
     els = els.filter((el) => {
       if (!el || el.nodeType !== 1) return false;
       if (
         el.closest &&
-        (el.closest('.pagewand-toast-container') ||
-          el.closest('.pagewand-exit-float-btn') ||
-          el.closest('#pagewand-confirm-bar') ||
-          el.id === 'pagewand-region-root')
+        (el.closest('.browserbot-toast-container') ||
+          el.closest('.browserbot-exit-float-btn') ||
+          el.closest('#browserbot-confirm-bar') ||
+          el.id === 'browserbot-region-root')
       ) {
         return false;
       }
@@ -3678,17 +3678,17 @@ ${fragment}
     end: { key: 'End', code: 'End', keyCode: 35 }
   };
 
-  function isPawActionChrome(el) {
+  function isActionChrome(el) {
     if (!el || el.nodeType !== 1) return false;
     const id = el.id != null ? String(el.id) : '';
-    if (id && (id === 'pagewand-region-root' || id.indexOf('pagewand-') === 0)) return true;
+    if (id && (id === 'browserbot-region-root' || id.indexOf('browserbot-') === 0)) return true;
     if (el.classList) {
       for (const c of el.classList) {
-        if (String(c).indexOf('pagewand-') === 0) return true;
+        if (String(c).indexOf('browserbot-') === 0) return true;
       }
     }
     try {
-      if (el.closest && el.closest('[id^="pagewand-"], [class*="pagewand-"]')) return true;
+      if (el.closest && el.closest('[id^="browserbot-"], [class*="browserbot-"]')) return true;
     } catch (_) {}
     return false;
   }
@@ -3713,7 +3713,7 @@ ${fragment}
       nodes = [];
     }
     for (const el of nodes) {
-      if (!el || el.nodeType !== 1 || seen.has(el) || isPawActionChrome(el)) continue;
+      if (!el || el.nodeType !== 1 || seen.has(el) || isActionChrome(el)) continue;
       if (isTabindexOnlyCandidate(el)) {
         const ti = el.getAttribute('tabindex');
         if (ti == null || ti === '') continue;
@@ -4001,7 +4001,7 @@ ${fragment}
     const css = opts && opts.css != null ? String(opts.css).trim() : '';
     if (css) {
       try {
-        const found = Array.from(document.querySelectorAll(css)).filter((el) => !isPawActionChrome(el));
+        const found = Array.from(document.querySelectorAll(css)).filter((el) => !isActionChrome(el));
         if (!found.length) {
           return { el: null, error: 'no elements match css', code: 'NO_TARGET' };
         }
@@ -4108,7 +4108,7 @@ ${fragment}
       nodes = [];
     }
     for (const el of nodes) {
-      if (isPawActionChrome(el)) continue;
+      if (isActionChrome(el)) continue;
       const text = String(el.innerText || el.textContent || el.value || '').toLowerCase().replace(/\s+/g, ' ').trim();
       const val = String(el.getAttribute('value') || el.value || '').toLowerCase();
       if (text === want || val === want || text.indexOf(want) >= 0) return el;
@@ -4783,18 +4783,18 @@ ${fragment}
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'ping') sendResponse({ status: 'pong', active: pickerActive });
-    else if (request.action === 'cancel_run' || request.action === 'pagewand_cancel_run') {
+    else if (request.action === 'cancel_run' || request.action === 'browserbot_cancel_run') {
       // Stop path: dismiss in-page submit confirm and any pending waits
       try {
-        const bar = document.getElementById('pagewand-confirm-bar');
+        const bar = document.getElementById('browserbot-confirm-bar');
         if (bar) {
           bar.querySelector('[data-pw-confirm="cancel"]')?.click();
           bar.remove();
         }
       } catch (_) {}
       try {
-        if (typeof window.__pagewandCancelPendingWaits === 'function') {
-          window.__pagewandCancelPendingWaits(request.runId || null);
+        if (typeof window.__browserbotCancelPendingWaits === 'function') {
+          window.__browserbotCancelPendingWaits(request.runId || null);
         }
       } catch (_) {}
       sendResponse({ status: 'cancelled', runId: request.runId || null });
@@ -4829,9 +4829,9 @@ ${fragment}
     else if (request.action === 'get_picker_state') sendResponse({ active: pickerActive, count: selectedElements.length });
     else if (request.action === 'scan_full_page_dom') { sendResponse(scanFullPageDOMContext()); }
     else if (request.action === 'show_custom_toast') { showToast(request.msg); sendResponse({ status: 'toast_shown' }); }
-    else if (request.action === 'pagewand_start_region_capture') {
+    else if (request.action === 'browserbot_start_region_capture') {
       sendResponse(startRegionCaptureUi());
-    } else if (request.action === 'pagewand_cancel_region_capture') {
+    } else if (request.action === 'browserbot_cancel_region_capture') {
       if (regionCaptureActive) finishRegionCancel();
       else stopRegionCaptureUi('cancel');
       sendResponse({ status: 'cancelled' });
@@ -4857,12 +4857,12 @@ ${fragment}
       const replace = request.replace !== false;
       const silent = request.silent === true;
       if (replace) {
-        document.querySelectorAll('.pagewand-selected, .pagewand-hovered, .pagewand-tag-focused').forEach((el) => {
-          el.classList.remove('pagewand-selected');
-          el.classList.remove('pagewand-hovered');
-          el.classList.remove('pagewand-tag-focused');
+        document.querySelectorAll('.browserbot-selected, .browserbot-hovered, .browserbot-tag-focused').forEach((el) => {
+          el.classList.remove('browserbot-selected');
+          el.classList.remove('browserbot-hovered');
+          el.classList.remove('browserbot-tag-focused');
         });
-        document.querySelectorAll('.pagewand-element-badge').forEach((b) => b.remove());
+        document.querySelectorAll('.browserbot-element-badge').forEach((b) => b.remove());
         selectedElements = [];
         hoveredElement = null;
       }
@@ -5014,7 +5014,7 @@ ${fragment}
       sendResponse(scanFullPageDOMContext());
     } else if (request.action === 'agent_highlight') {
       const targets = resolveTargetsFromSelectors(request.selectors);
-      window.PageWand.highlight(targets, request.color || '#fef08a');
+      window.BrowserBot.highlight(targets, request.color || '#fef08a');
       sendResponse({ status: 'ok', count: targets.length, color: request.color || '#fef08a' });
     } else if (request.action === 'agent_export_csv') {
       exportSelectedToCSV();

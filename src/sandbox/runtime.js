@@ -1,8 +1,9 @@
 /** Manifest-sandboxed guest host. No chrome.* — FS and sys are postMessage RPCs. */
+import { SANDBOX_CHANNEL } from '../brand.js';
 import { runCode } from '../agent/vnext/adapters/codeRuntime.js';
 import { createRunDeadline } from '../agent/vnext/sessionWorkspace/runDeadline.js';
 
-const CHANNEL = 'pawwork-code-sandbox-v1';
+const CHANNEL = SANDBOX_CHANNEL;
 const fsPending = new Map();
 const sysPending = new Map();
 const controllers = new Map();

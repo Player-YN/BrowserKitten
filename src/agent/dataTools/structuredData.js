@@ -345,7 +345,7 @@ export function formatRowsForDownload(rows, format = 'csv') {
       content,
       mime: 'application/json;charset=utf-8',
       extension: 'json',
-      filenameHint: `pagewand_data_${Date.now()}.json`
+      filenameHint: `browserbot_data_${Date.now()}.json`
     };
   }
   const content = rowsToCsv(rows, { bom: true });
@@ -353,7 +353,7 @@ export function formatRowsForDownload(rows, format = 'csv') {
     content,
     mime: 'text/csv;charset=utf-8',
     extension: 'csv',
-    filenameHint: `pagewand_data_${Date.now()}.csv`
+    filenameHint: `browserbot_data_${Date.now()}.csv`
   };
 }
 

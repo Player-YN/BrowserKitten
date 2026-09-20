@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <!--
-    PageWand Side Panel — task-first shell (pagewand-ux-demo design)
+    Browser Kitten Side Panel — task-first shell
     1. Task-first: one active task timeline; past tasks collapsed in history.
     2. Visible states: Chat / Shape / Running / Done·Confirm / Verified.
     3. Primary 点选 picker; counts/chips only after real selection — no hollow empty card.
@@ -11,7 +11,7 @@
   -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>爪爪 · 完全解放版</title>
+  <title>Browser Kitten</title>
   <link rel="stylesheet" href="sidepanel/css/tokens.css" />
   <link rel="stylesheet" href="sidepanel/css/layout.css" />
   <link rel="stylesheet" href="sidepanel/css/motion.css" />
@@ -19,7 +19,7 @@
   <script src="marked.min.js"></script>
 </head>
 <body data-theme="dark" data-theme-mode="system">
-  <aside class="panel" id="panel" aria-label="爪爪 · 完全解放版">
+  <aside class="panel" id="panel" aria-label="Browser Kitten">
     <div class="ambient-layer" aria-hidden="true"></div>
     <div class="file-drop-overlay" id="fileDropOverlay" aria-hidden="true">
       <span class="file-drop-overlay-label" id="fileDropOverlayLabel" data-i18n="fileDropHint">松开以上传附件</span>
@@ -80,10 +80,9 @@
     <!-- Sticky chrome: brand + page listen dot + more -->
     <header class="topbar">
       <div class="brand">
-        <span class="logo logo-paw" id="brandLogo" aria-hidden="true" title="爪爪 · 完全解放版"></span>
+        <span class="logo logo-mark" id="brandLogo" aria-hidden="true" title="Browser Kitten"></span>
         <div class="brand-text">
-          <div class="brand-name" data-i18n="brandName">爪爪</div>
-          <div class="brand-sub" data-i18n="brandSub">Paw Work</div>
+          <div class="brand-name" data-i18n="brandName">Browser Kitten</div>
         </div>
         <!-- Compact page listen trust indicator (no title/URL wall) -->
         <button type="button" class="page-listen" id="pageListenBtn" data-listen="pending" title="页面监听" aria-label="页面监听状态">
@@ -117,9 +116,9 @@
     <!-- Pinned under topbar: pick / shot / group / clipboard (does not scroll away) -->
     <section class="selection-bar is-empty" id="selectionBar" aria-label="Selection summary" aria-expanded="false">
       <div class="sel-toolbar" id="selToolbar">
-        <button type="button" class="pick-btn" id="pickBtn" aria-pressed="false" title="伸爪：在网页上点选元素" aria-label="伸爪">
-          <span class="pick-icon pick-icon-paw" aria-hidden="true"></span>
-          <span class="pick-label" id="pickBtnLabel" data-i18n="pickBtn">伸爪</span>
+        <button type="button" class="pick-btn" id="pickBtn" aria-pressed="false" title="点选：在网页上点选元素" aria-label="点选">
+          <span class="pick-icon pick-icon-mark" aria-hidden="true"></span>
+          <span class="pick-label" id="pickBtnLabel" data-i18n="pickBtn">点选</span>
         </button>
         <!-- Same tier as 点选: capture page region into chat -->
         <button type="button" class="shot-btn" id="captureScreenshotBtn" title="区域截图" aria-label="截图">
@@ -130,7 +129,7 @@
           <span class="sel-pin-icon" aria-hidden="true"></span>
         </button>
         <!-- Active Group for capture only (where new selections go). Session bind lives under the dialog. -->
-        <div class="group-select" id="groupSelect" title="当前选择组：伸爪/截图写入此组">
+        <div class="group-select" id="groupSelect" title="当前选择组：点选/截图写入此组">
           <button
             type="button"
             class="group-select-trigger"
@@ -214,8 +213,7 @@
               </div>
             </div>
             <div class="clip-drawer-body">
-              <ul class="clip-list" id="clipList"></ul>
-              <p class="clip-hint" data-i18n="clipHint">点整行即可复制 · 勾选后可批量删除 · 标题栏导出</p>
+              <ul class="clip-list" id="clipList" data-i18n-title="clipHint" title="点整行即可复制 · 勾选后可批量复制或删除 · 标题栏导出"></ul>
             </div>
           </div>
         </div>
@@ -261,10 +259,10 @@
         <!-- Home empty: tagline lives only as composer placeholder; chips near centered input -->
         <div class="welcome" id="welcome">
           <div class="home-center" id="homeCenter">
-            <div class="home-mark home-mark-paw" aria-hidden="true"></div>
+            <div class="home-mark home-mark-hero" aria-hidden="true"></div>
             <div class="home-composer-slot" id="homeComposerSlot"></div>
             <div class="hint-chips" id="hintChips">
-              <button type="button" class="hint-chip" data-prompt-key="userGuide" data-i18n="guideChipLabel" data-prompt="爪爪（Paw Work）能做什么？简短介绍伸爪选中、对话、下载与导出。">怎么用爪爪？</button>
+              <button type="button" class="hint-chip" data-prompt-key="userGuide" data-i18n="guideChipLabel" data-prompt="Browser Kitten 能做什么？简短介绍点选选中、对话、下载与导出。">怎么用 Browser Kitten？</button>
             </div>
           </div>
         </div>
@@ -458,7 +456,7 @@
     <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
     <div class="more-sheet" id="moreSheet" hidden role="dialog" aria-modal="true" aria-label="更多">
       <div class="sheet-handle"></div>
-      <h3 data-i18n="moreTitle">更多</h3>
+      <h3 data-i18n="moreTitle" data-i18n-title="moreNote" title="默认首页刻意隐藏这些项，降低新用户认知负担。">更多</h3>
 
       <div class="sheet-section">
         <div class="sheet-section-title">外观与语言</div>
@@ -471,13 +469,12 @@
 
       <div class="sheet-section">
         <div class="sheet-section-title" data-i18n="moreSkills">Skills 技能</div>
-        <p class="sheet-note" data-i18n="settingsSkillsHint">打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。</p>
-        <button type="button" class="sheet-action-btn" id="moreSkillsBtn" data-i18n="moreSkillsOpen">打开 Skills</button>
+        <button type="button" class="sheet-action-btn" id="moreSkillsBtn" data-i18n="moreSkillsOpen" data-i18n-title="settingsSkillsHint" title="打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。">打开 Skills</button>
       </div>
 
       <div class="sheet-section">
         <div class="sheet-section-title">🛤️ <span data-i18n="moreTrajectory">运行轨迹</span></div>
-        <button type="button" class="sheet-action-btn" id="exportMdBtn">导出任务 Markdown</button>
+        <button type="button" class="sheet-action-btn" id="exportMdBtn" data-i18n-title="trajectoryThoughtWarn" title="轨迹包含模型思考，可能含敏感信息。导出即表示你主动保存这段思考。">导出任务 Markdown</button>
       </div>
 
       <!-- Keep sessionSelect in DOM for JS that still refreshes sessions (hidden) -->
@@ -558,8 +555,7 @@
         <button id="skillModalCloseBtn" class="modal-close-btn">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="skill-catalog-subtitle">用户 Skills 保存在本机；运行消耗云端 BYOK API（扩展内 vNext Runtime）。</p>
-        <div id="skillCardsGrid" class="skill-cards-grid"></div>
+        <div id="skillCardsGrid" class="skill-cards-grid" title="用户 Skills 保存在本机；运行消耗云端 BYOK API（扩展内 vNext Runtime）。"></div>
       </div>
     </div>
   </div>
@@ -572,13 +568,7 @@
         <button type="button" id="trajectoryExportCloseBtn" class="modal-close-btn" aria-label="关闭">×</button>
       </div>
       <div class="modal-body">
-        <p class="settings-hint">
-          导出当前任务的完整 Agent 运行轨迹（开发调试用）。<strong>人工状态由您定义</strong>。
-        </p>
-        <p class="settings-hint" id="trajectoryThoughtWarn">
-          轨迹包含模型思考，可能含敏感信息。导出即表示你主动保存这段思考。
-        </p>
-        <label class="settings-label" for="trajectoryHumanStatusSelect">人工完成状态 (humanStatus)</label>
+        <label class="settings-label" for="trajectoryHumanStatusSelect" title="导出当前任务的完整 Agent 运行轨迹（开发调试用）。人工状态由您定义。轨迹包含模型思考，可能含敏感信息。导出即表示你主动保存这段思考。">人工完成状态 (humanStatus)</label>
         <select id="trajectoryHumanStatusSelect" class="modal-input trajectory-status-select">
           <option value="unknown">unknown — 未知</option>
           <option value="in_progress">in_progress — 进行中</option>
@@ -605,15 +595,14 @@
   <dialog id="agentSettingsModal" class="pw-dialog" aria-labelledby="settingsModalTitle">
     <div class="modal-card settings-modal-card">
       <div class="modal-header">
-        <h3 id="settingsModalTitle">⚙️ 设置</h3>
+        <h3 id="settingsModalTitle" title="配置仅保存在本机，不会上传到云端服务器。">⚙️ 设置</h3>
         <button type="button" id="settingsModalCloseBtn" class="modal-close-btn" aria-label="关闭">&times;</button>
       </div>
       <div class="modal-body settings-modal-body">
         <section class="settings-api-card" id="settingsAccessCard" aria-labelledby="settingsAccessTitle">
-          <h4 class="settings-api-card-title" id="settingsAccessTitle" data-i18n="accessSettingsTitle">访问策略</h4>
-          <p class="settings-hint" id="accessSettingsHint">守卫模式：已知的读、导航、填写、发送会自动进行。已知付款会拒绝。已知删除会先问你。</p>
+          <h4 class="settings-api-card-title" id="settingsAccessTitle" data-i18n="accessSettingsTitle" data-i18n-title="accessGuardedHint" title="守卫模式：已知的读、导航、填写、发送会自动进行。已知付款会拒绝。已知删除会先问你。看不清的提交会先问你。页面脚本（eval / CDP 注入）关闭。">访问策略</h4>
           <p class="settings-hint" id="accessSettingsMode">Guarded</p>
-          <label class="settings-check-row">
+          <label class="settings-check-row" id="accessFullToggleRow">
             <input type="checkbox" id="accessFullToggle" />
             <span data-i18n="accessChipFull">Full Access</span>
           </label>
@@ -790,23 +779,20 @@
         <label class="settings-label">🛠 开发者 / Debug</label>
         <label class="settings-check-row">
           <input type="checkbox" id="devTrajectoryExportCheck" checked />
-          <span>启用任务页轨迹导出</span>
+          <span title="开启后可在任务标题栏下载轨迹 JSON（调试用）。">启用任务页轨迹导出</span>
         </label>
-        <p class="settings-hint">开启后可在任务标题栏下载轨迹 JSON（调试用）。</p>
 
         <div class="settings-capture-row" id="captureShortcutRow">
-          <label class="settings-label">📸 截图快捷键 / Capture shortcut</label>
+          <label class="settings-label" title="默认 Alt+Shift+C · 拖拽框选区域 → 剪贴板 + 对话附件">📸 截图快捷键</label>
           <div class="settings-capture-controls">
-            <code id="captureShortcutLabel" class="capture-shortcut-code" data-shortcut="Alt+Shift+C">Alt+Shift+C</code>
-            <button type="button" id="captureShortcutOpenBtn" class="btn btn-secondary settings-mini-btn" title="在 Chrome 扩展快捷键页修改">修改快捷键</button>
+            <code id="captureShortcutLabel" class="capture-shortcut-code" data-shortcut="Alt+Shift+C" title="默认 Alt+Shift+C · 拖拽框选区域 → 剪贴板 + 对话附件">Alt+Shift+C</code>
+            <button type="button" id="captureShortcutOpenBtn" class="btn btn-secondary settings-mini-btn" title="默认 Alt+Shift+C · 拖拽框选区域 → 剪贴板 + 对话附件。在 Chrome 扩展快捷键页修改。">修改快捷键</button>
           </div>
-          <p class="settings-hint">默认 Alt+Shift+C · 拖拽框选区域 → 剪贴板 + 对话附件</p>
         </div>
-        <p class="settings-hint" id="settingsHint">配置仅保存在本机，不会上传到云端服务器。</p>
       </div>
       <div class="modal-footer">
         <button type="button" id="settingsCancelBtn" class="btn btn-secondary">关闭</button>
-        <button type="button" id="settingsSaveBtn" class="btn btn-primary">保存配置</button>
+        <button type="button" id="settingsSaveBtn" class="btn btn-primary" title="配置仅保存在本机，不会上传到云端服务器。">保存配置</button>
       </div>
     </div>
   </dialog>
@@ -814,11 +800,10 @@
   <dialog id="skillsSettingsModal" class="pw-dialog" aria-labelledby="skillsModalTitle">
     <div class="modal-card settings-modal-card">
       <div class="modal-header">
-        <h3 id="skillsModalTitle" data-i18n="moreSkills">Skills 技能</h3>
+        <h3 id="skillsModalTitle" data-i18n="moreSkills" data-i18n-title="settingsSkillsHint" title="打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。">Skills 技能</h3>
         <button type="button" id="skillsModalCloseBtn" class="modal-close-btn" aria-label="关闭">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="settings-hint" data-i18n="settingsSkillsHint">打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。</p>
         <div class="settings-tools-row">
           <input type="url" id="skillImportUrl" class="modal-input skill-import-url" data-i18n-placeholder="skillImportPlaceholder" placeholder="https://github.com/org/repo" />
           <button type="button" class="btn btn-secondary settings-mini-btn" id="skillImportBtn" data-i18n="skillImport">导入</button>

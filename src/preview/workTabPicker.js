@@ -1,5 +1,5 @@
 /**
- * 伸爪 on work tabs (Design / Slides / Site / Sheet / Docs).
+ * 点选 on work tabs (Design / Slides / Site / Sheet / Docs).
  * Same message contract as the live-web content script picker.
  */
 

@@ -6,7 +6,7 @@ import { createSessionGuestFs } from '../src/agent/vnext/sessionWorkspace/fs.js'
 import { createIntentUpdater, validateIntentPatch, pendingIntentRequests, formatIntentInstructions } from '../src/agent/vnext/sessionWorkspace/intentState.js';
 import { makeOfficePrepareStep } from '../src/agent/vnext/sessionWorkspace/toolSchedule.js';
 import { pruneSdkToolResults, messagePlainText, estimateTextTokens } from '../src/agent/vnext/sessionWorkspace/contextCompact.js';
-import { createPageWandLanguageModel } from '../src/agent/provider.js';
+import { createBrowserBotLanguageModel } from '../src/agent/provider.js';
 
 const user = (messageId, content) => ({ messageId, content, role: 'user' });
 const item = (id, sourceMessageIds, extra = {}) => ({ id, sourceMessageIds, kind: 'objective', status: 'active', text: id, taskId: null, ...extra });
@@ -130,7 +130,7 @@ test('bundled provider receives bounded no-tool extraction and suppresses proxy 
     throw new TypeError('network');
   };
   try {
-    const { model } = await createPageWandLanguageModel({ settings: { apiKey: 'test', apiBase: 'https://gateway.test/v1', model: 'test' }, mediaCapabilities: {} });
+    const { model } = await createBrowserBotLanguageModel({ settings: { apiKey: 'test', apiBase: 'https://gateway.test/v1', model: 'test' }, mediaCapabilities: {} });
     const f = fixture();
     await createIntentUpdater({ ...f, model })();
     assert.equal(requests, 1); assert.equal(proxies, 0);

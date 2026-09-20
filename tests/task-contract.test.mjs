@@ -8,6 +8,7 @@ import {
   getTask,
   hostTaskMutation,
   listTasks,
+  startTaskFromPlanApproval,
   updateTaskControl
 } from '../src/agent/vnext/sessionWorkspace/tasks.js';
 import {
@@ -17,7 +18,7 @@ import {
   putTaskCard
 } from '../src/agent/vnext/sessionWorkspace/taskContract.js';
 import { formatTaskInstructions } from '../src/agent/vnext/sessionWorkspace/taskInstructions.js';
-import { pinFrozenPlan } from '../src/agent/vnext/sessionWorkspace/planContract.js';
+import { pinFrozenPlan, wantsDurableTaskFromPlan } from '../src/agent/vnext/sessionWorkspace/planContract.js';
 
 function harness(sessionId = 's1') {
   const store = new SessionWorkspaceStore();
@@ -269,4 +270,63 @@ test('task start without a waitForClarify host fails closed', async () => {
   const out = await tool.execute({ op: 'start', goal: 'Should not create' });
   assert.equal(out.ok, false);
   assert.equal(out.code, 'TASK_CARD_REQUIRED');
+});
+
+test('plan receipt starts a durable task only when startDurableTask is true', () => {
+  assert.equal(wantsDurableTaskFromPlan({ approved: true }), false);
+  assert.equal(wantsDurableTaskFromPlan({ approved: true, startDurableTask: false }), false);
+  assert.equal(wantsDurableTaskFromPlan({ approved: true, startDurableTask: true }), true);
+  assert.equal(wantsDurableTaskFromPlan({ approved: true, startDurableTask: 'true' }), true);
+  assert.equal(wantsDurableTaskFromPlan({ approved: false, startDurableTask: true }), false);
+  assert.equal(wantsDurableTaskFromPlan({ decision: 'revise', notes: 'change', startDurableTask: true }), false);
+});
+
+test('checked plan approval creates and binds a durable task', () => {
+  const { store, sessionId } = harness();
+  const out = startTaskFromPlanApproval(store, {
+    sessionId,
+    executionId: 'exec_plan',
+    plan: {
+      title: 'Sell on Xianyu',
+      summary: 'Message buyers',
+      steps: [{ title: 'Open listing' }, { title: 'Send IM' }]
+    },
+    cardId: 'plan-task_c1'
+  });
+  assert.equal(out.created, true);
+  assert.equal(out.task.contract.goal, 'Sell on Xianyu');
+  assert.equal(out.task.contract.scope, 'Message buyers');
+  assert.equal(out.task.plan.steps[0].title, 'Open listing');
+  assert.equal(getActiveTaskId(store, sessionId), out.task.taskId);
+  assert.equal(out.task.ownership.executionId, 'exec_plan');
+});
+
+test('unchecked plan approval only pins this turn', () => {
+  const { store, sessionId } = harness();
+  const execution = {};
+  pinFrozenPlan(execution, { title: 'Look around', steps: [{ title: 'Open tab' }] });
+  assert.equal(wantsDurableTaskFromPlan({ approved: true, startDurableTask: false }), false);
+  assert.equal(listTasks(store, { sessionId }).length, 0);
+  assert.ok(execution.frozenPlan);
+});
+
+test('plan approval does not create a second task when one is already active', () => {
+  const { store, sessionId } = harness();
+  const first = startTaskFromPlanApproval(store, {
+    sessionId,
+    executionId: 'exec_1',
+    plan: { title: 'First', summary: 'A' },
+    cardId: 'plan-task_1'
+  });
+  const second = startTaskFromPlanApproval(store, {
+    sessionId,
+    executionId: 'exec_2',
+    plan: { title: 'Second', summary: 'B' },
+    cardId: 'plan-task_2'
+  });
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.skipped, 'already-active');
+  assert.equal(listTasks(store, { sessionId }).length, 1);
+  assert.equal(getActiveTaskId(store, sessionId), first.task.taskId);
 });

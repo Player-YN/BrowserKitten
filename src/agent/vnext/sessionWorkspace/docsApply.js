@@ -202,7 +202,7 @@ function blockToInnerHtml(block) {
 }
 
 /**
- * Marked HTML: data-pawwork-preview=blocks so the host HTML preview can open it.
+ * Marked HTML: data-browserbot-preview=blocks so the host HTML preview can open it.
  * @param {object} snapshot
  */
 export function serializeDocHtml(snapshot) {
@@ -212,15 +212,15 @@ export function serializeDocHtml(snapshot) {
     .map((b) => {
       const id = escapeAttr(b.id);
       const type = escapeAttr(b.type);
-      return `<section data-paw-block data-paw-block-id="${id}" data-paw-block-type="${type}">${blockToInnerHtml(b)}</section>`;
+      return `<section data-browserbot-block data-browserbot-block-id="${id}" data-browserbot-block-type="${type}">${blockToInnerHtml(b)}</section>`;
     })
     .join('\n');
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-pawwork-preview="blocks">
+<html lang="zh-CN" data-browserbot-preview="blocks">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="pawwork-preview" content="blocks" />
+  <meta name="browserbot-preview" content="blocks" />
   <title>${title}</title>
   <style>body{font-family:system-ui,sans-serif;line-height:1.55;color:#1c1915;max-width:42rem;margin:24px auto;padding:0 16px}h1{font-size:1.6rem}img{max-width:100%;height:auto}</style>
 </head>
@@ -239,9 +239,9 @@ function parseMarkedSections(html) {
   let m;
   while ((m = re.exec(html))) {
     const attrs = m[1] || '';
-    if (!/data-paw-block\b/i.test(attrs)) continue;
-    const id = (/data-paw-block-id=["']([^"']+)["']/i.exec(attrs) || [])[1] || nextBlockId({ blocks });
-    const typeAttr = (/data-paw-block-type=["']([^"']+)["']/i.exec(attrs) || [])[1];
+    if (!/data-browserbot-block\b/i.test(attrs)) continue;
+    const id = (/data-browserbot-block-id=["']([^"']+)["']/i.exec(attrs) || [])[1] || nextBlockId({ blocks });
+    const typeAttr = (/data-browserbot-block-type=["']([^"']+)["']/i.exec(attrs) || [])[1];
     const inner = m[2] || '';
     const img = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i.exec(inner);
     if (typeAttr === 'img' || img) {
@@ -320,7 +320,7 @@ export function parseDocSnapshot(raw, extra = {}) {
       /* not JSON snapshot */
     }
   }
-  if (/data-pawwork-preview\s*=\s*["']blocks["']/i.test(text) || /data-paw-block\b/i.test(text)) {
+  if (/data-browserbot-preview\s*=\s*["']blocks["']/i.test(text) || /data-browserbot-block\b/i.test(text)) {
     const marked = parseMarkedSections(text);
     if (marked.blocks.length) {
       if (!marked.title && extra.title) marked.title = extra.title;

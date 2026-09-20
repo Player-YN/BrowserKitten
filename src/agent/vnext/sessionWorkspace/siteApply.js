@@ -9,9 +9,9 @@ const TEXT_TAGS = 'h1|h2|h3|h4|h5|h6|p|a|button|li|label|span|figcaption|td|th|b
 export function stampSiteHtml(html) {
   let n = 0;
   const src = String(html || '');
-  const withKind = /data-paw-kind\s*=\s*["']site["']/i.test(src)
+  const withKind = /data-browserbot-kind\s*=\s*["']site["']/i.test(src)
     ? src
-    : src.replace(/<html\b([^>]*)>/i, '<html$1 data-paw-kind="site">');
+    : src.replace(/<html\b([^>]*)>/i, '<html$1 data-browserbot-kind="site">');
   return withKind.replace(new RegExp(`<(${TEXT_TAGS}|img)(\\s[^>]*)?>`, 'gi'), (m) => {
     if (/data-paw-node=/i.test(m)) return m;
     n += 1;
@@ -168,7 +168,7 @@ export function applySiteCommands(html, commands, opts = {}) {
         return {
           ok: false,
           code: policy.code || 'USE_CANVAS',
-          error: policy.error || 'replaceHtml needs data-paw-kind=site',
+          error: policy.error || 'replaceHtml needs data-browserbot-kind=site',
           hint: 'in-place site replace stays on the same marked HTML file'
         };
       }

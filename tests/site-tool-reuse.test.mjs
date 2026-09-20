@@ -26,9 +26,9 @@ function sessionTools() {
 }
 
 test('prefix prefers ready-made site tools and does not dump the skill body', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v18-media-evidence');
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v22-browser-kitten');
   const prefix = buildSessionAgentInstructions();
-  assert.match(prefix, /你是"爪爪"/);
+  assert.match(prefix, /你是"Browser Kitten"/);
   assert.match(prefix, /不预设某种工具或路径总是更好/);
   assert.match(prefix, /也可以编写代码或组合多种能力/);
   // v13 site-tool-reuse principle sentences are not required in the prefix

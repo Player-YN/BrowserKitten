@@ -12,7 +12,7 @@ const PROMPT_MAX = 400;
 export function selectionSuggestSystem(lang = 'zh') {
   const zh = String(lang || '').toLowerCase().startsWith('zh');
   return [
-    'Paw Work is a Chrome selection-first agent. The user already captured items on a live page.',
+    'Browser Kitten is a Chrome selection-first agent. The user already captured items on a live page.',
     'Suggest 2–4 next actions as chips. Clicking a chip sends that prompt as the user message.',
     'This product can deliver: a live spreadsheet, a real website, a document, image compose/generate, download of selected files, or cleaned extracted text.',
     'Do not suggest roaming other sites, mutating Selection Groups, or inventing facts not in the summary.',

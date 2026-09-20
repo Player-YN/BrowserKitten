@@ -3,14 +3,14 @@
  * Model-origin generic writes cannot land leftover pawCanvas / tldraw snapshots.
  */
 
-import { isPawCanvasDoc } from './openClassify.js';
+import { isRemovedCanvasDoc } from './openClassify.js';
 
 const USE_CANVAS = {
   ok: false,
   code: 'USE_CANVAS',
   error:
-    'Design/Slides (tldraw) is removed. write_artifact cannot create pawCanvas JSON. HTML files are only a website (data-paw-kind="site") or a document (data-paw-kind="document").',
-  hint: 'use write_artifact with data-paw-kind=site, or run op=doc'
+    'Design/Slides (tldraw) is removed. write_artifact cannot create pawCanvas JSON. HTML files are only a website (data-browserbot-kind="site") or a document (data-browserbot-kind="document").',
+  hint: 'use write_artifact with data-browserbot-kind=site, or run op=doc'
 };
 
 export function htmlWritePolicy(content, name = '') {
@@ -22,7 +22,7 @@ export function htmlWritePolicy(content, name = '') {
   }
   const trimmed = text.trim();
   if (!trimmed && (decoded == null || decoded === '')) return { allow: true };
-  if (decoded && typeof decoded === 'object' && !isPawCanvasDoc(decoded) && !looksLikeTldrawStore(decoded)) {
+  if (decoded && typeof decoded === 'object' && !isRemovedCanvasDoc(decoded) && !looksLikeTldrawStore(decoded)) {
     return { allow: true, kind: 'json' };
   }
   if (!trimmed) return { allow: true };
@@ -33,8 +33,8 @@ export function htmlWritePolicy(content, name = '') {
     /text\/html/i.test(n) ||
     (/^\s*</.test(trimmed) && /<[a-z!/]/i.test(trimmed) && !looksSvg);
   if (!looksHtml) return { allow: true };
-  if (/data-paw-kind\s*=\s*["'](site|web)["']/i.test(text)) return { allow: true, kind: 'site' };
-  if (/data-paw-kind\s*=\s*["']document["']/i.test(text) || /id=["']paw-document["']/i.test(text)) {
+  if (/data-browserbot-kind\s*=\s*["'](site|web)["']/i.test(text)) return { allow: true, kind: 'site' };
+  if (/data-browserbot-kind\s*=\s*["']document["']/i.test(text) || /id=["']paw-document["']/i.test(text)) {
     return { allow: true, kind: 'doc' };
   }
   return { ...USE_CANVAS, allow: false };
@@ -42,12 +42,12 @@ export function htmlWritePolicy(content, name = '') {
 
 export function looksLikeVisualCanvasPayload(content, name = '') {
   const decoded = decodeWritePayload(content);
-  if (isPawCanvasDoc(decoded) || looksLikeTldrawStore(decoded)) return true;
+  if (isRemovedCanvasDoc(decoded) || looksLikeTldrawStore(decoded)) return true;
   if (typeof decoded === 'string') {
     const trimmed = decoded.trim();
-    if (isPawCanvasDoc(trimmed)) return true;
+    if (isRemovedCanvasDoc(trimmed)) return true;
     const parsed = tryParseJson(trimmed);
-    if (parsed && (isPawCanvasDoc(parsed) || looksLikeTldrawStore(parsed))) return true;
+    if (parsed && (isRemovedCanvasDoc(parsed) || looksLikeTldrawStore(parsed))) return true;
   }
   if (isCanonicalCanvasFileName(name)) {
     const parsed = typeof decoded === 'object' && decoded ? decoded : tryParseJson(String(decoded || ''));
@@ -63,7 +63,7 @@ export function decodeWritePayload(content) {
   if (!text) return text;
   const unwrapped = unwrapEncodedText(text);
   const parsed = tryParseJson(unwrapped);
-  if (parsed && (isPawCanvasDoc(parsed) || looksLikeTldrawStore(parsed))) return parsed;
+  if (parsed && (isRemovedCanvasDoc(parsed) || looksLikeTldrawStore(parsed))) return parsed;
   return unwrapped;
 }
 
@@ -156,7 +156,7 @@ function looksLikeTldrawStore(doc) {
 
 function looksLikeCanvasishJson(doc) {
   if (!doc || typeof doc !== 'object') return false;
-  if (isPawCanvasDoc(doc) || looksLikeTldrawStore(doc)) return true;
+  if (isRemovedCanvasDoc(doc) || looksLikeTldrawStore(doc)) return true;
   const shell = String(doc.shell || doc.kind || '').toLowerCase();
   return (
     Number(doc.pawCanvas) === 1 ||

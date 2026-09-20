@@ -5,11 +5,12 @@
  * User edits in live office canvases (preview `updateArtifact`) never enter this log.
  */
 
-import { projectJsonForWire } from './wireTranscript.js';
+import { TRAJECTORY_SCHEMA as BEHAVIOR_TRAJECTORY_SCHEMA } from '../../../brand.js';
+import { projectJsonForWire, projectWireForDownload } from './wireTranscript.js';
 import { harvestModelUsage } from './contextCompact.js';
 import { SESSION_AUDIT_SCHEMA, TRAJECTORY_THOUGHT_WARNING } from './sessionAudit.js';
 
-export const BEHAVIOR_TRAJECTORY_SCHEMA = 'pagewand.trajectory/v3';
+export { BEHAVIOR_TRAJECTORY_SCHEMA };
 
 const OFFICE_TOOLS = new Set(['sheet', 'doc', 'web']);
 const COMMAND_KEEP = [
@@ -1317,6 +1318,21 @@ export function recordBehaviorEvent(pathLog, ev) {
     return;
   }
 
+  if (type === 'host') {
+    const row = {
+      type: 'host',
+      name: String(ev.name || 'host').slice(0, 80),
+      ts
+    };
+    if (ev.ok != null) row.ok = ev.ok === true;
+    if (ev.code) row.code = String(ev.code).slice(0, 64);
+    if (ev.tabId != null && ev.tabId !== '') row.tabId = ev.tabId;
+    if (ev.url) row.url = String(ev.url).slice(0, 2000);
+    if (ev.sessionId) row.sessionId = String(ev.sessionId).slice(0, 80);
+    pathLog.push(row);
+    return;
+  }
+
   if (type === 'assistant-final') {
     pathLog.push({
       type: 'assistant-final',
@@ -1358,6 +1374,7 @@ function compactAuditFact(type, ev, ts) {
   if (ev.executionId) row.executionId = String(ev.executionId).slice(0, 80);
   if (ev.sessionId) row.sessionId = String(ev.sessionId).slice(0, 80);
   if (ev.tabId != null && ev.tabId !== '') row.tabId = ev.tabId;
+  if (ev.url) row.url = String(ev.url).slice(0, 2000);
   if (ev.title) row.title = String(ev.title).slice(0, 120);
   if (ev.holderSessionId) row.holderSessionId = String(ev.holderSessionId).slice(0, 80);
   if (ev.name) row.name = String(ev.name).slice(0, 80);
@@ -1499,7 +1516,8 @@ function exportTurn(index, userMsg, assistant) {
   if (started) turn.startedAt = started;
   if (ended) turn.endedAt = ended;
   if (Array.isArray(assistant?.wire) && assistant.wire.length) {
-    turn.wire = slim(assistant.wire);
+    // Persist already bounded each hop; do not re-cut the hop list at 50.
+    turn.wire = projectWireForDownload(assistant.wire);
   }
   const ctxEv = events.find((e) => e?.type === 'turn-context');
   if (ctxEv) {

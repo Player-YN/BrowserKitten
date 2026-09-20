@@ -299,7 +299,7 @@ function wImage(relId, cx, cy, name = 'Picture') {
 }
 
 function platesToDocxBytes(plates, opts = {}) {
-  const title = opts.title || 'Paw Work';
+  const title = opts.title || 'Browser Kitten';
   const { plates: enriched, media } = collectPlateMedia(plates);
   const body = [];
   const rels = [
@@ -442,12 +442,12 @@ ${body.join('\n')}
   const now = new Date().toISOString();
   const core = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-<dc:title>${xmlEscape(title)}</dc:title><dc:creator>Paw Work</dc:creator>
+<dc:title>${xmlEscape(title)}</dc:title><dc:creator>Browser Kitten</dc:creator>
 <dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created>
 </cp:coreProperties>`;
   const app = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
-<Application>Paw Work</Application>
+<Application>Browser Kitten</Application>
 </Properties>`;
 
   const files = [

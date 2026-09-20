@@ -330,10 +330,10 @@ async function downloadNow() {
   setStatus(`已开始下载 · ${name}`);
 }
 
-function pawRibbonLocales(lang) {
+function ribbonLocales(lang) {
   if (lang === 'en') {
     return {
-      pawwork: {
+      browserbot: {
         save: 'Save to workspace',
         download: 'Download',
         langMenu: 'Language',
@@ -343,7 +343,7 @@ function pawRibbonLocales(lang) {
     };
   }
   return {
-    pawwork: {
+    browserbot: {
       save: '保存到工作区',
       download: '下载',
       langMenu: '语言',
@@ -383,19 +383,19 @@ function registerRibbonCommand(id, handler) {
   }
 }
 
-let pawRibbonInstalled = false;
+let ribbonInstalled = false;
 
-function installPawRibbonMenus() {
-  if (pawRibbonInstalled) return true;
+function installRibbonMenus() {
+  if (ribbonInstalled) return true;
   if (!univerAPI?.createMenu) return false;
   try {
-    registerRibbonCommand('paw.doc.save', () => void saveNow('save'));
-    registerRibbonCommand('paw.doc.download', () => void downloadNow());
+    registerRibbonCommand('browserbot.doc.save', () => void saveNow('save'));
+    registerRibbonCommand('browserbot.doc.download', () => void downloadNow());
     univerAPI
       .createMenu({
-        id: 'paw.doc.save',
-        title: 'pawwork.save',
-        tooltip: 'pawwork.save',
+        id: 'browserbot.doc.save',
+        title: 'browserbot.save',
+        tooltip: 'browserbot.save',
         icon: 'ExportIcon',
         order: 10,
         action: () => void saveNow('save')
@@ -403,38 +403,38 @@ function installPawRibbonMenus() {
       .appendTo('ribbon.start.others');
     univerAPI
       .createMenu({
-        id: 'paw.doc.download',
-        title: 'pawwork.download',
-        tooltip: 'pawwork.download',
+        id: 'browserbot.doc.download',
+        title: 'browserbot.download',
+        tooltip: 'browserbot.download',
         order: 11,
         action: () => void downloadNow()
       })
       .appendTo('ribbon.start.others');
     univerAPI
       .createSubmenu({
-        id: 'paw.doc.lang',
-        title: 'pawwork.langMenu',
-        tooltip: 'pawwork.langMenu',
+        id: 'browserbot.doc.lang',
+        title: 'browserbot.langMenu',
+        tooltip: 'browserbot.langMenu',
         order: 12
       })
       .appendTo('ribbon.start.others');
-    registerRibbonCommand('paw.doc.lang.zh', () => applyUniverLocale('zh'));
-    registerRibbonCommand('paw.doc.lang.en', () => applyUniverLocale('en'));
+    registerRibbonCommand('browserbot.doc.lang.zh', () => applyUniverLocale('zh'));
+    registerRibbonCommand('browserbot.doc.lang.en', () => applyUniverLocale('en'));
     univerAPI
       .createMenu({
-        id: 'paw.doc.lang.zh',
-        title: 'pawwork.langZh',
-        action: 'paw.doc.lang.zh'
+        id: 'browserbot.doc.lang.zh',
+        title: 'browserbot.langZh',
+        action: 'browserbot.doc.lang.zh'
       })
-      .appendTo('paw.doc.lang');
+      .appendTo('browserbot.doc.lang');
     univerAPI
       .createMenu({
-        id: 'paw.doc.lang.en',
-        title: 'pawwork.langEn',
-        action: 'paw.doc.lang.en'
+        id: 'browserbot.doc.lang.en',
+        title: 'browserbot.langEn',
+        action: 'browserbot.doc.lang.en'
       })
-      .appendTo('paw.doc.lang');
-    pawRibbonInstalled = true;
+      .appendTo('browserbot.doc.lang');
+    ribbonInstalled = true;
     return true;
   } catch (err) {
     console.warn('[docs] Univer createMenu failed', err);
@@ -501,8 +501,8 @@ async function mountUniver(snapshot) {
     theme: runtime.defaultTheme,
     locale: lang === 'en' ? runtime.LocaleType.EN_US : runtime.LocaleType.ZH_CN,
     locales: {
-      [runtime.LocaleType.ZH_CN]: runtime.mergeLocales(runtime.locales.zhCN, pawRibbonLocales('zh')),
-      [runtime.LocaleType.EN_US]: runtime.mergeLocales(runtime.locales.enUS, pawRibbonLocales('en'))
+      [runtime.LocaleType.ZH_CN]: runtime.mergeLocales(runtime.locales.zhCN, ribbonLocales('zh')),
+      [runtime.LocaleType.EN_US]: runtime.mergeLocales(runtime.locales.enUS, ribbonLocales('en'))
     },
     presets: [
       runtime.UniverDocsCorePreset({
@@ -524,7 +524,7 @@ async function mountUniver(snapshot) {
     if (booted) return;
     try {
       paintSnapshot(snapshot);
-      installPawRibbonMenus();
+      installRibbonMenus();
       booted = true;
     } catch {
       booted = false;
@@ -637,7 +637,7 @@ async function main() {
       ) {
         return false;
       }
-      if (msg?.action !== 'pawwork_docs_rpc') return false;
+      if (msg?.action !== 'browserbot_docs_rpc') return false;
       executeDocsRpc(msg)
         .then((r) => sendResponse(r))
         .catch((e) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }));

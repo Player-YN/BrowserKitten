@@ -10,7 +10,7 @@
 |----|------|----------|
 | `sheet.html` | Univer Sheets（`vendor/sheet-runtime.*`） | csv / tsv / xlsx / json-workbook |
 | `docs.html` | Univer Docs（`vendor/docs-runtime.*`） | docx / json-document / html-document |
-| `site.html` | 静态 HTML+CSS 宿主 + postMessage bridge | `data-paw-kind=site`。**不是**任意 guest JS 运行时。用户 `<script>` / on* 被 `siteSanitize` 剥掉。bridge（ready/click/serialize/nudge）跑在 `sandbox.pages` 的 `siteFrame.html` + 外部 `siteFrame.js`，无 chrome.*、无 extension-origin 同源。禁止把内联 `<script>` 塞进 srcdoc。动态行为另立安全 runtime |
+| `site.html` | 静态 HTML+CSS 宿主 + postMessage bridge | `data-browserbot-kind=site`。**不是**任意 guest JS 运行时。用户 `<script>` / on* 被 `siteSanitize` 剥掉。bridge（ready/click/serialize/nudge）跑在 `sandbox.pages` 的 `siteFrame.html` + 外部 `siteFrame.js`，无 chrome.*、无 extension-origin 同源。禁止把内联 `<script>` 塞进 srcdoc。动态行为另立安全 runtime |
 | `artifactPreview.html` | 通用查看 | 图片/svg、PDF 只读重建、音视频、text-like 转义只读、未知检查器。未知 HTML 不 `srcdoc` 执行。文案：`?lang=en\|zh` 优先，**不**把页面上写死的 `zh-CN` 当用户语言 |
 | `print.html` | 系统打印 | PDF 交付：`delivery: browser_print` → Save as PDF |
 | `preview.html` | 旧草稿预览 | 遗留 `open_draft_preview` |

@@ -501,7 +501,7 @@ export function createCallModelLanguageModel(callModel) {
 
   return {
     specificationVersion: 'v2',
-    provider: 'pawwork-callModel',
+    provider: 'browserbot-callModel',
     modelId: 'callModel-adapter',
     supportedUrls: Promise.resolve({}),
     async doGenerate(options) {

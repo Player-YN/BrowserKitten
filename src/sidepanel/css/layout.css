@@ -221,8 +221,8 @@ body {
   will-change: auto;
   transition: opacity 320ms ease;
 }
-.panel.is-home-working .home-mark.is-watermark .paw-svg-hero,
-.panel.is-home-working .welcome.is-work-surface .home-mark .paw-svg-hero {
+.panel.is-home-working .home-mark.is-watermark .mark-svg-hero,
+.panel.is-home-working .welcome.is-work-surface .home-mark .mark-svg-hero {
   width: 72px;
   height: 72px;
   animation: none !important;
@@ -237,8 +237,8 @@ body {
   animation: none !important;
   opacity: 0.12;
 }
-.panel.is-home-working .home-mark.is-watermark:hover .paw-svg-hero,
-.panel.is-home-working .welcome.is-work-surface .home-mark:hover .paw-svg-hero {
+.panel.is-home-working .home-mark.is-watermark:hover .mark-svg-hero,
+.panel.is-home-working .welcome.is-work-surface .home-mark:hover .mark-svg-hero {
   animation: none !important;
   transform: none !important;
 }
@@ -554,11 +554,11 @@ body {
   .turn-disclosure-meta [data-k='access'] {
     display: none;
   }
-  .turn-disclosure.is-live:not(.is-sticky) .turn-disclosure-rows {
+  .turn-disclosure.is-live:not(.is-sticky) .turn-disclosure-rows > :not(.turn-disclosure-current) {
     display: none;
   }
   .turn-disclosure-current {
-    display: block;
+    display: flex;
   }
 
   .composer-hint {

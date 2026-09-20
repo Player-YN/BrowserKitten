@@ -7,7 +7,7 @@ import { parseSkillMd } from '../skills/parseSkillMd.js';
 import { resolveSkillId, SKILL_ID_ALIASES } from '../skills/registry.js';
 import { assertPublicHttpUrl } from '../primitives/netGuard.js';
 
-export const SKILL_STORE_KEY = 'pagewand_durable_skills';
+export const SKILL_STORE_KEY = 'browserbot_durable_skills';
 export const MAX_INSTRUCTION_CHARS = 64 * 1024;
 export const MAX_RESOURCE_CHARS = 256 * 1024;
 export const MAX_PACK_CHARS = 2 * 1024 * 1024;

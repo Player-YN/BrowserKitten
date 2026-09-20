@@ -8,10 +8,13 @@ import {
   TURN_MEMORY_CAP,
   disclosureMode,
   foldStubFromState,
+  formatActivityRow,
   formatDisclosureDuration,
-  formatSummaryRowText,
+  latestActivityShine,
+  liveActivityVisual,
   persistLiveActionBrief,
   rememberEndedProjection,
+  shouldFoldDisclosureImmediately,
   visibleSummaryRows
 } from './executionStatus.js';
 
@@ -24,14 +27,21 @@ export const LIVE_ACTION_SHINE = {
   clip: 'text'
 };
 
-export function planLiveDisclosurePaint(state, lastText = '') {
-  const text = persistLiveActionBrief(state, lastText);
+export function planLiveDisclosurePaint(state, lastText = '', fallback = '', extra = {}) {
+  const mode = extra.mode || disclosureMode(state);
+  const live = mode === 'live' || mode === 'sticky';
+  const persisted = persistLiveActionBrief(state, lastText);
+  const text = persisted || (live ? String(fallback || '').trim() : '');
+  const shine = latestActivityShine(state);
   return {
-    hidden: !text,
+    hidden: !text && !live,
     text,
-    keepMounted: !!text,
+    keepMounted: live || !!text,
     shineTarget: LIVE_ACTION_SHINE.glyphClass,
-    shineClip: LIVE_ACTION_SHINE.clip
+    shineClip: LIVE_ACTION_SHINE.clip,
+    shineOn: shine.shineOn,
+    shineRowId: shine.rowId,
+    thinkHeaderShimmer: false
   };
 }
 
@@ -40,17 +50,6 @@ function node(tag, className, content) {
   if (className) el.className = className;
   if (content != null) el.textContent = String(content);
   return el;
-}
-
-function statusWord(status, t) {
-  if (status === 'running') return t('botRowRunning');
-  if (status === 'success') return t('botRowSuccess');
-  if (status === 'error' || status === 'failed') return t('botRowError');
-  if (status === 'recovered') return t('botRowRecovered');
-  if (status === 'waiting') return t('botRowWaiting');
-  if (status === 'unknown') return t('botRowUnknown');
-  if (status === 'needs_human') return t('botRowNeedsHuman');
-  return status;
 }
 
 export function prefersReducedMotion(matchMediaFn) {
@@ -111,20 +110,27 @@ export function placeInterruptAfterDisclosure(wrap, el) {
 
 function existingLiveBrief(el) {
   const glyphs = el?.querySelector?.(`.${LIVE_ACTION_SHINE.glyphClass}`);
-  const current = el?.querySelector?.(`.${LIVE_ACTION_SHINE.rowClass}`);
-  return String(glyphs?.textContent || current?.textContent || '').trim();
+  return String(glyphs?.textContent || '').trim();
 }
 
-function fillRows(list, rows, t) {
+function fillRows(list, rows, t, { shineRowId, labelId } = {}) {
   list.replaceChildren();
-  for (const row of rows) {
-    const li = node('li', 'turn-disclosure-row');
+  const lastId = shineRowId != null && shineRowId !== '' ? String(shineRowId) : '';
+  const markLatest = lastId !== '';
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const visual = formatActivityRow(row, t);
+    const isLatest = markLatest && String(row.id || '') === lastId;
+    const li = node('li', isLatest ? `turn-disclosure-row ${LIVE_ACTION_SHINE.rowClass}` : 'turn-disclosure-row');
     li.dataset.status = row.status || '';
+    li.dataset.icon = visual.iconKind;
     if (row.count > 1) li.dataset.count = String(row.count);
-    li.append(
-      node('span', 'turn-disclosure-row-mark', statusWord(row.status, t)),
-      node('span', 'turn-disclosure-row-text', formatSummaryRowText(row, t))
-    );
+    const icon = node('span', 'turn-disclosure-row-icon', visual.icon);
+    icon.setAttribute('aria-hidden', 'true');
+    const textClass = isLatest ? LIVE_ACTION_SHINE.glyphClass : 'turn-disclosure-row-text';
+    const label = node('span', textClass, visual.label);
+    if (isLatest && labelId) li.id = labelId;
+    li.append(icon, label);
     list.append(li);
   }
 }
@@ -203,7 +209,59 @@ export function createTurnDisclosureUi(deps) {
   function stripInstrumentExtras(el) {
     el.querySelector('.turn-disclosure-next')?.remove();
     el.querySelector('.turn-disclosure-meta')?.remove();
-    el.querySelector('.turn-disclosure-rows')?.remove();
+  }
+
+  function paintLiveRows(el, state, extra = {}) {
+    const rows = visibleSummaryRows(state?.summary, 8);
+    let list = el.querySelector('.turn-disclosure-rows');
+    if (!rows.length) {
+      list?.remove();
+      return;
+    }
+    if (!list) {
+      list = node('ol', 'turn-disclosure-rows');
+      list.setAttribute('role', 'list');
+      el.append(list);
+    }
+    fillRows(list, rows, t, extra);
+  }
+
+  function paintFallbackCurrent(el, state, displayText, labelId) {
+    const visual = liveActivityVisual(state, displayText, t);
+    let head = el.querySelector('.turn-disclosure-head');
+    if (!head) {
+      head = node('div', 'turn-disclosure-head');
+      el.prepend(head);
+    }
+    let current = head.querySelector(`.${LIVE_ACTION_SHINE.rowClass}`);
+    let glyphs = current?.querySelector?.(`.${LIVE_ACTION_SHINE.glyphClass}`);
+    let icon = current?.querySelector?.('.turn-disclosure-row-icon');
+    if (!current) {
+      current = node('span', LIVE_ACTION_SHINE.rowClass);
+      icon = node('span', 'turn-disclosure-row-icon', visual.icon);
+      icon.setAttribute('aria-hidden', 'true');
+      glyphs = node('span', LIVE_ACTION_SHINE.glyphClass, visual.label);
+      current.append(icon, glyphs);
+      head.replaceChildren(current);
+    } else {
+      if (!icon) {
+        icon = node('span', 'turn-disclosure-row-icon', visual.icon);
+        icon.setAttribute('aria-hidden', 'true');
+        current.prepend(icon);
+      } else if (icon.textContent !== visual.icon) {
+        icon.textContent = visual.icon;
+      }
+      if (!glyphs) {
+        glyphs = node('span', LIVE_ACTION_SHINE.glyphClass, visual.label);
+        current.append(glyphs);
+      } else if (visual.label && glyphs.textContent !== visual.label) {
+        glyphs.textContent = visual.label;
+      }
+    }
+    current.id = labelId;
+    current.dataset.icon = visual.iconKind;
+    if (state.current?.status) current.dataset.status = state.current.status;
+    else if (current.dataset) delete current.dataset.status;
   }
 
   function paintLive(el, state, { mode } = {}) {
@@ -219,9 +277,10 @@ export function createTurnDisclosureUi(deps) {
       el = section;
     }
     const lastText = existingLiveBrief(el);
-    const plan = planLiveDisclosurePaint(state, lastText);
+    const plan = planLiveDisclosurePaint(state, lastText, t('liveProgress'), { mode });
     stripInstrumentExtras(el);
-    if (plan.hidden) {
+    const displayText = plan.text || lastText;
+    if (plan.hidden && !plan.keepMounted) {
       el.classList.add('is-empty');
       el.hidden = true;
       if (!lastText) el.replaceChildren();
@@ -231,27 +290,13 @@ export function createTurnDisclosureUi(deps) {
     el.classList.remove('is-empty');
     const labelId = `td-${id}-label`;
     el.setAttribute('aria-labelledby', labelId);
-    let head = el.querySelector('.turn-disclosure-head');
-    if (!head) {
-      head = node('div', 'turn-disclosure-head');
-      el.prepend(head);
+    if (plan.shineOn === 'latest-row') {
+      el.querySelector('.turn-disclosure-head')?.remove();
+      paintLiveRows(el, state, { shineRowId: plan.shineRowId, labelId });
+    } else {
+      el.querySelector('.turn-disclosure-rows')?.remove();
+      paintFallbackCurrent(el, state, displayText, labelId);
     }
-    let current = head.querySelector(`.${LIVE_ACTION_SHINE.rowClass}`);
-    let glyphs = current?.querySelector?.(`.${LIVE_ACTION_SHINE.glyphClass}`);
-    if (!current) {
-      current = node('span', LIVE_ACTION_SHINE.rowClass);
-      glyphs = node('span', LIVE_ACTION_SHINE.glyphClass, plan.text);
-      current.append(glyphs);
-      head.replaceChildren(current);
-    } else if (!glyphs) {
-      glyphs = node('span', LIVE_ACTION_SHINE.glyphClass, plan.text);
-      current.replaceChildren(glyphs);
-    } else if (glyphs.textContent !== plan.text) {
-      glyphs.textContent = plan.text;
-    }
-    current.id = labelId;
-    if (state.current?.status) current.dataset.status = state.current.status;
-    else if (current.dataset) delete current.dataset.status;
     return el;
   }
 
@@ -352,7 +397,11 @@ export function createTurnDisclosureUi(deps) {
       hydrate(el, state);
       return el;
     }
-    if (reduced() || extra.immediate || !persistLiveActionBrief(state, existingLiveBrief(disclosureOf(wrap)))) {
+    if (
+      reduced() ||
+      shouldFoldDisclosureImmediately(state, extra) ||
+      !persistLiveActionBrief(state, existingLiveBrief(disclosureOf(wrap)))
+    ) {
       return fold(wrap, state, extra);
     }
     const el = ensure(wrap, { executionId: id });

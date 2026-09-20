@@ -213,7 +213,7 @@ export async function captureItemFromPage(item) {
   try {
     const src = item?.capture?.src || item?.capture?.preview?.src || '';
     const res = await chromeRef.runtime.sendMessage({
-      target: 'pawwork-background',
+      target: 'browserbot-background',
       action: 'workspace_capture_fragile',
       tabId,
       selector,

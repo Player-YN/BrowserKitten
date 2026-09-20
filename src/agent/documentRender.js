@@ -1,5 +1,5 @@
 /**
- * PageWand document compiler — single atomic renderer used by render_document.
+ * BrowserBot document compiler — single atomic renderer used by render_document.
  * Product profile **A′**: extension-only; no end-user Pandoc/npm.
  * PDF = print-ready HTML → system print → Save as PDF.
  */
@@ -19,7 +19,7 @@ import {
 } from './render/engine.js';
 
 /** @typedef {import('./draftStore.js').DraftBlock} DraftBlock */
-/** @typedef {import('./draftStore.js').PageWandDraft} PageWandDraft */
+/** @typedef {import('./draftStore.js').BrowserBotDraft} BrowserBotDraft */
 
 export {
   RENDER_FORMATS,
@@ -155,11 +155,11 @@ export function extractTableFromBlocks(blocks) {
 
 /**
  * Preview HTML for draft tab (includes insert slots).
- * @param {PageWandDraft|object} draft
+ * @param {BrowserBotDraft|object} draft
  * @returns {string}
  */
 export function draftToPreviewHtml(draft) {
-  const title = escapeHtml(draft?.title || 'PageWand Draft');
+  const title = escapeHtml(draft?.title || 'Browser Kitten Draft');
   const version = draft?.version ?? 1;
   const blocks = Array.isArray(draft?.blocks) ? draft.blocks : [];
   const body = blocks
@@ -167,7 +167,7 @@ export function draftToPreviewHtml(draft) {
       if (!b) return '';
       const id = escapeHtml(b.id || '');
       if (b.type === 'slot') {
-        return `<div class="pw-block pw-slot pagewand-draft-slot" data-block-id="${id}" data-slot="1" tabindex="0">
+        return `<div class="pw-block pw-slot browserbot-draft-slot" data-block-id="${id}" data-slot="1" tabindex="0">
           <span class="pw-slot-plus">+</span>
           <span>${escapeHtml(b.text || '添加内容 / Insert')}</span>
         </div>`;
@@ -208,7 +208,7 @@ export function draftToPreviewHtml(draft) {
     .join('\n');
 
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-pagewand-role="draft-preview" data-draft-id="${escapeAttr(draft?.draftId || '')}">
+<html lang="zh-CN" data-browserbot-role="draft-preview" data-draft-id="${escapeAttr(draft?.draftId || '')}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -234,7 +234,7 @@ export function draftToPreviewHtml(draft) {
       background: #eef2ff; user-select: none; }
     .pw-slot:hover { background: #e0e7ff; }
     .pw-slot-plus { font-size: 22px; font-weight: 700; }
-    .pw-block.pagewand-selected, .pw-block.pagewand-scope-preview {
+    .pw-block.browserbot-selected, .pw-block.browserbot-scope-preview {
       outline: 3px solid #8b5cf6; outline-offset: 2px;
     }
     .pw-hint { font-size: 11px; color: #94a3b8; margin-top: 24px; }
@@ -242,10 +242,10 @@ export function draftToPreviewHtml(draft) {
 </head>
 <body>
   <div class="pw-chrome">
-    <div><strong>PageWand 草稿预览</strong> · ${title} · v${version} · 独立标签页 · 自动保存 · 刷新不丢</div>
+    <div><strong>Browser Kitten 草稿预览</strong> · ${title} · v${version} · 独立标签页 · 自动保存 · 刷新不丢</div>
     <div data-draft-id="${escapeAttr(draft?.draftId || '')}">${escapeHtml(draft?.draftId || '')}</div>
   </div>
-  <main class="pw-main" data-pagewand-role="draft-preview">
+  <main class="pw-main" data-browserbot-role="draft-preview">
     ${body}
     <p class="pw-hint">点已有块 → 工具栏编辑/删除/后面插入；点紫色「+」新增。确认下载请在侧栏操作。</p>
   </main>
@@ -271,7 +271,7 @@ function escapeAttr(s) {
  * @param {string} [docTitle]
  * @returns {Uint8Array}
  */
-export function textToSimplePdf(text, docTitle = 'PageWand') {
+export function textToSimplePdf(text, docTitle = 'Browser Kitten') {
   const lines = String(text || '')
     .replace(/\r\n/g, '\n')
     .split('\n')
@@ -419,7 +419,7 @@ img{max-width:100%;border-radius:8px}
  * Compile draft to an in-memory artifact (A′ extension-only).
  * Single tool surface: format enum → builtin or builtin_print (pdf). Never new tool names.
  *
- * @param {PageWandDraft|object} draft
+ * @param {BrowserBotDraft|object} draft
  * @param {{
  *   format?: string,
  *   runId?: string,
@@ -442,7 +442,7 @@ export async function renderDocumentFromDraft(draft, opts = {}) {
   }
 
   const runId = opts.runId || draft?.runId || 'draft_render';
-  const title = draft?.title || opts.name || 'pagewand-document';
+  const title = draft?.title || opts.name || 'browserbot-document';
   const blocks = Array.isArray(draft?.blocks) ? draft.blocks : [];
   const md =
     typeof opts.markdown === 'string' && opts.markdown.trim()
@@ -515,11 +515,11 @@ export async function renderDocumentFromDraft(draft, opts = {}) {
 
 /**
  * Print-optimized HTML (no preview chrome). Used for PDF via window.print().
- * @param {PageWandDraft|object} draft
+ * @param {BrowserBotDraft|object} draft
  * @returns {string}
  */
 export function draftToPrintHtml(draft) {
-  const title = escapeHtml(draft?.title || 'PageWand');
+  const title = escapeHtml(draft?.title || 'BrowserBot');
   const blocks = Array.isArray(draft?.blocks) ? draft.blocks : [];
   const body = blocks
     .map((b) => {

@@ -9,7 +9,7 @@ import { stampSiteHtml } from './siteApply.js';
 export const BLANK_KINDS = ['sheet', 'doc', 'site'];
 
 const BLANK_SITE_HTML = `<!DOCTYPE html>
-<html lang="zh-CN" data-paw-kind="site">
+<html lang="zh-CN" data-browserbot-kind="site">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -25,8 +25,8 @@ const BLANK_SITE_HTML = `<!DOCTYPE html>
 
 function stampDocumentKind(html) {
   const src = String(html || '');
-  if (/data-paw-kind\s*=\s*["']document["']/i.test(src)) return src;
-  return src.replace(/<html\b([^>]*)>/i, '<html$1 data-paw-kind="document">');
+  if (/data-browserbot-kind\s*=\s*["']document["']/i.test(src)) return src;
+  return src.replace(/<html\b([^>]*)>/i, '<html$1 data-browserbot-kind="document">');
 }
 
 /**

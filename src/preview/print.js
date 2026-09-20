@@ -25,7 +25,7 @@ async function main() {
   if (src === 'plates') {
     let html = '';
     try {
-      html = localStorage.getItem('pawwork_print_html') || sessionStorage.getItem('pawwork_print_html') || '';
+      html = localStorage.getItem('browserbot_print_html') || sessionStorage.getItem('browserbot_print_html') || '';
     } catch {
       html = '';
     }

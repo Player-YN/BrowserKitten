@@ -235,7 +235,7 @@ export function createTaskTool(env = {}) {
   return {
     name: 'task',
     description:
-      'Durable work after the user confirms a contract. start opens a task-start card (goal, scope, constraints, acceptance, first steps) — only a UI receipt creates the task and binds this turn. Ordinary clarify plan cards do not create tasks. amend opens a change card when goal/scope/acceptance must change; plan/checkpoint update progress only. wait/complete persist and yield. schedule is future/recurring work the user explicitly asked for. Propose start for resume/wait/multi-stage delivery; do not pop a card every turn or after a fixed message count.',
+      'Durable work after the user confirms a contract. start opens a task-start card (goal, scope, constraints, acceptance, first steps) — only a UI receipt creates the task and binds this turn. An ordinary /plan card creates a task only when the user leaves “start durable task” checked on that same card; unchecking pins this turn only. amend opens a change card when goal/scope/acceptance must change; plan/checkpoint update progress only. wait/complete persist and yield. schedule is future/recurring work the user explicitly asked for. Propose start for resume/wait/multi-stage delivery; do not pop a card every turn or after a fixed message count.',
     parameters: {
       type: 'object',
       properties: {

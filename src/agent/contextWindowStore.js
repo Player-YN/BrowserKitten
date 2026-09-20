@@ -1,8 +1,8 @@
 import { normalizeModelsBaseURL } from './modelCatalog.js';
 
 /** Configuration-scoped evidence. No credentials or provider response bodies are stored. */
-export const CONTEXT_WINDOW_CACHE_KEY = 'pagewand_context_window_evidence_v1';
-export const CONTEXT_WINDOW_AUTO_KEY = 'pagewand_context_window_auto_check';
+export const CONTEXT_WINDOW_CACHE_KEY = 'browserbot_context_window_evidence_v1';
+export const CONTEXT_WINDOW_AUTO_KEY = 'browserbot_context_window_auto_check';
 export const MAX_CONTEXT_WINDOW_EVIDENCE = 100;
 export const DAY = 86400000;
 
@@ -33,14 +33,14 @@ export function normalizeContextWindowOverrides(raw) {
 export async function contextWindowStorageGet(keys) {
   if (globalThis.chrome?.storage?.local) return (await chrome.storage.local.get(keys)) || {};
   if (!globalThis.chrome?.runtime?.sendMessage) return {};
-  const res = await chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_get', keys });
+  const res = await chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'storage_local_get', keys });
   if (!res?.ok) throw new Error('CONTEXT_WINDOW_STORAGE_UNAVAILABLE');
   return res.result || {};
 }
 
 export async function contextWindowStorageSet(values) {
   if (globalThis.chrome?.storage?.local) return chrome.storage.local.set(values);
-  const res = await chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_set', values });
+  const res = await chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'storage_local_set', values });
   if (!res?.ok) throw new Error('CONTEXT_WINDOW_STORAGE_UNAVAILABLE');
 }
 

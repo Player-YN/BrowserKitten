@@ -1,6 +1,6 @@
 // node tests/browser-smoke.cjs [path-to-playwright-package]
 // Uses a disposable, separate Chromium profile; no user browser state is accessed.
-// PAW_LOAD_ROOT overrides the unpacked load root, so CI can smoke the packed
+// BROWSERBOT_LOAD_ROOT overrides the unpacked load root, so CI can smoke the packed
 // release output instead of the repo root. Evidence always lands in the repo.
 const { chromium } = require(process.argv[2] || 'playwright');
 const fs = require('node:fs');
@@ -8,7 +8,7 @@ const path = require('node:path');
 
 (async () => {
   const root = path.resolve(__dirname, '..');
-  const loadRoot = process.env.PAW_LOAD_ROOT ? path.resolve(process.env.PAW_LOAD_ROOT) : root;
+  const loadRoot = process.env.BROWSERBOT_LOAD_ROOT ? path.resolve(process.env.BROWSERBOT_LOAD_ROOT) : root;
   const output = path.join(root, 'output/playwright');
   fs.mkdirSync(output, { recursive: true });
   const evidence = { status: 'running', storage: [], sandbox: [], errors: [], console: [] };
@@ -17,10 +17,10 @@ const path = require('node:path');
     if (req.url === '/slow') { res.write('partial'); return; }
     res.end('browser-network-ok');
   });
-  const profile = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'pawwork-smoke-'));
+  const profile = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'browserbot-smoke-'));
   const context = await chromium.launchPersistentContext(profile, {
-    headless: process.env.PAW_HEADLESS !== 'false',
-    ...(process.env.PAW_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PAW_CHROMIUM_EXECUTABLE } : { channel: 'chromium' }),
+    headless: process.env.BROWSERBOT_HEADLESS !== 'false',
+    ...(process.env.BROWSERBOT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.BROWSERBOT_CHROMIUM_EXECUTABLE } : { channel: 'chromium' }),
     args: [`--disable-extensions-except=${loadRoot}`, `--load-extension=${loadRoot}`]
   });
   try {
@@ -80,15 +80,15 @@ const path = require('node:path');
       iframe.src = chrome.runtime.getURL('src/sandbox/runtime.html');
       document.body.append(iframe);
       const client = createSandboxCodeClient(iframe);
-      globalThis.__PAWWORK_CODE_SANDBOX_RUN__ = opts => client.run(opts);
+      globalThis.__BROWSERBOT_CODE_SANDBOX_RUN__ = opts => client.run(opts);
       try {
         const tools = createSessionTools({ store, fs, sessionId: 'smoke', execution: { executionId: 'e' },
           hostSys: async () => ({ ok: true, result: { ok: true, base64: 'aGVsbG8=', contentType: 'text/plain' } }) });
         const result = await tools.run.execute({ code: 'const r = await sys.fetch({url:"https://example.com",saveTo:"/artifacts/proof.txt"}); console.log(r.path, r.bytes);', timeoutMs: 5000 });
         return { result, content: fs.readFile('/artifacts/proof.txt'), artifactCount: store.keys('artifacts').length };
-      } finally { delete globalThis.__PAWWORK_CODE_SANDBOX_RUN__; client.dispose(); iframe.remove(); }
+      } finally { delete globalThis.__BROWSERBOT_CODE_SANDBOX_RUN__; client.dispose(); iframe.remove(); }
     });
-    evidence.senderGate = await page.evaluate(() => chrome.runtime.sendMessage({target:'pawwork-background',action:'workspace_sys',op:'tabs.list'}));
+    evidence.senderGate = await page.evaluate(() => chrome.runtime.sendMessage({target:'browserbot-background',action:'workspace_sys',op:'tabs.list'}));
     evidence.versioning = await page.evaluate(async () => {
       const { workspaceRpc } = await import('./agent/vnext/host/workspaceClient.js');
       const sessionId = `smoke-${crypto.randomUUID()}`;
@@ -104,8 +104,8 @@ const path = require('node:path');
       } finally { await workspaceRpc('deleteSession', { sessionId }); }
     });
     evidence.rpcBoundary = await page.evaluate(async () => {
-      const scheduler = await chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'workspace_rpc', method: 'getTaskSchedule', params: {} });
-      const bypass = await chrome.runtime.sendMessage({ target: 'pawwork-offscreen', action: 'workspace_rpc_execute', method: 'listSessions', params: {} });
+      const scheduler = await chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'workspace_rpc', method: 'getTaskSchedule', params: {} });
+      const bypass = await chrome.runtime.sendMessage({ target: 'browserbot-offscreen', action: 'workspace_rpc_execute', method: 'listSessions', params: {} });
       return { scheduler, bypass };
     });
     evidence.network = await page.evaluate(async (port) => {

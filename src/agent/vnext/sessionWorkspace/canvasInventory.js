@@ -60,7 +60,7 @@ export function classifyCanvasKind(rec = {}, content) {
   }
   const kindAttr = htmlKindAttr(text);
   if (kindAttr === 'document' || kindAttr === 'doc') return 'doc';
-  if (/data-paw-doc\s*=/i.test(text) || /data-paw-block-type\s*=/i.test(text)) return 'doc';
+  if (/data-paw-doc\s*=/i.test(text) || /data-browserbot-block-type\s*=/i.test(text)) return 'doc';
   return null;
 }
 
@@ -97,7 +97,7 @@ export function inventoryHasVisual() {
 }
 
 function htmlKindAttr(html) {
-  const m = /data-paw-kind\s*=\s*["']([^"']+)["']/i.exec(String(html || ''));
+  const m = /data-browserbot-kind\s*=\s*["']([^"']+)["']/i.exec(String(html || ''));
   return m ? String(m[1]).trim().toLowerCase() : '';
 }
 

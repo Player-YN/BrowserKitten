@@ -1,61 +1,9 @@
 /**
- * Motion kit — almost subliminal ambient + live send/stop (Page Agent–class craft)
+ * Motion kit — Quiet Black: no ambient wash, cubic-bezier only.
  */
 
-/* Ambient background layer (panel child, pointer-events none) */
 .ambient-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-  border-radius: inherit;
-}
-
-.ambient-layer::before,
-.ambient-layer::after {
-  content: '';
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(48px);
-  opacity: 1;
-  will-change: transform;
-}
-
-.ambient-layer::before {
-  width: 55%;
-  height: 40%;
-  top: -8%;
-  left: -10%;
-  background: radial-gradient(circle, var(--ambient-a) 0%, transparent 70%);
-  animation: pw-ambient-a 16s var(--ease-in-out) infinite alternate;
-}
-
-.ambient-layer::after {
-  width: 50%;
-  height: 45%;
-  bottom: -12%;
-  right: -8%;
-  background: radial-gradient(circle, var(--ambient-b) 0%, transparent 70%);
-  animation: pw-ambient-b 18s var(--ease-in-out) infinite alternate;
-}
-
-@keyframes pw-ambient-a {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  to {
-    transform: translate3d(10px, 8px, 0) scale(1.06);
-  }
-}
-
-@keyframes pw-ambient-b {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  to {
-    transform: translate3d(-12px, -6px, 0) scale(1.05);
-  }
+  display: none;
 }
 
 /*
@@ -110,20 +58,9 @@
   animation: pw-enter 350ms var(--ease-out) both;
 }
 
-/* Pick pulse when active */
-@keyframes pw-pick-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 var(--accent-ring);
-  }
-  50% {
-    box-shadow: 0 0 0 6px transparent;
-  }
-}
-
 .pick-btn.is-active,
 .pick-btn[aria-pressed='true'] {
-  animation: pw-pick-pulse 1.4s var(--ease-in-out) infinite;
+  animation: none;
 }
 
 /* Status running dot */
@@ -183,16 +120,17 @@
 
 .send-btn.is-send,
 .send-btn:not([hidden]) {
-  background: var(--accent);
-  color: #fff;
+  background: var(--ink);
+  color: var(--paper);
   border: none;
   border-radius: 999px;
 }
 
 .send-btn.is-send:hover,
 .send-btn:not([hidden]):hover {
-  background: var(--accent-hover);
-  box-shadow: var(--glow-accent);
+  background: var(--ink);
+  box-shadow: none;
+  transform: translateY(-1px);
 }
 
 /* Dedicated stop control pulse */
@@ -236,10 +174,9 @@
 
 /* Focus ring — interactive controls only (never textarea: composer has its own shell ring) */
 :focus-visible:not(textarea):not(input):not(select) {
-  outline: none;
-  box-shadow:
-    0 0 0 2px var(--bg-panel),
-    0 0 0 4px var(--accent-ring);
+  outline: 1px solid var(--signal);
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
 textarea:focus-visible,

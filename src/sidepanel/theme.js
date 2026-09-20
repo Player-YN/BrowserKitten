@@ -1,10 +1,9 @@
 /**
  * Theme: system | light | dark → resolved light|dark on body[data-theme]
- * Storage: pagewand_theme_mode; legacy pagewand_theme still read.
+ * Storage: browserbot_theme_mode.
  */
 
-export const THEME_MODE_KEY = 'pagewand_theme_mode';
-export const THEME_LEGACY_KEY = 'pagewand_theme';
+export const THEME_MODE_KEY = 'browserbot_theme_mode';
 
 /** @typedef {'system'|'light'|'dark'} ThemeMode */
 /** @typedef {'light'|'dark'} ResolvedTheme */
@@ -55,8 +54,7 @@ export function applyThemeMode(mode, opts = {}) {
   if (!opts.skipStorage) {
     try {
       chrome.storage.local.set({
-        [THEME_MODE_KEY]: themeMode,
-        [THEME_LEGACY_KEY]: resolvedTheme
+        [THEME_MODE_KEY]: themeMode
       });
     } catch (_) {}
   }
@@ -72,7 +70,6 @@ export function cycleThemeMode() {
 }
 
 /**
- * Legacy API: applyTheme('light'|'dark') forces mode (not system).
  * @param {string} theme
  */
 export function applyTheme(theme) {
@@ -117,9 +114,7 @@ function wireSystemListener() {
 export function hydrateThemeFromStorage(stored = {}) {
   let mode = stored[THEME_MODE_KEY];
   if (mode !== 'system' && mode !== 'light' && mode !== 'dark') {
-    // migrate legacy binary theme → fixed light/dark (not system)
-    const legacy = stored[THEME_LEGACY_KEY];
-    mode = legacy === 'light' ? 'light' : legacy === 'dark' ? 'dark' : 'system';
+    mode = 'system';
   }
   applyThemeMode(/** @type {ThemeMode} */ (mode), { skipStorage: true });
 }

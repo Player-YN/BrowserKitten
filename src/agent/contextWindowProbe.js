@@ -1,3 +1,4 @@
+import { BRAND_NAME } from '../brand.js';
 import { findCatalogModel, loadCachedModelsForBase, normalizeModelsBaseURL, parseContextWindow, resolveContextWindow } from './modelCatalog.js';
 import { loadLlmSettings } from './llm.js';
 import {
@@ -172,8 +173,8 @@ export function contextWindowProbeHeaders(settings = {}) {
   };
   const base = normalizeModelsBaseURL(settings.apiBase || '');
   if (base.includes('openrouter.ai')) {
-    headers['HTTP-Referer'] = 'https://pagewand.local';
-    headers['X-Title'] = 'PageWand';
+    headers['HTTP-Referer'] = 'https://browserbot.local';
+    headers['X-Title'] = BRAND_NAME;
   }
   return headers;
 }

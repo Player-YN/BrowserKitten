@@ -328,7 +328,7 @@ export function createOfficeTools(env) {
   const web = {
     name: 'web',
     description:
-      'Website page (data-paw-kind=site). Acts: read, write, undo, clone, capture. After create, mutate in place — never a second site HTML. Writes: setText/setHref/setSrc on a pinned node, commands[], or path|from to /scratch|/artifacts JSON (commands) or HTML (replaceHtml on the same file) — after run writes the payload, pass the path, do not retype. Missing op or empty payload → BAD_INPUT; missing file → ENOENT. ' +
+      'Website page (data-browserbot-kind=site). Acts: read, write, undo, clone, capture. After create, mutate in place — never a second site HTML. Writes: setText/setHref/setSrc on a pinned node, commands[], or path|from to /scratch|/artifacts JSON (commands) or HTML (replaceHtml on the same file) — after run writes the payload, pass the path, do not retype. Missing op or empty payload → BAD_INPUT; missing file → ENOENT. ' +
       WEB_CLONE_DESCRIPTION,
     parameters: {
       type: 'object',
@@ -375,7 +375,7 @@ export function createOfficeTools(env) {
       }
       const inv = inventoryFromSession(store, sessionId, fs);
       if (!inv.web.length) {
-        return { ...NO_CANVAS, hint: 'create a website with write_artifact HTML marked data-paw-kind=site, or web act=clone' };
+        return { ...NO_CANVAS, hint: 'create a website with write_artifact HTML marked data-browserbot-kind=site, or web act=clone' };
       }
       const artifactId = String(input.artifactId || focusWebId(store, sessionId, inv) || '');
       if (!artifactId) return { ...NO_CANVAS };

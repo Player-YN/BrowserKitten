@@ -108,11 +108,11 @@ function finish(kind, reason) {
 }
 
 /**
- * Leftover Paw Canvas / tldraw JSON. Not a product surface — generic preview only.
+ * Leftover tldraw Design/Slides JSON. Not a product surface — generic preview only.
  * @param {unknown} raw
  * @returns {boolean}
  */
-export function isPawCanvasDoc(raw) {
+export function isRemovedCanvasDoc(raw) {
   const obj = coerceJsonObject(raw);
   if (!obj) return false;
   if (Number(obj.pawCanvas) === 1) return true;
@@ -235,8 +235,8 @@ function kindFromUtf8(bytes, text) {
     }
   }
   if (hasDocumentSidecar(src)) return 'html-document';
-  if (/data-paw-kind\s*=\s*["'](site|web)["']/i.test(src)) return 'html-site';
-  if (/data-pawwork-preview\s*=\s*["']blocks["']/i.test(src)) return 'html-plates';
+  if (/data-browserbot-kind\s*=\s*["'](site|web)["']/i.test(src)) return 'html-site';
+  if (/data-browserbot-preview\s*=\s*["']blocks["']/i.test(src)) return 'html-plates';
   if (/^\s*(<\?xml[\s\S]{0,240})?<svg[\s>]/i.test(trimmed)) return 'svg';
   if (/^\s*</.test(trimmed) && /<[a-z!/]/i.test(trimmed)) return 'html';
   return '';
@@ -287,7 +287,7 @@ function looksTextish(bytes) {
 
 function hasDocumentSidecar(src) {
   return (
-    /data-paw-kind\s*=\s*["'](document|doc)["']/i.test(src) ||
+    /data-browserbot-kind\s*=\s*["'](document|doc)["']/i.test(src) ||
     /id=["']paw-document["']/i.test(src) ||
     /<!--\s*paw-document\b/i.test(src)
   );

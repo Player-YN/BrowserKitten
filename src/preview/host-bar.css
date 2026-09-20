@@ -3,15 +3,17 @@
  * Univer's own format toolbar stays below this strip.
  */
 :root {
-  --host-bar-bg: #121214;
-  --host-bar-text: #f5f2f4;
-  --host-bar-faint: #6b636b;
-  --host-bar-border: rgba(255, 255, 255, 0.08);
-  --host-bar-border-strong: rgba(255, 255, 255, 0.14);
-  --host-bar-soft: #0c0c0f;
-  --host-bar-elevated: #16161a;
-  --host-accent: #f43f8c;
-  --host-accent-soft: rgba(244, 63, 140, 0.14);
+  --host-bar-bg: #111113;
+  --host-bar-text: #f4f3ef;
+  --host-bar-faint: #8d8d92;
+  --host-bar-border: #2a2a2e;
+  --host-bar-border-strong: #3a3a40;
+  --host-bar-soft: #050506;
+  --host-bar-elevated: #1c1c1e;
+  --host-accent: #ff6a00;
+  --host-accent-soft: rgba(255, 106, 0, 0.14);
+  --host-ink: #f4f3ef;
+  --host-paper: #050506;
   --host-danger: #fb7185;
   --host-radius: 10px;
 }
@@ -89,9 +91,9 @@ body.is-artboard #bar.host-file-strip #status {
 }
 
 #bar.host-file-strip button.primary {
-  background: var(--host-accent);
+  background: var(--host-ink);
   border-color: transparent;
-  color: #fff;
+  color: var(--host-paper);
 }
 
 #bar.host-file-strip button:disabled {

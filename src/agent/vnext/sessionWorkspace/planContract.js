@@ -84,6 +84,17 @@ export function isPlanApproved(answers) {
 }
 
 /**
+ * Ordinary plan cards create a Durable Task only when the UI sends this flag.
+ * Missing field stays false so older receipts still only pin this turn.
+ * @param {unknown} answers
+ */
+export function wantsDurableTaskFromPlan(answers) {
+  if (!isPlanApproved(answers)) return false;
+  const v = answers && typeof answers === 'object' ? answers.startDurableTask : undefined;
+  return v === true || v === 'true';
+}
+
+/**
  * Host decision for a yielded plan. Unknown / empty revise notes fail closed.
  * @param {unknown} answers
  * @returns {{ kind: 'approved'|'declined'|'revise'|'unknown', notes: string }}

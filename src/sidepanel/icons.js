@@ -9,32 +9,22 @@ function svg(pathD, o = {}) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${pathD}</svg>`;
 }
 
+/** Official eared-tab mark (A · r4 ear8 gap4 · Q · flush). Body = currentColor, right ear = signal. */
+const MARK_BODY =
+  'M6 14 L9.5 5.5 Q10.5 2.5 11.5 5.5 L15 14 H17 L20.5 5.5 Q21.5 2.5 22.5 5.5 L26 14 A4 4 0 0 1 30 18 V26 A4 4 0 0 1 26 30 H6 A4 4 0 0 1 2 26 V18 A4 4 0 0 1 6 14 Z';
+const MARK_EAR = 'M17 14 L20.5 5.5 Q21.5 2.5 22.5 5.5 L26 14 Z';
+
 /**
- * Soft cat-paw mark (filled pads) — brand + 伸爪.
- * Geometry: 4 toe pads arc above a larger palm pad (classic print, not aggressive claws).
+ * Brand mark — topbar + 点选 + empty home.
  * @param {number} [size]
- * @param {{ filled?: boolean, className?: string, beans?: boolean }} [o]
- *   beans: tag toe pads as .paw-bean for home hover easter egg (default false)
+ * @param {{ className?: string }} [o]
  */
-export function pawSvg(size = 16, o = {}) {
-  const filled = o.filled !== false;
-  const beans = !!o.beans;
-  const cls = o.className ? ` class="${o.className}"` : ' class="paw-svg"';
-  const bean = beans ? ' class="paw-bean"' : '';
-  const palm = beans ? ' class="paw-palm"' : '';
-  // Slightly roomier pads so small sizes still read as a paw
-  const pads = filled
-    ? `<ellipse${bean} cx="7.2" cy="8" rx="2.35" ry="2.9" fill="currentColor"/>
-       <ellipse${bean} cx="12" cy="6.2" rx="2.45" ry="3.05" fill="currentColor"/>
-       <ellipse${bean} cx="16.8" cy="8" rx="2.35" ry="2.9" fill="currentColor"/>
-       <ellipse${bean} cx="19.2" cy="12.2" rx="2.1" ry="2.55" fill="currentColor"/>
-       <ellipse${palm} cx="12" cy="16.1" rx="5.6" ry="4.7" fill="currentColor"/>`
-    : `<ellipse cx="7.2" cy="8" rx="2.35" ry="2.9"/>
-       <ellipse cx="12" cy="6.2" rx="2.45" ry="3.05"/>
-       <ellipse cx="16.8" cy="8" rx="2.35" ry="2.9"/>
-       <ellipse cx="19.2" cy="12.2" rx="2.1" ry="2.55"/>
-       <ellipse cx="12" cy="16.1" rx="5.6" ry="4.7"/>`;
-  return `<svg${cls} viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="${filled ? 'currentColor' : 'none'}" stroke="${filled ? 'none' : 'currentColor'}" stroke-width="${filled ? 0 : 1.5}">${pads}</svg>`;
+export function brandMarkSvg(size = 16, o = {}) {
+  const cls = o.className ? ` class="${o.className}"` : ' class="brand-mark-svg"';
+  return `<svg${cls} viewBox="0 0 32 32" width="${size}" height="${size}" aria-hidden="true" fill="none">
+    <path class="logo-body" fill="currentColor" d="${MARK_BODY}"/>
+    <path class="logo-ear" d="${MARK_EAR}"/>
+  </svg>`;
 }
 
 export const ICONS = {
@@ -53,9 +43,9 @@ export const ICONS = {
   wand: svg(
     '<path d="m15 4-1 3-3 1 3 1 1 3 1-3 3-1-3-1z"/><path d="M4 20 14 10"/><path d="m18 8 2 2"/>'
   ),
-  /** Brand / 伸爪 — cat paw */
-  paw: pawSvg(16),
-  pawLg: pawSvg(22),
+  /** Brand / 点选 */
+  mark: brandMarkSvg(16),
+  markLg: brandMarkSvg(22),
   /** Subtle pushpin / nail for selection → clipboard */
   pin: svg(
     '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11-2.36l1-4A2 2 0 0 1 10.76 2h2.48a2 2 0 0 1 1.87 2.4l-1 4A2 2 0 0 1 13 10.76V17"/><path d="M8 17h8"/>',
@@ -87,37 +77,29 @@ export function enhanceTopbarIcons() {
   if (more && !more.querySelector('svg')) {
     more.innerHTML = ICONS.more;
   }
-  // Brand mark: cat paw (topbar compact)
   const logo = document.querySelector('.brand .logo, #brandLogo');
   if (logo) {
-    logo.innerHTML = pawSvg(20);
-    logo.classList.add('logo-paw');
+    logo.innerHTML = brandMarkSvg(20);
+    logo.classList.add('logo-mark');
   }
-  // 伸爪 primary action
   const pickIcon = document.querySelector('#pickBtn .pick-icon');
   if (pickIcon) {
-    pickIcon.innerHTML = pawSvg(16);
-    pickIcon.classList.add('pick-icon-paw');
+    pickIcon.innerHTML = brandMarkSvg(16);
+    pickIcon.classList.add('pick-icon-mark');
   }
   const edgeFab = document.getElementById('sessionEdgeFab');
   const edgeIcon = edgeFab?.querySelector('.session-edge-fab-icon');
   if (edgeIcon && !edgeIcon.querySelector('svg')) {
-    edgeIcon.innerHTML = pawSvg(14, { className: 'paw-svg session-edge-paw' });
+    edgeIcon.innerHTML = brandMarkSvg(14, { className: 'brand-mark-svg session-edge-mark' });
   }
-  // Subtle pin on selection toolbar
   const pinIcon = document.querySelector('#pinSelBtn .sel-pin-icon');
   if (pinIcon && !pinIcon.querySelector('svg')) {
     pinIcon.innerHTML = ICONS.pin;
   }
-  // Home empty hero mark — larger + bean-flash easter egg (hover only)
   document.querySelectorAll('.home-mark').forEach((el) => {
-    // Hero logo 50% larger than original 48px → 72px
-    el.innerHTML = pawSvg(72, {
-      className: 'paw-svg paw-svg-hero',
-      beans: true
-    });
-    el.classList.add('home-mark-paw');
-    el.setAttribute('title', ''); // decorative; flash is the only interaction
+    el.innerHTML = brandMarkSvg(72, { className: 'brand-mark-svg mark-svg-hero' });
+    el.classList.add('home-mark-hero');
+    el.setAttribute('title', '');
   });
 }
 

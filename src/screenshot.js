@@ -1,5 +1,5 @@
 /**
- * PageWand user screenshot helpers (CAPTURE_WP)
+ * BrowserBot user screenshot helpers (CAPTURE_WP)
  * Pure helpers + message contracts. Capture is user-operated only (hotkey / button).
  */
 
@@ -18,20 +18,20 @@ export const DEFAULT_CAPTURE_SHORTCUT = 'Alt+Shift+C';
 export const CAPTURE_COMMAND = 'capture-screenshot';
 
 /** storage keys */
-export const STORAGE_CAPTURE_SHORTCUT = 'pagewand_capture_shortcut';
-export const STORAGE_PENDING_SCREENSHOT = 'pagewand_pending_screenshot';
+export const STORAGE_CAPTURE_SHORTCUT = 'browserbot_capture_shortcut';
+export const STORAGE_PENDING_SCREENSHOT = 'browserbot_pending_screenshot';
 
 /** runtime message actions */
 export const MSG = {
-  CAPTURE_REQUEST: 'pagewand_capture_screenshot',
-  CAPTURE_RESULT: 'pagewand_capture_result',
+  CAPTURE_REQUEST: 'browserbot_capture_screenshot',
+  CAPTURE_RESULT: 'browserbot_capture_result',
   SCREENSHOT_CAPTURED: 'screenshot_captured',
-  COPY_IMAGE_CLIPBOARD: 'pagewand_copy_image_clipboard',
+  COPY_IMAGE_CLIPBOARD: 'browserbot_copy_image_clipboard',
   /** Start Win+Shift+S style region picker on the page */
-  START_REGION_CAPTURE: 'pagewand_start_region_capture',
-  CANCEL_REGION_CAPTURE: 'pagewand_cancel_region_capture',
-  REGION_SELECTED: 'pagewand_region_selected',
-  REGION_CANCELLED: 'pagewand_region_cancelled'
+  START_REGION_CAPTURE: 'browserbot_start_region_capture',
+  CANCEL_REGION_CAPTURE: 'browserbot_cancel_region_capture',
+  REGION_SELECTED: 'browserbot_region_selected',
+  REGION_CANCELLED: 'browserbot_region_cancelled'
 };
 
 /**

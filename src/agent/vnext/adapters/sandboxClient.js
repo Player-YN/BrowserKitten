@@ -5,9 +5,10 @@
  * no extension APIs. Filesystem and sys calls are relayed to the offscreen host.
  * The sandbox never receives chrome.*, DOM handles, or a reference to Workspace storage.
  */
+import { SANDBOX_CHANNEL } from '../../../brand.js';
 import { createRunDeadline, clampRunTimeout } from '../sessionWorkspace/runDeadline.js';
 
-const CHANNEL = 'pawwork-code-sandbox-v1';
+const CHANNEL = SANDBOX_CHANNEL;
 
 export function createSandboxCodeClient(iframe) {
   if (!iframe) throw new Error('sandbox iframe required');

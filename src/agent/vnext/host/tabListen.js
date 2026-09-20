@@ -3,8 +3,8 @@
  * Recording itself lives in the offscreen listen runtime.
  */
 
-export const LISTEN_GRANT_PREFIX = 'pagewand_listen_grant:';
-export const RECORD_GRANT_PREFIX = 'pagewand_record_grant:';
+export const LISTEN_GRANT_PREFIX = 'browserbot_listen_grant:';
+export const RECORD_GRANT_PREFIX = 'browserbot_record_grant:';
 export const DEFAULT_LISTEN_SECONDS = 20;
 export const MAX_LISTEN_SECONDS = 120;
 

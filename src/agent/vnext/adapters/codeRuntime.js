@@ -8,7 +8,7 @@
  * - timeout + AbortSignal interrupt.
  *
  * Soft AsyncFunction path is emergency-only:
- *   opts.runtime === 'soft'  OR  process.env.PAW_SOFT_SANDBOX=1
+ *   opts.runtime === 'soft'  OR  process.env.BROWSERBOT_SOFT_SANDBOX=1
  *
  * Interface:
  *   runCode({ code, entry?, signal?, timeoutMs?, fs, sys, runtime? }) → RunResult
@@ -86,7 +86,7 @@ export async function runCode(opts = {}) {
   // Product extension path: execute generated source in a manifest-sandboxed
   // page that has no extension APIs. Node tests and the sandbox page itself
   // use the local QuickJS adapter below.
-  const sandboxRunner = globalThis.__PAWWORK_CODE_SANDBOX_RUN__;
+  const sandboxRunner = globalThis.__BROWSERBOT_CODE_SANDBOX_RUN__;
   if (typeof sandboxRunner === 'function' && opts.runtime !== 'local-quickjs' && opts.runtime !== 'soft') {
     try {
       const result = await sandboxRunner(opts);
@@ -109,7 +109,7 @@ export async function runCode(opts = {}) {
     opts.runtime === 'soft' ||
     (typeof process !== 'undefined' &&
       process.env &&
-      (process.env.PAW_SOFT_SANDBOX === '1' || process.env.PAW_SOFT_SANDBOX === 'true'));
+      (process.env.BROWSERBOT_SOFT_SANDBOX === '1' || process.env.BROWSERBOT_SOFT_SANDBOX === 'true'));
 
   if (wantSoft) {
     _activeKind = 'function-sandbox';
@@ -1012,7 +1012,7 @@ async function maybeTranspile(code) {
 
 /**
  * Compile a single TS/JS snippet or a small virtual multi-file project into a
- * single CommonJS bundle for QuickJS. Only bundled PawWork stdlib modules and
+ * single CommonJS bundle for QuickJS. Only bundled BrowserBot stdlib modules and
  * explicitly supplied virtual files may be imported; there is no npm/network
  * resolution in V0.
  */
@@ -1023,7 +1023,7 @@ async function compileGuestSource({ code, files, entryFile } = {}) {
   if (!needsBundle) return maybeTranspile(source);
 
   const esbuild = await loadEsbuildApi();
-  const { PAWWORK_STDLIB_MODULES } = await import('./stdlib.js');
+  const { BROWSERBOT_STDLIB_MODULES } = await import('./stdlib.js');
   const vfs = new Map();
   for (const [name, contents] of Object.entries(supplied)) {
     vfs.set(normalizeVirtualPath(name), String(contents));
@@ -1041,26 +1041,26 @@ async function compileGuestSource({ code, files, entryFile } = {}) {
     target: 'es2020',
     logLevel: 'silent',
     plugins: [{
-      name: 'pawwork-virtual-modules',
+      name: 'browserbot-virtual-modules',
       setup(build) {
         build.onResolve({ filter: /.*/ }, (args) => {
-          if (Object.prototype.hasOwnProperty.call(PAWWORK_STDLIB_MODULES, args.path)) {
-            return { path: args.path, namespace: 'pawwork-stdlib' };
+          if (Object.prototype.hasOwnProperty.call(BROWSERBOT_STDLIB_MODULES, args.path)) {
+            return { path: args.path, namespace: 'browserbot-stdlib' };
           }
           if (args.path.startsWith('.') || args.path.startsWith('/')) {
             const base = args.importer ? dirnameVirtual(args.importer) : '/';
-            return { path: normalizeVirtualPath(args.path.startsWith('/') ? args.path : `${base}/${args.path}`), namespace: 'pawwork-vfs' };
+            return { path: normalizeVirtualPath(args.path.startsWith('/') ? args.path : `${base}/${args.path}`), namespace: 'browserbot-vfs' };
           }
           if (vfs.has(normalizeVirtualPath(args.path))) {
-            return { path: normalizeVirtualPath(args.path), namespace: 'pawwork-vfs' };
+            return { path: normalizeVirtualPath(args.path), namespace: 'browserbot-vfs' };
           }
-          return { errors: [{ text: `Module not available in PawWork runtime: ${args.path}` }] };
+          return { errors: [{ text: `Module not available in BrowserBot runtime: ${args.path}` }] };
         });
-        build.onLoad({ filter: /.*/, namespace: 'pawwork-stdlib' }, (args) => ({
-          contents: PAWWORK_STDLIB_MODULES[args.path],
+        build.onLoad({ filter: /.*/, namespace: 'browserbot-stdlib' }, (args) => ({
+          contents: BROWSERBOT_STDLIB_MODULES[args.path],
           loader: 'js'
         }));
-        build.onLoad({ filter: /.*/, namespace: 'pawwork-vfs' }, (args) => {
+        build.onLoad({ filter: /.*/, namespace: 'browserbot-vfs' }, (args) => {
           if (!vfs.has(args.path)) return { errors: [{ text: `Virtual file not found: ${args.path}` }] };
           return { contents: vfs.get(args.path), loader: loaderForPath(args.path), resolveDir: dirnameVirtual(args.path) };
         });
@@ -1483,7 +1483,7 @@ async function writeBlockLog(err) {
     const path = await import('node:path');
     const os = await import('node:os');
     const candidates = [
-      process.env?.PAW_SCRATCH ? path.join(process.env.PAW_SCRATCH, 't8-block.log') : null,
+      process.env?.BROWSERBOT_SCRATCH ? path.join(process.env.BROWSERBOT_SCRATCH, 't8-block.log') : null,
       path.join(os.tmpdir(), 't8-block.log')
     ].filter(Boolean);
     for (const p of candidates) {

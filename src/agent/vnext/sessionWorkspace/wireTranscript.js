@@ -11,7 +11,8 @@
  */
 
 const WIRE_MAX_STRING = 2000;
-const WIRE_MAX_ARRAY = 50;
+/** Persist / replay projection only. Download copies the hop list separately. */
+export const WIRE_MAX_ARRAY = 50;
 const WIRE_MAX_DEPTH = 6;
 const WIRE_MAX_OUTPUT_CHARS = 16000;
 /** Heavy/duplicated media keys never useful on replay (bytes live in blobs). */
@@ -33,11 +34,14 @@ function truncateWireString(s) {
 
 /**
  * Bounded, JSON-plain projection of arbitrary tool payloads for the wire.
+ * Persist keeps WIRE_MAX_ARRAY. Pass `{ maxArray: Infinity }` for download hops.
  * @param {unknown} value
  * @param {number} [depth]
+ * @param {{ maxArray?: number }} [opts]
  * @returns {any}
  */
-export function projectJsonForWire(value, depth = 0) {
+export function projectJsonForWire(value, depth = 0, opts = {}) {
+  const maxArray = opts.maxArray == null ? WIRE_MAX_ARRAY : opts.maxArray;
   if (value == null) return null;
   const t = typeof value;
   if (t === 'string') return truncateWireString(value);
@@ -50,8 +54,12 @@ export function projectJsonForWire(value, depth = 0) {
   }
   if (depth >= WIRE_MAX_DEPTH) return '[depth-capped]';
   if (Array.isArray(value)) {
-    const out = value.slice(0, WIRE_MAX_ARRAY).map((v) => projectJsonForWire(v, depth + 1));
-    if (value.length > WIRE_MAX_ARRAY) out.push(`[+${value.length - WIRE_MAX_ARRAY} more]`);
+    const unlimited = !Number.isFinite(maxArray) || maxArray < 0;
+    const cap = unlimited ? value.length : maxArray;
+    const out = value.slice(0, cap).map((v) => projectJsonForWire(v, depth + 1, opts));
+    if (!unlimited && value.length > cap) {
+      out.push({ truncated: true, omitted: value.length - cap });
+    }
     return out;
   }
   if (t === 'object') {
@@ -74,11 +82,20 @@ export function projectJsonForWire(value, depth = 0) {
         }
         continue;
       }
-      out[k] = projectJsonForWire(v, depth + 1);
+      out[k] = projectJsonForWire(v, depth + 1, opts);
     }
     return out;
   }
   return String(value);
+}
+
+/**
+ * Download appendix: keep every hop. Persist already bounded each payload.
+ * @param {unknown} wire
+ */
+export function projectWireForDownload(wire) {
+  if (!Array.isArray(wire)) return projectJsonForWire(wire, 0, { maxArray: Infinity });
+  return wire.map((msg) => projectJsonForWire(msg, 0, { maxArray: Infinity }));
 }
 
 /**
@@ -105,6 +122,14 @@ export function projectToolOutputForWire(raw) {
           0;
         return { type: 'text', text: `[media omitted (${mediaType}${size ? `, ~${size}` : ''})]` };
       });
+      if (raw.value.length > WIRE_MAX_ARRAY) {
+        value.push({
+          type: 'text',
+          text: `[truncated]`,
+          truncated: true,
+          omitted: raw.value.length - WIRE_MAX_ARRAY
+        });
+      }
       return { type: 'content', value };
     }
     return capWireOutput({ type: 'json', value: projectJsonForWire(raw.value) });

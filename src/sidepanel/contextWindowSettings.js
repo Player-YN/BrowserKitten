@@ -1,6 +1,6 @@
 import { contextWindowCacheKey } from '../agent/contextWindowStore.js';
 
-const AUTO_CHECK_KEY = 'pagewand_context_window_auto_check';
+const AUTO_CHECK_KEY = 'browserbot_context_window_auto_check';
 
 export function matchesContextWindowConfig({ provider, providerId, base, model, apiKey }) {
   if (!provider || provider.id !== providerId) return false;
@@ -126,6 +126,7 @@ export function createContextWindowSettings({
     const title = root.createElement('p');
     title.className = 'settings-label';
     title.textContent = t('contextWindowTitle');
+    title.title = t('contextWindowCost');
     const status = root.createElement('p');
     status.id = 'contextWindowStatus';
     status.className = 'settings-hint';
@@ -135,6 +136,7 @@ export function createContextWindowSettings({
     recheck.id = 'contextWindowRecheck';
     recheck.className = 'btn btn-secondary settings-mini-btn';
     recheck.textContent = t('contextWindowRecheck');
+    recheck.title = t('contextWindowCost');
     recheck.disabled = true;
     recheck.addEventListener('click', () => {
       recheck.disabled = true;
@@ -142,10 +144,12 @@ export function createContextWindowSettings({
     });
     const autoLabel = root.createElement('label');
     autoLabel.className = 'settings-check-row';
+    autoLabel.title = t('contextWindowCost');
     const auto = root.createElement('input');
     auto.type = 'checkbox';
     auto.id = 'contextWindowAutoCheck';
     auto.checked = automatic;
+    auto.title = t('contextWindowCost');
     const copy = root.createElement('span');
     copy.textContent = t('contextWindowAutoCheck');
     autoLabel.append(auto, copy);
@@ -163,10 +167,7 @@ export function createContextWindowSettings({
         void refresh({ start: enabled });
       });
     });
-    const cost = root.createElement('p');
-    cost.className = 'settings-hint';
-    cost.textContent = t('contextWindowCost');
-    panel.append(title, status, recheck, autoLabel, cost);
+    panel.append(title, status, recheck, autoLabel);
     storage?.local?.get([AUTO_CHECK_KEY], (data) => {
       automatic = data?.[AUTO_CHECK_KEY] !== false;
       auto.checked = automatic;
@@ -184,8 +185,8 @@ export function createContextWindowSettings({
   root.addEventListener('visibilitychange', () => { if (!visible()) stop(); else void refresh(); });
   storage?.onChanged?.addListener((changes, area) => {
     if (area === 'local' && visible() && Object.keys(changes).some((k) =>
-      k === 'pagewand_providers' || k === 'pagewand_active_provider_id' || k === AUTO_CHECK_KEY ||
-      k === 'pagewand_context_window_evidence_v1' || k === 'pagewand_model_catalog_cache')) {
+      k === 'browserbot_providers' || k === 'browserbot_active_provider_id' || k === AUTO_CHECK_KEY ||
+      k === 'browserbot_context_window_evidence_v1' || k === 'browserbot_model_catalog_cache')) {
       void refresh();
     }
   });

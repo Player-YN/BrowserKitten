@@ -1,3 +1,12 @@
+import {
+  MSG_TARGET_BACKGROUND,
+  MSG_TARGET_OFFSCREEN,
+  MSG_TARGET_SIDEPANEL,
+  STORAGE_ACCESS_POLICY,
+  STORAGE_ACCESS_POLICY_SESSION,
+  STORAGE_ACTIVE_PROVIDER_ID,
+  STORAGE_PROVIDERS
+} from './brand.js';
 import { handleWorkspacePageAction, invalidatePageActionTarget } from './agent/vnext/host/pageActionHost.js';
 import { dropListenGrantsForTab } from './agent/vnext/host/tabListen.js';
 import { assertWorkspaceRpc, workspaceSenderRole } from './agent/vnext/host/workspaceRpcContract.js';
@@ -5,6 +14,7 @@ import { createWorkspaceRpcTransport } from './agent/vnext/host/workspaceRpcTran
 // Static import only — dynamic import() is disallowed on ServiceWorkerGlobalScope
 // (https://github.com/w3c/ServiceWorker/issues/1356) and surfaces as Workspace RPC errors.
 import { loadLlmSettings } from './agent/llm.js';
+import { executeLlmProxyFetch } from './agent/llmProxyFetch.js';
 import { sheetTabMatches, htmlTabMatches } from './sidepanel/sessionIsolation.js';
 import { previewEntryForItem } from './agent/vnext/sessionWorkspace/openClassify.js';
 import { handleWorkspaceSys } from './agent/vnext/host/browserSysHost.js';
@@ -14,27 +24,27 @@ import { configureTabLeasePersistence, readTabLease, removeTabLease } from './ag
 import { releaseBrowserExecution, reconcileBrowserExecutions } from './agent/vnext/host/browserExecution.js';
 import { createTaskScheduler, resolveTaskPage } from './agent/vnext/host/taskScheduler.js';
 import {
-  isPawWorkPageUrl,
-  isPawLockableWorkPageUrl,
-  sessionIdFromPawWorkUrl,
+  isBrowserBotPageUrl,
+  isLockableWorkPageUrl,
+  sessionIdFromBrowserBotUrl,
   sessionGroupTitle,
   sessionGroupUpdate,
-  shouldFocusPawWorkTab,
+  shouldFocusBrowserBotTab,
   shouldJoinSessionGroup,
   shouldLockWorkTab,
   tabCreateProps
-} from './agent/vnext/host/pawTabGroups.js';
+} from './agent/vnext/host/browserTabGroups.js';
 import { isMentionablePageUrl, normalizePageRef } from './agent/vnext/sessionWorkspace/pageContext.js';
 
 configureTabLeasePersistence(chrome.storage.session);
 bindAccessPolicyChromeListener();
 void expireDispatchTickets();
-const PAWWORK_OFFSCREEN_URL = 'src/offscreen/runtime.html';
-let pawworkOffscreenCreating = null;
+const OFFSCREEN_DOCUMENT_URL = 'src/offscreen/runtime.html';
+let offscreenCreating = null;
 
-function isPawWorkOffscreenSender(sender) {
+function isBrowserBotOffscreenSender(sender) {
   if (!sender || sender.id !== chrome.runtime.id) return false;
-  const expected = chrome.runtime.getURL(PAWWORK_OFFSCREEN_URL);
+  const expected = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_URL);
   const actual = String(sender.url || '');
   if (actual === expected) return true;
   try {
@@ -46,9 +56,9 @@ function isPawWorkOffscreenSender(sender) {
   }
 }
 
-async function ensurePawWorkOffscreen() {
+async function ensureBrowserBotOffscreen() {
   if (!chrome.offscreen) throw new Error('chrome.offscreen unavailable');
-  const offscreenUrl = chrome.runtime.getURL(PAWWORK_OFFSCREEN_URL);
+  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_URL);
   if (typeof chrome.offscreen.hasDocument === 'function') {
     if (await chrome.offscreen.hasDocument()) return;
   } else if (typeof chrome.runtime.getContexts === 'function') {
@@ -61,25 +71,25 @@ async function ensurePawWorkOffscreen() {
     const clients = await self.clients.matchAll();
     if (clients.some((client) => client.url === offscreenUrl)) return;
   }
-  if (pawworkOffscreenCreating) return pawworkOffscreenCreating;
-  pawworkOffscreenCreating = chrome.offscreen.createDocument({
-    url: PAWWORK_OFFSCREEN_URL,
+  if (offscreenCreating) return offscreenCreating;
+  offscreenCreating = chrome.offscreen.createDocument({
+    url: OFFSCREEN_DOCUMENT_URL,
     reasons: ['WORKERS', 'BLOBS', 'USER_MEDIA', 'AUDIO_PLAYBACK'],
     justification: 'Run the browser-resident Web Workspace agent, tab audio/video capture, and materialize selected content independently of the side panel.'
-  }).finally(() => { pawworkOffscreenCreating = null; });
-  return pawworkOffscreenCreating;
+  }).finally(() => { offscreenCreating = null; });
+  return offscreenCreating;
 }
 const forwardWorkspaceRpc = createWorkspaceRpcTransport({
-  ensureRuntime: ensurePawWorkOffscreen,
+  ensureRuntime: ensureBrowserBotOffscreen,
   send: payload => chrome.runtime.sendMessage(payload)
 });
 
 // Settings events wake discovery even if no workspace is open. Cache writes do not retrigger it.
 let mediaSettingsTimer;
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !['pagewand_providers', 'pagewand_active_provider_id',
-    'pagewand_chat_media_auto_check', 'pagewand_context_window_auto_check',
-    'pagewand_model_catalog_cache'].some(key => key in changes)) return;
+  if (area !== 'local' || ![STORAGE_PROVIDERS, STORAGE_ACTIVE_PROVIDER_ID,
+    'browserbot_chat_media_auto_check', 'browserbot_context_window_auto_check',
+    'browserbot_model_catalog_cache'].some(key => key in changes)) return;
   clearTimeout(mediaSettingsTimer);
   mediaSettingsTimer = setTimeout(() => {
     void forwardWorkspaceRpc({ method: 'requestChatMediaCheck', params: {} }).catch(() => {});
@@ -87,10 +97,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }, 150);
 });
 
-// PageWand Service Worker - Native Downloads & Smart Auto-Zip Engine
+// BrowserBot Service Worker - Native Downloads & Smart Auto-Zip Engine
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("[PageWand] Background Service Worker Initialized.");
+  console.log("[BrowserBot] Background Service Worker Initialized.");
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => console.error(error));
 });
 
@@ -117,7 +127,7 @@ chrome.commands.onCommand.addListener(async (command) => {
         await toastOnActiveTab("截图已取消");
       }
     } catch (err) {
-      console.error("[PageWand] capture-screenshot command failed:", err);
+      console.error("[BrowserBot] capture-screenshot command failed:", err);
       await toastOnActiveTab(`❌ 截图失败: ${err?.message || err}`);
     }
   }
@@ -220,7 +230,7 @@ async function captureVisibleTabForUser(source = "message") {
     });
     clipboardOk = !!(injected && injected[0] && injected[0].result === true);
   } catch (clipErr) {
-    console.warn("[PageWand] clipboard inject failed:", clipErr);
+    console.warn("[BrowserBot] clipboard inject failed:", clipErr);
   }
 
   const payload = {
@@ -244,7 +254,7 @@ async function captureVisibleTabForUser(source = "message") {
     } catch (_) {}
     try {
       await chrome.storage.local.set({
-        pagewand_pending_screenshot: {
+        browserbot_pending_screenshot: {
           dataUrl,
           name,
           type: "image/png",
@@ -254,7 +264,7 @@ async function captureVisibleTabForUser(source = "message") {
         }
       });
     } catch (storeErr) {
-      console.warn("[PageWand] pending screenshot store failed:", storeErr);
+      console.warn("[BrowserBot] pending screenshot store failed:", storeErr);
     }
   }
 
@@ -288,7 +298,7 @@ function promptRegionSelect(tabId) {
     const timer = setTimeout(() => {
       pendingRegionSelectByTab.delete(tabId);
       try {
-        chrome.tabs.sendMessage(tabId, { action: "pagewand_cancel_region_capture" }).catch(() => {});
+        chrome.tabs.sendMessage(tabId, { action: "browserbot_cancel_region_capture" }).catch(() => {});
       } catch (_) {}
       reject(new Error("截图选择超时"));
     }, REGION_SELECT_TIMEOUT_MS);
@@ -297,7 +307,7 @@ function promptRegionSelect(tabId) {
 
     try {
       await ensureRegionCaptureUi(tabId);
-      await chrome.tabs.sendMessage(tabId, { action: "pagewand_start_region_capture" });
+      await chrome.tabs.sendMessage(tabId, { action: "browserbot_start_region_capture" });
     } catch (e) {
       clearTimeout(timer);
       pendingRegionSelectByTab.delete(tabId);
@@ -397,7 +407,7 @@ function handleRegionSelectMessage(request, sender) {
   const waiter = pendingRegionSelectByTab.get(tabId);
   if (!waiter) return false;
 
-  if (request.action === "pagewand_region_selected") {
+  if (request.action === "browserbot_region_selected") {
     clearTimeout(waiter.timer);
     pendingRegionSelectByTab.delete(tabId);
     const r = request.region || {};
@@ -412,7 +422,7 @@ function handleRegionSelectMessage(request, sender) {
     });
     return true;
   }
-  if (request.action === "pagewand_region_cancelled") {
+  if (request.action === "browserbot_region_cancelled") {
     clearTimeout(waiter.timer);
     pendingRegionSelectByTab.delete(tabId);
     waiter.resolve(null);
@@ -665,7 +675,7 @@ async function attachTabToSessionGroup(tabId, sessionId, opts = {}) {
     const tab = await chrome.tabs.get(tabId);
     const live = tab?.url || '';
     const intended = opts.url || '';
-    const url = isPawWorkPageUrl(live) ? live : intended || live;
+    const url = isBrowserBotPageUrl(live) ? live : intended || live;
     if (!shouldJoinSessionGroup({ url, sessionId: sid, reason: opts.reason })) return null;
 
     let groupId = pawSessionGroupById.get(sid);
@@ -682,7 +692,7 @@ async function attachTabToSessionGroup(tabId, sessionId, opts = {}) {
       const sibling = tabs.find((t) => {
         if (t.id === tabId || !isTabInGroup(t)) return false;
         const u = t.url || '';
-        return isPawWorkPageUrl(u) && sessionIdFromPawWorkUrl(u) === sid;
+        return isBrowserBotPageUrl(u) && sessionIdFromBrowserBotUrl(u) === sid;
       });
       if (sibling && isTabInGroup(sibling)) groupId = sibling.groupId;
     }
@@ -743,13 +753,13 @@ function pushWorkLockIfActive(sender, sessionId) {
   const sid = String(sessionId || '').trim();
   if (!sid || !lockedWorkSessions.has(sid)) return;
   const url = sender?.tab?.url || '';
-  if (!isPawLockableWorkPageUrl(url)) return;
-  if (sessionIdFromPawWorkUrl(url) !== sid) return;
+  if (!isLockableWorkPageUrl(url)) return;
+  if (sessionIdFromBrowserBotUrl(url) !== sid) return;
   sendWorkLockToTab(sender.tab.id, sid, true);
 }
 
-async function openPawWorkTab({ url, sessionId, focus = false, title, reason } = {}) {
-  const wantFocus = shouldFocusPawWorkTab({ focus, reason });
+async function openBrowserBotTab({ url, sessionId, focus = false, title, reason } = {}) {
+  const wantFocus = shouldFocusBrowserBotTab({ focus, reason });
   const tab = await chrome.tabs.create(tabCreateProps({ url, focus: wantFocus }));
   if (tab?.id != null) {
     await attachTabToSessionGroup(tab.id, sessionId, {
@@ -768,20 +778,20 @@ async function openPawWorkTab({ url, sessionId, focus = false, title, reason } =
   return tab;
 }
 
-async function activatePawWorkTab(tabId, opts = {}) {
+async function activateBrowserBotTab(tabId, opts = {}) {
   if (tabId == null) return;
   await attachTabToSessionGroup(tabId, opts.sessionId, opts);
-  if (shouldFocusPawWorkTab(opts)) {
+  if (shouldFocusBrowserBotTab(opts)) {
     await chrome.tabs.update(tabId, { active: true });
   }
 }
 
 async function openSheetTab(sessionId, artifactId, opts = {}) {
-  const focus = shouldFocusPawWorkTab(opts);
+  const focus = shouldFocusBrowserBotTab(opts);
   const reason = opts.reason || (focus ? 'user' : 'agent');
   const existing = await findSheetTab(sessionId, artifactId);
   if (existing != null) {
-    await activatePawWorkTab(existing, {
+    await activateBrowserBotTab(existing, {
       focus,
       sessionId,
       title: opts.title,
@@ -791,7 +801,7 @@ async function openSheetTab(sessionId, artifactId, opts = {}) {
     return existing;
   }
   const key = sheetKey(sessionId, artifactId);
-  const tab = await openPawWorkTab({
+  const tab = await openBrowserBotTab({
     url: sheetUrl(sessionId, artifactId),
     sessionId,
     focus,
@@ -836,7 +846,7 @@ async function sendSheetRpc(sessionId, artifactId, payload) {
   }
   if (tabId == null) throw new Error('sheet tab unavailable');
   const res = await chrome.tabs.sendMessage(tabId, {
-    action: 'pawwork_sheet_rpc',
+    action: 'browserbot_sheet_rpc',
     sessionId,
     artifactId,
     ...payload
@@ -936,7 +946,7 @@ async function patchHtmlPreviewTab(sessionId, artifactId) {
   if (tabId == null) return { ok: false, missing: true };
   try {
     const res = await chrome.tabs.sendMessage(tabId, {
-      action: 'pawwork_html_preview_patch',
+      action: 'browserbot_html_preview_patch',
       sessionId: sid,
       artifactId: aid
     });
@@ -986,7 +996,7 @@ async function resolvePreviewRoute(sessionId, artifactId, opts = {}) {
 async function openArtifactPreviewTab(sessionId, artifactIds, opts = {}) {
   const ids = [...new Set((artifactIds || []).map(String).filter(Boolean))];
   if (!ids.length) return { ok: false, message: 'no artifact ids' };
-  const focus = shouldFocusPawWorkTab(opts);
+  const focus = shouldFocusBrowserBotTab(opts);
   const reason = opts.reason || (focus ? 'user' : 'preview');
   const routed = await resolvePreviewRoute(sessionId, ids[0], opts);
   const lang = previewLangParam(opts.lang);
@@ -1037,7 +1047,7 @@ async function openArtifactPreviewTab(sessionId, artifactIds, opts = {}) {
       }
       return { ok: true, tabId: existing.id, reused: true, entry: routed.entry };
     }
-    const tab = await openPawWorkTab({
+    const tab = await openBrowserBotTab({
       url,
       sessionId: sid,
       focus,
@@ -1086,7 +1096,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ ok: false, code: 'RPC_DENIED', error: 'Settings require a trusted runtime or sidepanel.' });
     return false;
   }
-  if (request?.action === 'session_workspace_event' && isPawWorkOffscreenSender(sender) &&
+  if (request?.action === 'session_workspace_event' && isBrowserBotOffscreenSender(sender) &&
       ['task-schedule-changed', 'task-updated', 'execution-end'].includes(request.event?.type)) {
     void taskScheduler.reconcile();
   }
@@ -1148,12 +1158,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request?.action === 'paw_work_lock_query') {
-    const sid = String(request.sessionId || sessionIdFromPawWorkUrl(sender?.tab?.url) || '').trim();
+    const sid = String(request.sessionId || sessionIdFromBrowserBotUrl(sender?.tab?.url) || '').trim();
     const url = sender?.tab?.url || '';
     sendResponse({
       ok: true,
       sessionId: sid,
-      locked: !!(sid && lockedWorkSessions.has(sid) && isPawLockableWorkPageUrl(url))
+      locked: !!(sid && lockedWorkSessions.has(sid) && isLockableWorkPageUrl(url))
     });
     return false;
   }
@@ -1197,14 +1207,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'sheet_host') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'sheet_host') {
     handleSheetHost(request)
       .then((r) => sendResponse(r))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'canvas_host') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'canvas_host') {
     handleCanvasHost(request)
       .then((r) => sendResponse(r))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
@@ -1226,14 +1236,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_list_open_tabs') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_list_open_tabs') {
     listMentionableOpenTabs()
       .then((pages) => sendResponse({ ok: true, pages }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error), pages: [] }));
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_get_active_page') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_get_active_page') {
     chrome.tabs.query({ active: true, currentWindow: true })
       .then(([tab]) => {
         const url = String(tab?.url || '');
@@ -1252,7 +1262,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_get_llm_settings') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_get_llm_settings') {
     loadLlmSettings()
       .then((settings) => sendResponse({ ok: true, settings }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
@@ -1260,37 +1270,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Offscreen has chrome.runtime but not chrome.storage — proxy BYOK keys
-  if (request?.target === 'pawwork-background' && request?.action === 'storage_local_get') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'storage_local_get') {
     handleStorageLocalGet(request.keys)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
-  if (request?.target === 'pawwork-background' && request?.action === 'storage_local_set') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'storage_local_set') {
     handleStorageLocalSet(request.values)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
-  if (request?.target === 'pawwork-background' && request?.action === 'storage_session_get') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'storage_session_get') {
     handleStorageSessionGet(request.keys)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
-  if (request?.target === 'pawwork-background' && request?.action === 'storage_session_set') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'storage_session_set') {
     handleStorageSessionSet(request.values)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_policy_get') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_policy_get') {
     readEffectiveAccessPolicy()
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_policy_set') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_policy_set') {
     if (senderRole !== 'offscreen') {
       sendResponse({ ok: false, code: 'RPC_DENIED', error: 'Access policy writes go through workspace RPC.' });
       return false;
@@ -1300,7 +1310,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error), code: error?.code }));
     return true;
   }
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_ticket_put') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_ticket_put') {
     if (senderRole !== 'offscreen') {
       sendResponse({ ok: false, code: 'SYS_DENIED', error: 'Dispatch tickets are issued by the offscreen runtime.' });
       return false;
@@ -1310,7 +1320,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error), code: error?.code || 'TICKET_REQUIRED' }));
     return true;
   }
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_ticket_drop') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_ticket_drop') {
     if (senderRole !== 'offscreen') {
       sendResponse({ ok: false, code: 'SYS_DENIED', error: 'Dispatch tickets are dropped by the offscreen runtime.' });
       return false;
@@ -1324,28 +1334,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_capture_page_blueprint') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_capture_page_blueprint') {
     handleWorkspaceCapturePageBlueprint(request)
       .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_page_action') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_page_action') {
     ensureBrowserOwnership().then(() => handleWorkspacePageAction(request))
       .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error), code: error?.code || 'NEED_PAGE', ...(error?.outcome ? { outcome: error.outcome } : {}) }));
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_find_tab') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_find_tab') {
     handleWorkspaceFindTab(request)
       .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_capture_fragile') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_capture_fragile') {
     chrome.tabs.sendMessage(Number(request.tabId), {
       action: 'workspace_capture_item',
       selector: request.selector || null,
@@ -1356,15 +1366,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_fetch') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_fetch') {
     handleWorkspaceFetch(request)
       .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_sys') {
-    if (!isPawWorkOffscreenSender(sender)) {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_sys') {
+    if (!isBrowserBotOffscreenSender(sender)) {
       sendResponse({ ok: false, code: 'SYS_DENIED', error: 'browser sys requires the offscreen runtime' });
       return false;
     }
@@ -1378,8 +1388,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_tab_lease_peek') {
-    if (!isPawWorkOffscreenSender(sender)) {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_tab_lease_peek') {
+    if (!isBrowserBotOffscreenSender(sender)) {
       sendResponse({ ok: false, code: 'SYS_DENIED', error: 'tab lease peek requires the offscreen runtime' });
       return false;
     }
@@ -1388,8 +1398,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_tab_lease_release') {
-    if (!isPawWorkOffscreenSender(sender)) {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_tab_lease_release') {
+    if (!isBrowserBotOffscreenSender(sender)) {
       sendResponse({ ok: false, code: 'SYS_DENIED', error: 'tab lease release requires the offscreen runtime' });
       return false;
     }
@@ -1399,8 +1409,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_task_resolve_page') {
-    if (!isPawWorkOffscreenSender(sender)) {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_task_resolve_page') {
+    if (!isBrowserBotOffscreenSender(sender)) {
       sendResponse({ ok: false, code: 'SYS_DENIED', error: 'Task target resolution requires the offscreen runtime.' });
       return false;
     }
@@ -1410,7 +1420,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request?.target === 'pawwork-background' && request?.action === 'workspace_rpc') {
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_rpc') {
     try { assertWorkspaceRpc(String(request.method || ''), request.params ?? {}, senderRole); }
     catch (error) { sendResponse({ ok: false, code: error.code, error: error.message }); return false; }
     forwardWorkspaceRpc(request)
@@ -1421,8 +1431,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // CAPTURE_WP: region picker results from content script
   if (
-    request?.action === 'pagewand_region_selected' ||
-    request?.action === 'pagewand_region_cancelled'
+    request?.action === 'browserbot_region_selected' ||
+    request?.action === 'browserbot_region_cancelled'
   ) {
     handleRegionSelectMessage(request, sender);
     sendResponse({ ok: true });
@@ -1441,7 +1451,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // CAPTURE_WP: Side Panel / content script request region capture
   if (
-    request.action === 'pagewand_capture_screenshot' ||
+    request.action === 'browserbot_capture_screenshot' ||
     request.action === 'capture_visible_tab'
   ) {
     captureVisibleTabForUser(request.source || 'message')
@@ -1473,7 +1483,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'open_draft_preview' && request.draftId) {
     const draftId = String(request.draftId);
     const sessionId = String(request.sessionId || '').trim();
-    const focus = shouldFocusPawWorkTab({
+    const focus = shouldFocusBrowserBotTab({
       focus: request.focus,
       reason: request.reason || 'preview'
     });
@@ -1513,7 +1523,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sendResponse({ ok: true, tabId: existing.id, reused: true });
           return;
         }
-        const tab = await openPawWorkTab({
+        const tab = await openBrowserBotTab({
           url,
           sessionId,
           focus,
@@ -1559,7 +1569,7 @@ async function handleNativeDownloads(urls) {
       const prefix = /^(png|jpe?g|gif|webp|svg)$/i.test(ext) ? 'image' : 'file';
       chrome.downloads.download({
         url: imgUrl,
-        filename: `pagewand_downloads/${prefix}_${Date.now()}_${index + 1}.${ext}`,
+        filename: `browserbot_downloads/${prefix}_${Date.now()}_${index + 1}.${ext}`,
         conflictAction: 'uniquify'
       });
     });
@@ -1573,7 +1583,7 @@ async function handleNativeDownloads(urls) {
       const arrayBuffer = await res.arrayBuffer();
       const ext = getExtensionFromDataUrlOrPath(urls[i]);
       fetchedFiles.push({
-        name: `pagewand_image_${i + 1}.${ext}`,
+        name: `browserbot_image_${i + 1}.${ext}`,
         data: new Uint8Array(arrayBuffer)
       });
     } catch (fetchErr) {
@@ -1586,7 +1596,7 @@ async function handleNativeDownloads(urls) {
     const dataUrl = await blobToDataURL(zipBlob);
     chrome.downloads.download({
       url: dataUrl,
-      filename: `pagewand_images_pack_${Date.now()}.zip`,
+      filename: `browserbot_images_pack_${Date.now()}.zip`,
       conflictAction: 'uniquify'
     });
     return { status: 'zipped', count: fetchedFiles.length };
@@ -1596,17 +1606,17 @@ async function handleNativeDownloads(urls) {
     const ext = getExtensionFromDataUrlOrPath(imgUrl);
     chrome.downloads.download({
       url: imgUrl,
-      filename: `pagewand_downloads/image_${Date.now()}_${index + 1}.${ext}`
+      filename: `browserbot_downloads/image_${Date.now()}_${index + 1}.${ext}`
     });
   });
   return { status: 'started_fallback', count: urls.length };
 }
 
-/** Keys offscreen may read/write via SW (BYOK + legacy mirrors). */
+/** Keys offscreen may read/write via SW (BYOK + flat provider copies). */
 const STORAGE_BRIDGE_KEY =
-  /^(pagewand_|DEEPSEEK_|selected_model$)/;
+  /^(browserbot_|DEEPSEEK_|selected_model$)/;
 
-const STORAGE_BRIDGE_DENIED = new Set(['pagewand_access_policy', 'pagewand_access_policy_session']);
+const STORAGE_BRIDGE_DENIED = new Set([STORAGE_ACCESS_POLICY, STORAGE_ACCESS_POLICY_SESSION]);
 
 function assertStorageBridgeKeys(keys) {
   const list = Array.isArray(keys) ? keys : keys != null ? [keys] : [];
@@ -1648,54 +1658,11 @@ async function handleStorageSessionSet(values) {
 }
 
 /**
- * Background fetch proxy for OpenAI-compatible LLM APIs (no CORS from SW).
+ * Background fetch proxy for OpenAI-compatible LLM APIs (no document CORS).
+ * Offscreen sendMessage is the product fallback when browserBotFetch throws.
  */
 async function handleLlmProxyFetch(request) {
-  const { url, method, headers, body } = request;
-  if (!url || typeof url !== 'string') {
-    return { ok: false, error: 'Missing url' };
-  }
-  // Safety: only allow https LLM endpoints (and localhost for dev proxies)
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return { ok: false, error: 'Invalid url' };
-  }
-  const allowed =
-    parsed.protocol === 'https:' ||
-    parsed.hostname === '127.0.0.1' ||
-    parsed.hostname === 'localhost';
-  if (!allowed) {
-    return { ok: false, error: 'Blocked non-HTTPS LLM endpoint' };
-  }
-
-  const methodUpper = String(method || 'POST').toUpperCase();
-  /** @type {RequestInit} */
-  const init = {
-    method: methodUpper,
-    headers: headers || {}
-  };
-  // GET/HEAD must not carry a body (invalid Request; breaks /models list fetch)
-  if (body != null && methodUpper !== 'GET' && methodUpper !== 'HEAD') {
-    init.body = body;
-  }
-  const res = await fetch(url, init);
-
-  const text = await res.text();
-  let json = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    /* non-json */
-  }
-
-  return {
-    ok: res.ok,
-    status: res.status,
-    text,
-    json
-  };
+  return executeLlmProxyFetch(request);
 }
 
 /**
@@ -1789,7 +1756,7 @@ async function broadcastOpenTabsChanged() {
   try {
     const pages = await listMentionableOpenTabs();
     await chrome.runtime.sendMessage({
-      target: 'pawwork-sidepanel',
+      target: MSG_TARGET_SIDEPANEL,
       action: 'workspace_open_tabs_changed',
       pages
     });
@@ -1838,7 +1805,7 @@ async function abortTabListen(tabId) {
   }
   try {
     await chrome.runtime.sendMessage({
-      target: 'pawwork-offscreen',
+      target: MSG_TARGET_OFFSCREEN,
       action: 'tab_listen_abort',
       tabId
     });

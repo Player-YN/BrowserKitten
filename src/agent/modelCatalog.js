@@ -1,19 +1,21 @@
 /**
- * PageWand model catalog (IG-6) — OpenAI-compatible GET /models + shrink UI helpers.
+ * BrowserBot model catalog (IG-6) — OpenAI-compatible GET /models + shrink UI helpers.
  *
  * Purpose: aggregators (e.g. OpenRouter) may return 200+ models. Never dump the full
  * list as the default settings view — use Recommended / Recent / Favorites + search
  * with a display cap.
  *
  * chrome.storage.local keys (documented):
- *   pagewand_model_catalog_cache  — { [hostKey]: { baseURL, models: ModelEntry[], fetchedAt } }
- *   pagewand_model_recent         — string[] of chat model ids (most-recent first)
- *   pagewand_model_favorites      — string[] of favorited chat model ids
+ *   browserbot_model_catalog_cache  — { [hostKey]: { baseURL, models: ModelEntry[], fetchedAt } }
+ *   browserbot_model_recent         — string[] of chat model ids (most-recent first)
+ *   browserbot_model_favorites      — string[] of favorited chat model ids
  *
  * Image models: static MiniMax list only + always-available manual entry (not fetched).
  *
  * Never log or export API keys.
  */
+
+import { BRAND_NAME } from '../brand.js';
 
 /**
  * @typedef {{
@@ -341,9 +343,9 @@ export function effortLevelsForReasoning(info) {
 }
 
 /** chrome.storage.local keys */
-export const MODEL_CATALOG_CACHE_KEY = 'pagewand_model_catalog_cache';
-export const MODEL_RECENT_KEY = 'pagewand_model_recent';
-export const MODEL_FAVORITES_KEY = 'pagewand_model_favorites';
+export const MODEL_CATALOG_CACHE_KEY = 'browserbot_model_catalog_cache';
+export const MODEL_RECENT_KEY = 'browserbot_model_recent';
+export const MODEL_FAVORITES_KEY = 'browserbot_model_favorites';
 
 /** Initial list display cap (search can narrow; still capped for DOM). */
 export const DEFAULT_DISPLAY_CAP = 30;
@@ -839,7 +841,7 @@ export function buildProviderPickerGroups(provider, catalog = {}) {
 
 /**
  * Apply a GET /models probe onto a provider record + split catalogs.
- * Same lastProbe shape Settings writes on pagewand_providers. Does not
+ * Same lastProbe shape Settings writes on browserbot_providers. Does not
  * change the current chat / image model ids.
  *
  * @param {object|null|undefined} provider
@@ -947,7 +949,7 @@ async function proxyOrDirectGetJson(url, headers) {
       }
       if (res && res.error) {
         // Extension-level proxy failure → try direct
-        console.warn('[PageWand modelCatalog] proxy:', res.error);
+        console.warn('[BrowserBot modelCatalog] proxy:', res.error);
         proxyTransportFailed = true;
       }
     } catch (e) {
@@ -1033,8 +1035,8 @@ export async function fetchImageGenModels(baseURL, apiKey, opts = {}) {
     Accept: 'application/json'
   };
   if (base.includes('openrouter.ai')) {
-    headers['HTTP-Referer'] = 'https://pagewand.local';
-    headers['X-Title'] = 'PageWand';
+    headers['HTTP-Referer'] = 'https://browserbot.local';
+    headers['X-Title'] = BRAND_NAME;
     const dedicated = [`${base}/images/models`, `${base}/models?output_modalities=image`];
     for (const url of dedicated) {
       try {
@@ -1093,8 +1095,8 @@ export async function fetchOpenAICompatibleModels(baseURL, apiKey, opts = {}) {
   };
   // OpenRouter optional attribution headers (harmless elsewhere)
   if (base.includes('openrouter.ai')) {
-    headers['HTTP-Referer'] = 'https://pagewand.local';
-    headers['X-Title'] = 'PageWand';
+    headers['HTTP-Referer'] = 'https://browserbot.local';
+    headers['X-Title'] = BRAND_NAME;
   }
 
   const payload = await proxyOrDirectGetJson(url, headers);
@@ -1134,7 +1136,7 @@ function storageGet(keys) {
     });
   }
   if (typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function') {
-    return chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_get', keys: list })
+    return chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'storage_local_get', keys: list })
       .then((res) => {
         if (!res?.ok) throw new Error(res?.error || 'storage_local_get failed');
         return res.result || {};
@@ -1163,7 +1165,7 @@ function storageSet(obj) {
     });
   }
   if (typeof chrome !== 'undefined' && typeof chrome.runtime?.sendMessage === 'function') {
-    return chrome.runtime.sendMessage({ target: 'pawwork-background', action: 'storage_local_set', values: obj })
+    return chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'storage_local_set', values: obj })
       .then((res) => {
         if (!res?.ok) throw new Error(res?.error || 'storage_local_set failed');
       });

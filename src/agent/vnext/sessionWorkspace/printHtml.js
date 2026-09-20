@@ -6,13 +6,13 @@
 export function detectHtmlKind(html = '', styles = '') {
   const s = `${html || ''}\n${styles || ''}`;
   if (
-    /data-paw-kind\s*=\s*["']deck["']/i.test(s) ||
+    /data-browserbot-kind\s*=\s*["']deck["']/i.test(s) ||
     /data-paw-slide\b/i.test(s) ||
     /--paw-slide-w\s*:/i.test(s)
   ) {
     return 'deck';
   }
-  if (/data-paw-kind\s*=\s*["']poster["']/i.test(s) || /--paw-poster-w\s*:/i.test(s)) {
+  if (/data-browserbot-kind\s*=\s*["']poster["']/i.test(s) || /--paw-poster-w\s*:/i.test(s)) {
     return 'poster';
   }
   return 'document';
@@ -182,7 +182,7 @@ body.paw-kind-document section.print-plate { margin: 0 0 1.25rem; }
  */
 export function platesToPrintHtml(plates, opts = {}) {
   const list = Array.isArray(plates) ? plates : [];
-  const title = opts.title || 'Paw Work';
+  const title = opts.title || 'Browser Kitten';
   const lang = opts.lang || 'zh-CN';
   const kind = opts.kind || detectHtmlKind('', opts.styles || '');
   const userStyles = String(opts.styles || '').trim();
@@ -194,17 +194,17 @@ export function platesToPrintHtml(plates, opts = {}) {
   const sections = list
     .map((p, i) => {
       const id = xmlEscape(p.id || `plate-${i + 1}`);
-      return `<section data-paw-block data-paw-block-id="${id}" class="print-plate">${sanitizePrintHtml(p.html || '')}</section>`;
+      return `<section data-browserbot-block data-browserbot-block-id="${id}" class="print-plate">${sanitizePrintHtml(p.html || '')}</section>`;
     })
     .join('\n');
   const bodyInner =
     kind === 'poster' ? `<div class="print-artboard">${sections}</div>` : sections;
   return `<!DOCTYPE html>
-<html lang="${xmlEscape(lang)}" data-pawwork-preview="blocks" data-paw-kind="${xmlEscape(kind)}">
+<html lang="${xmlEscape(lang)}" data-browserbot-preview="blocks" data-browserbot-kind="${xmlEscape(kind)}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="pawwork-preview" content="blocks" />
+  <meta name="browserbot-preview" content="blocks" />
   <title>${xmlEscape(title)}</title>
   <style>
 ${PRINT_BASE}

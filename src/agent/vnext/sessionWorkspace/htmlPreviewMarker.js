@@ -1,6 +1,6 @@
 /**
  * Host-enforced opt-in for auto HTML preview tabs.
- * Skills that need preview put data-pawwork-preview="blocks" (or meta) in the HTML.
+ * Skills that need preview put data-browserbot-preview="blocks" (or meta) in the HTML.
  */
 
 const HEAD_CHARS = 8000;
@@ -15,9 +15,9 @@ export function readHtmlPreviewKind(content) {
   if (!head) return null;
   if (!looksLikeHtml(head)) return null;
   if (
-    /data-pawwork-preview\s*=\s*["']blocks["']/i.test(head) ||
-    /name\s*=\s*["']pawwork-preview["'][^>]*content\s*=\s*["']blocks["']/i.test(head) ||
-    /content\s*=\s*["']blocks["'][^>]*name\s*=\s*["']pawwork-preview["']/i.test(head)
+    /data-browserbot-preview\s*=\s*["']blocks["']/i.test(head) ||
+    /name\s*=\s*["']browserbot-preview["'][^>]*content\s*=\s*["']blocks["']/i.test(head) ||
+    /content\s*=\s*["']blocks["'][^>]*name\s*=\s*["']browserbot-preview["']/i.test(head)
   ) {
     return BLOCKS;
   }
@@ -29,7 +29,7 @@ function looksLikeHtml(head) {
   return (
     /^<!doctype\s+html/i.test(t) ||
     /^<html[\s>]/i.test(t) ||
-    /<html[\s>][\s\S]{0,400}data-pawwork-preview/i.test(t)
+    /<html[\s>][\s\S]{0,400}data-browserbot-preview/i.test(t)
   );
 }
 

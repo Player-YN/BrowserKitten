@@ -1,6 +1,6 @@
 /**
  * Host doc export from Univer IDocumentData — not p/h1/img block flattening.
- * HTML download is human-openable; sidecar JSON is Paw SoT (lists, drawings, styles).
+ * HTML download is human-openable; sidecar JSON is the document source of truth (lists, drawings, styles).
  */
 
 export const DOC_SNAP_SCRIPT_ID = 'paw-document';
@@ -252,7 +252,7 @@ export function univerDataToExportHtml(data, extra = {}) {
       const alt = escapeAttr(drawings[cb.blockId].title || '');
       if (src) {
         parts.push(
-          `<p data-paw-block-type="img"><img src="${escapeAttr(src)}" alt="${alt}" /></p>`
+          `<p data-browserbot-block-type="img"><img src="${escapeAttr(src)}" alt="${alt}" /></p>`
         );
       }
       prev = end + 1;
@@ -280,7 +280,7 @@ export function univerDataToExportHtml(data, extra = {}) {
   closeList();
   const body = parts.join('\n') || '<p></p>';
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-pawwork-preview="univer-doc">
+<html lang="zh-CN" data-browserbot-preview="univer-doc">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />

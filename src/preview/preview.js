@@ -26,7 +26,7 @@ function qs(name) {
 }
 
 const draftId = qs('draftId');
-/** @type {import('../agent/draftStore.js').PageWandDraft|null} */
+/** @type {import('../agent/draftStore.js').BrowserBotDraft|null} */
 let currentDraft = null;
 /** @type {string|null} */
 let selectedBlockId = null;
@@ -59,7 +59,7 @@ function hideBoot() {
 
 /**
  * Paint draft HTML into #root without losing module listeners on window/chrome.
- * @param {import('../agent/draftStore.js').PageWandDraft} draft
+ * @param {import('../agent/draftStore.js').BrowserBotDraft} draft
  */
 function paint(draft) {
   // Abort any in-progress inline edit when re-painting
@@ -68,7 +68,7 @@ function paint(draft) {
   dragStartOrder = '';
 
   currentDraft = draft;
-  document.documentElement.dataset.pagewandRole = 'draft-preview';
+  document.documentElement.dataset.browserbotRole = 'draft-preview';
   document.documentElement.dataset.draftId = draft.draftId;
   document.title = `${draft.title || 'Draft'} · v${draft.version}`;
 
@@ -170,7 +170,7 @@ function paint(draft) {
   bar.className = 'pw-chrome';
   bar.innerHTML = chromeBar
     ? chromeBar.innerHTML
-    : `<div><strong>PageWand 草稿预览</strong></div>`;
+    : `<div><strong>Browser Kitten 草稿预览</strong></div>`;
   root.appendChild(bar);
 
   // toolbar — refine surface is format-agnostic; export format chosen here / sidepanel
@@ -203,7 +203,7 @@ function paint(draft) {
 
   const mainEl = document.createElement('main');
   mainEl.className = 'pw-main';
-  mainEl.dataset.pagewandRole = 'draft-preview';
+  mainEl.dataset.browserbotRole = 'draft-preview';
   if (main) mainEl.innerHTML = main.innerHTML;
   // Wrap blocks + inject ⋮⋮ drag handles (preview-only; does not touch documentRender)
   decorateBlocks(mainEl);
@@ -531,7 +531,7 @@ function wireInteractions(mainEl, tb) {
     try {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', row.dataset.blockId || '');
-      e.dataTransfer.setData('application/x-pagewand-block', row.dataset.blockId || '');
+      e.dataTransfer.setData('application/x-browserbot-block', row.dataset.blockId || '');
     } catch (_) {}
   });
 
@@ -650,7 +650,7 @@ async function exportFromPreviewToolbar(tb) {
     const result = await renderDocumentFromDraft(draft, {
       format,
       runId: draft.runId || 'preview',
-      name: draft.title || 'pagewand'
+      name: draft.title || 'browserbot'
     });
     if (result.status !== 'ok') {
       setBoot(result.message || '导出失败', true);
@@ -676,7 +676,7 @@ async function exportFromPreviewToolbar(tb) {
       return;
     }
     const url = bytesToDataUrl(rec.bytes, rec.mime || 'application/octet-stream');
-    const filename = rec.name || result.name || `pagewand.${format}`;
+    const filename = rec.name || result.name || `browserbot.${format}`;
     await new Promise((resolve, reject) => {
       chrome.downloads.download(
         { url, filename, conflictAction: 'uniquify' },

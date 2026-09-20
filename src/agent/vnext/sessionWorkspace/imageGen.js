@@ -4,6 +4,7 @@
  * Default vendor path: OpenRouter POST /images (reference images via input_references).
  */
 
+import { BRAND_NAME } from '../../../brand.js';
 import { loadLlmSettings } from '../../llm.js';
 import { createArtifact, listArtifacts, safeArtifactFileName } from './artifacts.js';
 import { assertItemReadable, isItemBoundToSession } from './auth.js';
@@ -528,8 +529,8 @@ async function callImageEndpoint(cfg, { prompt, aspectRatio, references, fetchIm
     Accept: 'application/json'
   };
   if (/openrouter\.ai/i.test(cfg.baseURL) || cfg.protocol === 'openrouter-image') {
-    headers['HTTP-Referer'] = 'https://pagewand.local';
-    headers['X-Title'] = 'Paw Work';
+    headers['HTTP-Referer'] = 'https://browserbot.local';
+    headers['X-Title'] = BRAND_NAME;
   }
 
   if (isOpenRouterImageProtocol(cfg)) {

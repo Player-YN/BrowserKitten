@@ -382,7 +382,6 @@ function summaryKind(name, args) {
     ) {
       return 'write';
     }
-    if (objectName(args, {})) return 'write';
     return 'run';
   }
   if ((name === 'sheet' || name === 'doc' || name === 'web') && text(args.act || args.op) === 'write') {
@@ -453,10 +452,46 @@ function currentFromActive(active) {
   return active[active.length - 1].current || null;
 }
 
-function countsDeliverable(name, args = {}, result = {}) {
-  if (name === 'run') return true;
-  if (name === 'acquire' && (args.action === 'image' || args.op === 'image')) return true;
-  if (result?.artifactId || result?.registered === true) return true;
+const RUN_REGISTER_OPS = new Set([
+  'write_artifact',
+  'update_artifact',
+  'write_package_file',
+  'persist',
+  'sheet',
+  'createWorkbook',
+  'doc',
+  'createDocument',
+  'html',
+  'site',
+  'ingestPdf'
+]);
+
+function resultHasArtifact(result) {
+  if (!result || typeof result !== 'object') return false;
+  if (text(result.artifactId, 80)) return true;
+  if (result.registered === true) return true;
+  if (Array.isArray(result.artifacts) && result.artifacts.length > 0) return true;
+  return false;
+}
+
+/**
+ * Session artifacts only (sheet/doc/web/files/media).
+ * `run` / inspect / page-read are tool activity, not deliverables.
+ */
+export function countsDeliverable(name, args = {}, result = {}) {
+  const tool = text(name, 40);
+  if (!tool) return false;
+  if (tool === 'inspect' || tool === 'action' || tool === 'clarify' || tool === 'task') return false;
+  const op = text(args.op || args.act || args.action, 40);
+  const view = text(args.view, 40);
+  if (isPageReadStatus({ tool, op, view, text: '' })) return false;
+  if (resultHasArtifact(result)) return true;
+  if (tool === 'acquire' && (args.action === 'image' || args.op === 'image')) return true;
+  if (tool === 'run') {
+    if (op === 'write_scratch' || op === 'read' || op === 'skill' || op === 'shelf') return false;
+    return RUN_REGISTER_OPS.has(op);
+  }
+  if ((tool === 'sheet' || tool === 'doc' || tool === 'web') && op === 'write') return true;
   return false;
 }
 
@@ -746,7 +781,7 @@ function reduceExecutionStatus(state, ev, ctx = {}) {
             : row.label;
         return {
           ...row,
-          kind: refined.object && row.kind === 'run' ? 'write' : row.kind,
+          kind: row.kind === 'run' && countsDeliverable(name, refinedArgs, result) ? 'write' : row.kind,
           status: ok ? 'success' : 'error',
           code: code || row.code,
           object: refined.object || row.object,
@@ -915,8 +950,9 @@ function reduceExecutionStatus(state, ev, ctx = {}) {
     next.approvalOpen = false;
     next.policyBlocked = null;
     next.endedAt = Number(ev.endedAt) || Date.now();
-    if (next.aborted || status === 'aborted' || ev.code === 'user_stop') next.phase = 'stopped';
-    else if (status === 'failed' || type === 'error') next.phase = 'failed';
+    if (next.aborted || status === 'aborted' || status === 'cancelled' || status === 'canceled' || ev.code === 'user_stop') {
+      next.phase = 'stopped';
+    } else if (status === 'failed' || type === 'error') next.phase = 'failed';
     else if (next.task?.status === 'waiting') next.phase = 'waiting_timer';
     else if (next.task?.status === 'paused') next.phase = 'paused';
     else if (next.task?.status === 'completed' || status === 'completed' || type === 'assistant-final') {
@@ -953,6 +989,81 @@ export function collapseConsecutiveSummary(summary) {
   return out;
 }
 
+/** Small muted Sider-style marks. Not brand copy. */
+export const ACTIVITY_ICON = {
+  think: '💡',
+  read: '📖',
+  run: '🔧',
+  browser: '✨',
+  write: '✏️',
+  wait: '⏳',
+  error: '⚠️'
+};
+
+export function activityIconKind(row = {}) {
+  const kind = String(row.kind || '');
+  const tool = String(row.tool || '');
+  const view = String(row.view || '');
+  const op = String(row.op || '');
+  const status = String(row.status || '');
+  if (kind === 'error' || status === 'error' || status === 'failed') return 'error';
+  if (kind === 'think' || tool === 'thought' || row.source === 'thought') return 'think';
+  if (kind === 'wait' || tool === 'task' || tool === 'clarify') return 'wait';
+  if (kind === 'write' || tool === 'sheet' || tool === 'doc') return 'write';
+  if (kind === 'run' || tool === 'run') return 'run';
+  if (kind === 'action' || kind === 'web' || tool === 'action' || tool === 'web') return 'browser';
+  if (tool === 'acquire') return op === 'image' || kind === 'write' ? 'write' : 'browser';
+  if (kind === 'read' || tool === 'inspect' || view === 'skill' || view === 'skills' || view === 'sys') return 'read';
+  return 'run';
+}
+
+export function formatActivityRow(row, t) {
+  const iconKind = activityIconKind(row);
+  return {
+    iconKind,
+    icon: ACTIVITY_ICON[iconKind] || ACTIVITY_ICON.run,
+    label: formatSummaryRowText(row, t)
+  };
+}
+
+function iconKindFromBrief(text) {
+  const s = String(text || '');
+  if (/处理…|Working…|思考|Thinking/i.test(s)) return 'think';
+  if (/运行访客|Running guest|调用 |Calling /i.test(s)) return 'run';
+  if (/查阅|读取会话|Reading a playbook|Reading the sys|Reading session|Looked /i.test(s)) return 'read';
+  if (/点击|填写|页面|网站|Clicking|Filling|Acting|Scrolling|Browser/i.test(s)) return 'browser';
+  if (/写入|写 |Write|Wrote|登记|Register/i.test(s)) return 'write';
+  if (/等待|确认|Waiting|approval/i.test(s)) return 'wait';
+  return 'think';
+}
+
+export function liveActivityVisual(state, text, t) {
+  const label = String(text || '').trim();
+  const fallback = typeof t === 'function' ? t('liveProgress') : '';
+  const current = state?.current;
+  let iconKind = 'think';
+  if (current?.source === 'host' && current.text) {
+    iconKind = /确认|approval|Waiting for your confirmation|接管付款|take over payment/i.test(current.text)
+      ? 'wait'
+      : iconKindFromBrief(current.text);
+  } else if (current?.tool && !isPageReadStatus(current)) {
+    iconKind = activityIconKind({
+      kind: current.tool === 'run' && RUN_REGISTER_OPS.has(String(current.op || '')) ? 'write' : '',
+      tool: current.tool,
+      view: current.view,
+      op: current.op,
+      status: current.status
+    });
+  } else if (label && label !== fallback) {
+    iconKind = iconKindFromBrief(state?.lastLiveAction || label);
+  }
+  return {
+    iconKind,
+    icon: ACTIVITY_ICON[iconKind] || ACTIVITY_ICON.think,
+    label: label || fallback
+  };
+}
+
 export function formatSummaryRowText(row, t) {
   const kindKey = `botKind_${row?.kind || ''}`;
   const kindLabel = typeof t === 'function' ? t(kindKey) : '';
@@ -981,6 +1092,20 @@ export function visibleSummaryRows(summary, limit = 8) {
   return list.slice(Math.max(0, list.length - limit));
 }
 
+/**
+ * Shine the latest activity label, never the think-bar header.
+ * Fallback line shimmers only when there is not yet a tool row.
+ */
+export function latestActivityShine(state) {
+  const rows = visibleSummaryRows(state?.summary, 8);
+  const last = rows[rows.length - 1] || null;
+  return {
+    shineOn: last ? 'latest-row' : 'fallback',
+    rowId: last ? String(last.id || '') : '',
+    thinkHeaderShimmer: false
+  };
+}
+
 export function phaseLabelKey(phase) {
   const known = new Set(['idle', 'running', 'waiting_user', 'waiting_timer', 'paused', 'completed', 'failed', 'stopped', 'awaiting_approval', 'verifying', 'unknown', 'needs_human']);
   return known.has(String(phase || '')) ? `botPhase_${phase}` : 'botPhase_idle';
@@ -996,18 +1121,27 @@ export function disclosureMode(state) {
   if (state.policyBlocked) return 'sticky';
   if (state.clarifyOpen || state.phase === 'waiting_user') return 'sticky';
   if (state.lease?.kind === 'conflict') return 'sticky';
-  if (state.phase === 'failed' || state.phase === 'paused' || state.phase === 'needs_human' || state.phase === 'unknown') {
+  if (state.phase === 'paused' || state.phase === 'needs_human' || state.phase === 'unknown') {
     return 'sticky';
   }
   if (state.phase === 'running' || state.phase === 'waiting_timer' || state.phase === 'verifying') return 'live';
-  if (state.phase === 'stopped' || state.phase === 'completed') return 'folded';
+  if (state.phase === 'stopped' || state.phase === 'completed' || state.phase === 'failed') return 'folded';
   return 'hidden';
+}
+
+/** Complete / stop / fail / cancel: fold every activity row immediately. */
+export function shouldFoldDisclosureImmediately(state, extra = {}) {
+  if (extra.immediate === true) return true;
+  const mode = extra.mode || disclosureMode(state);
+  if (mode !== 'folded') return false;
+  const phase = String(state?.phase || extra.phase || '');
+  return phase === 'completed' || phase === 'stopped' || phase === 'failed';
 }
 
 export function projectGlobalPhase(state) {
   if (!state) return 'idle';
   if (disclosureMode(state) === 'sticky') return state.phase;
-  if (state.phase === 'completed' || state.phase === 'stopped') return 'idle';
+  if (state.phase === 'completed' || state.phase === 'stopped' || state.phase === 'failed') return 'idle';
   return state.phase;
 }
 
@@ -1067,7 +1201,7 @@ export function foldStubFromState(state, t, extras = {}) {
 export function projectStatusForSessionStash(state) {
   if (!state || typeof state !== 'object') return createExecutionStatus();
   if (disclosureMode(state) === 'sticky') return state;
-  if (state.phase === 'completed' || state.phase === 'stopped') {
+  if (state.phase === 'completed' || state.phase === 'stopped' || state.phase === 'failed') {
     return { ...state, phase: 'idle', current: null };
   }
   return state;

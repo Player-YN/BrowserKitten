@@ -114,8 +114,8 @@ test('listen is ACTION_READ and schema includes listen', () => {
   assert.match(tools.action.description, /listen/);
 });
 
-test('prompt v18 mentions listen', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v18-media-evidence');
+test('prompt mentions listen', () => {
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v22-browser-kitten');
   assert.match(buildSessionAgentInstructions(), /op=listen/);
 });
 
