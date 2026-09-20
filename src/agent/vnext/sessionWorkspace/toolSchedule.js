@@ -6,14 +6,12 @@
 import { SESSION_TOOL_NAMES } from './canvasInventory.js';
 import { formatFrozenPlanInstructions } from './planContract.js';
 import { formatTaskInstructions } from './taskInstructions.js';
-import { formatIntentInstructions } from './intentState.js';
 import { formatUserRequestInstructions } from './sessionIntent.js';
 import {
   COMPACT_RATIO,
   contextUsageRatio,
   estimateMessagesTokens,
-  estimateTextTokens,
-  formatSessionGoalInstructions
+  estimateTextTokens
 } from './contextCompact.js';
 
 /**
@@ -62,15 +60,12 @@ export function makeOfficePrepareStep(env = {}) {
         /* retain the last host snapshot */
       }
     }
-    if (env.updateIntent) await env.updateIntent(task);
     const taskText = formatTaskInstructions(task);
-    const pinned = formatFrozenPlanInstructions(env.execution?.frozenPlan);
+    const pinned = taskText ? '' : formatFrozenPlanInstructions(env.execution?.frozenPlan);
     const media = env.mediaContext ? await env.mediaContext.refresh() : env.mediaCapabilities;
     const refreshInstructions = () => {
       const sess = env.store && env.sessionId ? env.store.get('sessions', env.sessionId) : env.session || null;
-      const additions = [taskText, pinned, formatSessionGoalInstructions(sess, task),
-        formatUserRequestInstructions(sess, env.contextWindow),
-        formatIntentInstructions(sess, env.contextWindow)].filter(Boolean);
+      const additions = [taskText, pinned, formatUserRequestInstructions(sess, env.contextWindow)].filter(Boolean);
       if (media) additions.push(
         `Current chat media input (host-resolved for this step): ${JSON.stringify(media)}\nVideo picture capability does not prove soundtrack perception; when videoAudio is unknown, use separate audio input or STT for sound evidence. Never issue capability checks from tools.`
       );

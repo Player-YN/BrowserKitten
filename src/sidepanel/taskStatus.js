@@ -110,6 +110,7 @@ export function createTaskStatusUi(deps) {
   let generation = 0;
   let cachedSessionId = '';
   let cachedTasks = [];
+  let cachedActiveTaskId = '';
   let host = null;
   let refreshTimer = 0;
 
@@ -206,13 +207,15 @@ export function createTaskStatusUi(deps) {
   function renderCard(task) {
     const status = text(task.status).toLowerCase() || 'ready';
     const card = node('article', 'durable-task-card');
+    const isActive = text(task.taskId) && text(task.taskId) === cachedActiveTaskId;
     card.dataset.taskId = text(task.taskId);
     card.dataset.state = status;
+    if (isActive) card.classList.add('is-session-active');
 
     const head = node('div', 'durable-task-head');
-    const goal = node('div', 'durable-task-goal', text(task.originalGoal) || deps.t('durableTaskUntitled'));
-    const state = node('span', 'durable-task-state', deps.t(statusKey(status)));
-    state.dataset.state = status;
+    const goal = node('div', 'durable-task-goal', text(task.contract?.goal || task.originalGoal) || deps.t('durableTaskUntitled'));
+    const state = node('span', 'durable-task-state', deps.t(isActive ? 'durableTaskActive' : statusKey(status)));
+    state.dataset.state = isActive ? 'active' : status;
     head.append(goal, state);
     card.append(head);
 
@@ -236,6 +239,7 @@ export function createTaskStatusUi(deps) {
       // Resume is only for paused durable tasks — not the pink user bubble 「继续」.
       if (status === 'paused') actions.append(actionButton(task, 'resume', 'durableTaskResume'));
       else if (PAUSABLE.has(status)) actions.append(actionButton(task, 'pause', 'durableTaskPause'));
+      if (isActive) actions.append(actionButton(task, 'detach', 'durableTaskDetach'));
       actions.append(actionButton(task, 'cancel', 'durableTaskCancel', 'is-danger'));
       card.append(actions);
     }
@@ -256,7 +260,7 @@ export function createTaskStatusUi(deps) {
     if (!show) return;
 
     const header = node('div', 'durable-task-region-head');
-    header.append(node('span', 'durable-task-region-title', deps.t('durableTasksTitle')));
+    header.append(node('span', 'durable-task-region-title', cachedActiveTaskId ? deps.t('durableTaskActive') : deps.t('durableTasksTitle')));
     header.append(node('span', 'durable-task-count', String(active.length)));
     region.append(header);
     if (active.length) {
@@ -282,12 +286,14 @@ export function createTaskStatusUi(deps) {
     try {
       const response = await deps.workspaceRpc('listTasks', { sessionId: sid });
       if (!shouldCommitTaskResponse(sid, deps.getSessionId(), token, generation)) return;
+      cachedActiveTaskId = text(response?.activeTaskId);
       render(tasksFromResponse(response), sid);
     } catch (error) {
       if (!shouldCommitTaskResponse(sid, deps.getSessionId(), token, generation)) return;
       console.warn('[durable-tasks] list failed', error);
       cachedSessionId = sid;
       cachedTasks = [];
+      cachedActiveTaskId = '';
       render([], sid);
     }
   }
@@ -301,7 +307,7 @@ export function createTaskStatusUi(deps) {
     const type = text(ev.type);
     const sid = text(ev.sessionId || ev.task?.sessionId);
     const active = text(deps.getSessionId());
-    if (type === 'task-updated' || type === 'task-schedule-changed') {
+    if (type === 'task-updated' || type === 'task-schedule-changed' || type === 'task-lifecycle') {
       // Older broadcasters may omit sessionId. listTasks stays scoped, so a
       // foreground refresh remains isolated even for that compatibility case.
       if (!sid || sid === active) scheduleRefresh();

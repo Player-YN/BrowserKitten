@@ -6545,23 +6545,27 @@ function showPlanLive(ev) {
 
   const host = document.createElement('div');
   if (sid === getWorkspaceSessionId()) host.id = 'clarifyLive';
+  const cardKind = ev?.kind === 'task-start' || ev?.kind === 'task-amend' ? ev.kind : 'plan';
   host.className = 'clarify-live is-plan';
   host.dataset.sessionId = sid;
   host.dataset.clarifyId = String(ev.clarifyId || '');
+  host.dataset.cardKind = cardKind;
   host.setAttribute('role', 'region');
-  host.setAttribute('aria-label', t('planning') || 'Plan');
+  host.setAttribute('aria-label', t(cardKind === 'plan' ? 'planning' : cardKind === 'task-amend' ? 'taskAmendAwaiting' : 'taskStartAwaiting') || 'Plan');
 
   const banner = document.createElement('div');
   banner.className = 'clarify-live-banner';
-  banner.innerHTML = `<span class="clarify-live-orb" aria-hidden="true"></span><span class="clarify-live-banner-text">${escapeHtml(t('planning'))}</span>`;
+  const bannerKey = cardKind === 'task-amend' ? 'taskAmending' : cardKind === 'task-start' ? 'taskStarting' : 'planning';
+  banner.innerHTML = `<span class="clarify-live-orb" aria-hidden="true"></span><span class="clarify-live-banner-text">${escapeHtml(t(bannerKey))}</span>`;
   host.appendChild(banner);
 
   const summary = String(raw.summary || '').trim();
   const panel = document.createElement('div');
   panel.className = 'plan-panel';
+  const kickerKey = cardKind === 'task-amend' ? 'taskAmendAwaiting' : cardKind === 'task-start' ? 'taskStartAwaiting' : 'planAwaiting';
   panel.innerHTML = `
     <div class="plan-panel-head">
-      <div class="plan-panel-kicker">${escapeHtml(t('planAwaiting'))}</div>
+      <div class="plan-panel-kicker">${escapeHtml(t(kickerKey))}</div>
       <div class="plan-panel-title">${escapeHtml(title)}</div>
       ${summary ? `<p class="plan-panel-summary">${escapeHtml(summary)}</p>` : ''}
     </div>
@@ -6584,7 +6588,7 @@ function showPlanLive(ev) {
       clarifyId: String(ev.clarifyId || ''),
       questions: [],
       picks: [],
-      kind: 'plan',
+      kind: cardKind,
       plan: { title, summary, steps }
     };
   } else {
@@ -6592,7 +6596,7 @@ function showPlanLive(ev) {
       type: 'clarify',
       sessionId: sid,
       clarifyId: String(ev.clarifyId || ''),
-      kind: 'plan',
+      kind: cardKind,
       plan: { title, summary, steps }
     };
   }
@@ -6604,7 +6608,7 @@ function showPlanLive(ev) {
 }
 
 function showClarifyLive(ev) {
-  if (ev?.kind === 'plan' || ev?.plan) {
+  if (ev?.kind === 'plan' || ev?.kind === 'task-start' || ev?.kind === 'task-amend' || ev?.plan) {
     showPlanLive(ev);
     return;
   }

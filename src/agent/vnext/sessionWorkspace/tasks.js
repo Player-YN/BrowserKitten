@@ -1,9 +1,21 @@
 /** Durable task records stored in the existing workspace meta collection. */
 
+import {
+  clearActiveTaskId,
+  contractFingerprint,
+  getActiveTaskId,
+  normalizeContractDraft,
+  putTaskCard,
+  requirePendingTaskCard,
+  sealContract,
+  setActiveTaskId
+} from './taskContract.js';
+
 const TASK_PREFIX = 'task:';
 const MAX_PLAN_STEPS = 24;
 const MAX_EVIDENCE = 32;
 const MAX_AMENDMENTS = 64;
+const MAX_CONTRACT_HISTORY = 16;
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const STATUSES = new Set([
@@ -85,14 +97,32 @@ function normalizeTargetPage(page) {
   return { tabId, url, title: text(page.title, 500) };
 }
 
+function normalizeStoredContract(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const draft = normalizeContractDraft(raw);
+  if (!draft) return null;
+  return {
+    ...draft,
+    version: Math.max(1, Math.floor(Number(raw.version) || 1)),
+    cardId: text(raw.cardId, 160),
+    fingerprint: text(raw.fingerprint, 80) || contractFingerprint(draft),
+    confirmedAt: Number(raw.confirmedAt) || 0
+  };
+}
+
 function normalizeTask(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const status = STATUSES.has(raw.status) ? raw.status : 'paused';
+  const contract = normalizeStoredContract(raw.contract);
   return {
     ...raw,
     taskId: String(raw.taskId || ''),
     sessionId: String(raw.sessionId || ''),
-    originalGoal: text(raw.originalGoal, 100000),
+    originalGoal: text(contract?.goal || raw.originalGoal, 100000),
+    contract,
+    contractHistory: Array.isArray(raw.contractHistory)
+      ? raw.contractHistory.map(normalizeStoredContract).filter(Boolean).slice(-MAX_CONTRACT_HISTORY)
+      : [],
     amendments: Array.isArray(raw.amendments) ? raw.amendments.slice(-MAX_AMENDMENTS) : [],
     plan: { steps: normalizeSteps(raw.plan?.steps || []) },
     summary: text(raw.summary, 12000),
@@ -159,10 +189,20 @@ export function createTask(store, input = {}) {
   if (!sessionId) throw taskError('TASK_SESSION_REQUIRED', 'Task sessionId is required.');
   const now = nowMs(input.now);
   const dueAt = input.dueAt || input.wakeAt ? iso(input.dueAt || input.wakeAt) : null;
+  const sealed = input.contract
+    ? sealContract(input.contract, {
+        version: 1,
+        cardId: input.cardId,
+        fingerprint: input.fingerprint || input.contract.fingerprint,
+        confirmedAt: now
+      })
+    : null;
   return putTask(store, {
     taskId: input.taskId || createTaskId(),
     sessionId,
-    originalGoal: goal,
+    originalGoal: sealed?.goal || goal,
+    contract: sealed,
+    contractHistory: [],
     amendments: [],
     plan: { steps: normalizeSteps(input.steps || []) },
     summary: text(input.summary, 12000),
@@ -243,11 +283,20 @@ export function recoverInterruptedTasks(store, now = Date.now()) {
 
 export function updateTaskControl(store, taskId, op, now = Date.now()) {
   const task = requireTask(store, taskId);
-  if (!['pause', 'resume', 'cancel'].includes(op)) {
+  if (!['pause', 'resume', 'cancel', 'detach'].includes(op)) {
     throw taskError('TASK_INVALID_OP', `Unknown task update: ${op}`);
+  }
+  if (op === 'detach') {
+    clearActiveTaskId(store, task.sessionId, task.taskId);
+    if (TERMINAL.has(task.status)) return putTask(store, task);
+    return putTask(store, bump(task, {
+      status: task.status === 'waiting' ? 'waiting' : 'paused',
+      ownership: { executionId: null }
+    }, now));
   }
   if (op === 'cancel') {
     if (task.status === 'completed') throw taskError('TASK_TERMINAL', 'Completed task cannot be cancelled.');
+    clearActiveTaskId(store, task.sessionId, task.taskId);
     return putTask(store, bump(task, {
       status: 'cancelled', dueAt: null, ownership: { executionId: null }
     }, now));
@@ -259,9 +308,93 @@ export function updateTaskControl(store, taskId, op, now = Date.now()) {
     }, now));
   }
   if (TERMINAL.has(task.status)) throw taskError('TASK_TERMINAL', `Task is ${task.status}.`);
+  setActiveTaskId(store, task.sessionId, task.taskId);
   return putTask(store, bump(task, {
     status: 'ready', dueAt: null, ownership: { executionId: null }
   }, now));
+}
+
+function consumeStartCard(store, args) {
+  const sessionId = String(args.sessionId || '');
+  const input = args.input || {};
+  const { rec, reused } = requirePendingTaskCard(
+    store,
+    sessionId,
+    input.cardId,
+    input.fingerprint,
+    'task-start'
+  );
+  if (reused) {
+    const existing = getTask(store, rec.taskId);
+    if (!existing) throw taskError('TASK_NOT_FOUND', 'Consumed card is missing its task.');
+    return { ok: true, task: existing, yield: false, created: false, reused: true };
+  }
+  const activeId = getActiveTaskId(store, sessionId);
+  if (activeId) {
+    const active = getTask(store, activeId);
+    if (active && !TERMINAL.has(active.status)) {
+      throw taskError('TASK_ALREADY_ACTIVE', 'This session already has a bound task.');
+    }
+  }
+  const sealed = sealContract(rec.draft, {
+    version: 1,
+    cardId: rec.cardId,
+    fingerprint: rec.fingerprint,
+    confirmedAt: nowMs(args.now)
+  });
+  if (!sealed) throw taskError('TASK_CARD_STALE', 'Task card draft is invalid.');
+  let task = createTask(store, {
+    sessionId,
+    goal: sealed.goal,
+    contract: sealed,
+    cardId: rec.cardId,
+    fingerprint: rec.fingerprint,
+    steps: rec.draftSteps || input.steps || [],
+    targetPage: args.targetPage,
+    status: 'ready',
+    now: args.now
+  });
+  if (args.executionId) {
+    task = claimTask(store, task.taskId, args.executionId, args.now);
+  }
+  setActiveTaskId(store, sessionId, task.taskId);
+  putTaskCard(store, sessionId, { ...rec, status: 'consumed', taskId: task.taskId, finalizedAt: Date.now() });
+  return { ok: true, task: getTask(store, task.taskId), yield: false, created: true };
+}
+
+function consumeAmendCard(store, args) {
+  const task = requireOwnedTask(store, args.taskId, args.executionId);
+  const input = args.input || {};
+  const { rec, reused } = requirePendingTaskCard(
+    store,
+    task.sessionId,
+    input.cardId,
+    input.fingerprint,
+    'task-amend'
+  );
+  if (reused) return { ok: true, task: getTask(store, rec.taskId) || task, yield: false, created: false, reused: true };
+  const sealed = sealContract(rec.draft, {
+    version: (Number(task.contract?.version) || 0) + 1,
+    cardId: rec.cardId,
+    fingerprint: rec.fingerprint,
+    confirmedAt: nowMs(args.now)
+  });
+  if (!sealed) throw taskError('TASK_CARD_STALE', 'Amend card draft is invalid.');
+  const history = [...(task.contractHistory || [])];
+  if (task.contract) history.push(task.contract);
+  const updated = putTask(store, bump(task, {
+    originalGoal: sealed.goal,
+    contract: sealed,
+    contractHistory: history.slice(-MAX_CONTRACT_HISTORY),
+    status: 'running'
+  }, args.now));
+  putTaskCard(store, task.sessionId, {
+    ...rec,
+    status: 'consumed',
+    taskId: task.taskId,
+    finalizedAt: Date.now()
+  });
+  return { ok: true, task: updated, yield: false, created: false };
 }
 
 export function hostTaskMutation(store, args = {}) {
@@ -290,6 +423,8 @@ export function hostTaskMutation(store, args = {}) {
     });
     return { ok: true, task: scheduled, yield: false, scheduled: true };
   }
+  if (op === 'start') return consumeStartCard(store, args);
+  if (op === 'amend') return consumeAmendCard(store, args);
   const task = requireOwnedTask(store, args.taskId, args.executionId);
   if (op === 'inspect') return { ok: true, task, yield: false };
   if (!['plan', 'checkpoint', 'wait', 'complete'].includes(op)) {
@@ -315,6 +450,7 @@ export function hostTaskMutation(store, args = {}) {
     patch.dueAt = null;
     patch.ownership = { executionId: null };
     shouldYield = true;
+    clearActiveTaskId(store, task.sessionId, task.taskId);
   } else {
     patch.status = 'running';
   }

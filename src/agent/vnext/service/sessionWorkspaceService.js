@@ -104,6 +104,7 @@ import {
   settleTaskAfterTurn,
   updateTaskControl
 } from '../sessionWorkspace/tasks.js';
+import { clearActiveTaskId, getActiveTaskId, setActiveTaskId } from '../sessionWorkspace/taskContract.js';
 import { appendSessionAudit, readSessionAudit } from '../sessionWorkspace/sessionAudit.js';
 import { persistableCapabilityHint } from '../sessionWorkspace/artifactCapability.js';
 import { ARTIFACT_CHUNK_SIZE, DOWNLOAD_INLINE_MAX } from '../sessionWorkspace/artifactDownload.js';
@@ -932,6 +933,7 @@ export class SessionWorkspaceService {
       createdAt: s?.createdAt || 0,
       shelf: s?.shelf && typeof s.shelf === 'object' ? s.shelf : null,
       activeExecution: this._snapshotActiveExecution(sessionId),
+      activeTaskId: getActiveTaskId(this.runtime.store, sessionId),
       audit: readSessionAudit(this.runtime.store, sessionId)
     };
   }
@@ -943,7 +945,10 @@ export class SessionWorkspaceService {
 
   async listTasks({ sessionId } = {}) {
     await this._ready();
-    return { tasks: readTasks(this.runtime.store, { sessionId }) };
+    return {
+      tasks: readTasks(this.runtime.store, { sessionId }),
+      activeTaskId: sessionId ? getActiveTaskId(this.runtime.store, sessionId) : null
+    };
   }
 
   async getTask({ taskId } = {}) {
@@ -957,11 +962,11 @@ export class SessionWorkspaceService {
     const before = readTask(this.runtime.store, taskId);
     if (!before) throw Object.assign(new Error(`Unknown task ${taskId || ''}.`), { code: 'TASK_NOT_FOUND' });
     const task = await this._commitTaskMutation(() => updateTaskControl(this.runtime.store, taskId, op));
-    if ((op === 'pause' || op === 'cancel') && before.ownership?.executionId) {
+    if ((op === 'pause' || op === 'cancel' || op === 'detach') && before.ownership?.executionId) {
       await this.abortExecution({ sessionId: before.sessionId, executionId: before.ownership.executionId });
     }
     if (op === 'resume') this._launchTask(task);
-    return { task };
+    return { task, activeTaskId: getActiveTaskId(this.runtime.store, before.sessionId) };
   }
 
   async getBrowserRuntimeState() {
@@ -1627,8 +1632,8 @@ export class SessionWorkspaceService {
       controller, executionId: null, sessionId, taskId: null, finished
     });
     try {
-    // Ordinary chat must not create or attach an ambient task. Only an
-    // explicit alarm/resume continuation (taskRun+taskId) binds this turn.
+    // Explicit resume/alarm binds by id. A host-owned activeTaskId binds
+    // ordinary follow-up messages as supplemental context until detach/complete.
     if (role === 'user' && taskRun && taskId) {
       const prepared = await this._commitTaskMutation(() => {
         const existing = readTask(this.runtime.store, taskId);
@@ -1636,9 +1641,24 @@ export class SessionWorkspaceService {
         if (existing.sessionId !== sessionId) {
           throw Object.assign(new Error('Task does not belong to this session.'), { code: 'TASK_SESSION_MISMATCH' });
         }
+        setActiveTaskId(this.runtime.store, sessionId, existing.taskId);
         return { task: existing, created: false };
       });
       durableTask = prepared.task;
+    } else if (role === 'user' && !taskRun) {
+      const activeId = getActiveTaskId(this.runtime.store, sessionId);
+      if (activeId) {
+        const existing = readTask(this.runtime.store, activeId);
+        if (
+          existing &&
+          existing.sessionId === sessionId &&
+          !['completed', 'failed', 'cancelled'].includes(existing.status)
+        ) {
+          durableTask = existing;
+        } else {
+          clearActiveTaskId(this.runtime.store, sessionId, activeId);
+        }
+      }
     }
     if (role === 'user' && Array.isArray(attachments) && attachments.length) {
       // Attachments: create/bind group so inspect can authorize + multimodal works
@@ -1781,8 +1801,10 @@ export class SessionWorkspaceService {
         taskContext: durableTask,
         taskRun: !!(taskRun && durableTask),
         taskContinuation: taskContinuation === true,
-        getTaskContext: () =>
-          durableTask?.taskId ? readTask(this.runtime.store, durableTask.taskId) : null,
+        getTaskContext: () => {
+          const id = durableTask?.taskId || getActiveTaskId(this.runtime.store, sessionId);
+          return id ? readTask(this.runtime.store, id) : null;
+        },
         hostTask: (input) =>
           this._commitTaskMutation(() => {
             const slot = this._activeBySession.get(sessionId);
@@ -1793,6 +1815,10 @@ export class SessionWorkspaceService {
               input,
               targetPage: activeTab
             });
+            if (out?.task && (input?.op === 'start' || input?.op === 'amend')) {
+              durableTask = out.task;
+              if (slot) slot.taskId = out.task.taskId;
+            }
             if (out.yield) taskYielded = true;
             this._broadcastUiEvent({
               type: 'task-lifecycle',

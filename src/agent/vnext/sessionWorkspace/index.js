@@ -279,6 +279,13 @@ export {
   unpinFrozenPlan
 } from './planContract.js';
 export {
+  normalizeContractDraft,
+  contractFingerprint,
+  getActiveTaskId,
+  setActiveTaskId,
+  clearActiveTaskId
+} from './taskContract.js';
+export {
   userRequestedLearn,
   extractLearnableTurn,
   sanitizeLearnTrajectory,

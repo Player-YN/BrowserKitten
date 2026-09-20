@@ -43,9 +43,11 @@
 
 Chrome 手测：长会话给出原目标与末尾约束，触发 compact；增加局部子任务，检查整体目标仍在；明确取消/替换目标，再次 compact；刷新扩展并续跑，验证模型可按消息 ID 读取原文、遵守最新修正。另验证 scheduled task 续跑能保留属于该任务的修正，同时普通新话题不误改它。
 
+产品路径已改为：**用户授权只在确认过的 Durable Task 合同里**。`intentState` 提取与 `sessionGoal` 独立注入已停止消费；原文归档、clarify 持久化和 Compact 预算仍保留。
+
 ## Session 意图保持 v1：终点与实现
 
-终点是持久化、增量修订、每跳加载、结束前语义核对和机制回归；不包含跨 Session 记忆、编辑 UI、向量检索或宿主业务完成证明。
+（历史实现。模块仍在仓库，产品不再每条消息提取。）终点曾是持久化、增量修订、每跳加载、结束前语义核对和机制回归；不包含跨 Session 记忆、编辑 UI、向量检索或宿主业务完成证明。
 
 `session.intentState` 保存 revision、items、processedMessageIds、更新时间和固定类别的最近错误。项目使用稳定 ID，区分 objective / constraint / completion / question，状态为 active / cancelled / superseded，可关联已有 taskId，并保存用户/被采纳助手方案的 sourceMessageIds。省略项目不删除，原始消息始终独立保留。宿主检查出处和结构，无法确定性判断语义正确。没有自动按助手的“已完成”声明关闭目标；任务进度仍由 task 管理。
 

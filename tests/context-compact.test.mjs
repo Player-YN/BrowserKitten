@@ -437,7 +437,7 @@ test('restart recovers exact original requests via read-only session-isolated ar
   const output = await prepare();
   assert.match(output.instructions, /Cancel publishing. Draft only/);
   assert.match(output.instructions, /omitted/);
-  assert.match(output.instructions, /concerning this task take precedence/);
+  assert.match(output.instructions, /user-confirmed contract|take precedence/);
 });
 
 test('SDK tool-result output is counted and pruned without breaking call/result identity', () => {

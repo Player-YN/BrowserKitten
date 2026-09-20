@@ -2869,6 +2869,11 @@ body[data-theme='light'] .topbar {
   opacity: 0.68;
 }
 
+.durable-task-card.is-session-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
 .durable-task-card[data-state='failed'] {
   border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
 }

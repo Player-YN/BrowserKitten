@@ -21,9 +21,27 @@ function compactTask(task) {
           : 'pending'
       }))
     : [];
+  const contract = task.contract && typeof task.contract === 'object'
+    ? {
+        version: Number(task.contract.version) || 1,
+        goal: text(task.contract.goal || task.originalGoal, 100000),
+        scope: text(task.contract.scope, 4000),
+        constraints: Array.isArray(task.contract.constraints)
+          ? task.contract.constraints.map((item) => text(item, 800)).filter(Boolean).slice(0, 16)
+          : [],
+        acceptance: Array.isArray(task.contract.acceptance)
+          ? task.contract.acceptance.map((item) => text(item, 800)).filter(Boolean).slice(0, 16)
+          : [],
+        sources: Array.isArray(task.contract.sources)
+          ? task.contract.sources.map((item) => text(item, 80)).filter(Boolean).slice(0, 20)
+          : []
+      }
+    : null;
+  if (!contract && !text(task.originalGoal)) return null;
   return {
     taskId: text(task.taskId, 160),
-    originalGoal: text(task.originalGoal, 100000),
+    contract,
+    originalGoal: text(contract?.goal || task.originalGoal, 100000),
     amendments: Array.isArray(task.amendments)
       ? task.amendments.slice(0, 64).map((item) => ({
           content: text(item?.content ?? item, 8000),
@@ -51,19 +69,20 @@ function compactTask(task) {
  */
 export function formatTaskInstructions(task) {
   const current = compactTask(task);
-  if (!current || !current.originalGoal) return '';
+  if (!current) return '';
   return [
-    '[Durable task — current host state; re-read this contract every step]',
+    '[Durable task — user-confirmed contract and host progress; re-read every step]',
     `task=${JSON.stringify(current)}`,
-    'originalGoal is an immutable historical record. Preserve unfinished work and its constraints, but later explicit user corrections, cancellations or replacements concerning this task take precedence over that record and over a model summary. Unrelated questions or local subtasks do not cancel the task.',
-    'Use task inspect when fresh state is needed. Use task plan/checkpoint as work advances; ordinary autonomous planning does not require user approval. A simple reply does not need an elaborate plan.',
-    'Checkpoint only durable resume facts. Put files needed after this execution in /artifacts, never /scratch, and do not save opaque ref handles as resume state.',
-    'Evidence entries are assertions unless a tool result or direct readback actually verified them. Say what was checked; never upgrade an inference to verification.',
-    'Use task wait only after persisting summary, evidence, nextAction and a future wakeAt. Include applicable user corrections and source message IDs in the checkpoint. Use task complete only when the goal with applicable user changes is satisfied. Either operation yields immediately and no more tools may run.',
-    'Use task schedule only when the user explicitly authorized future or recurring work. Scheduling creates separate future work; it is not a substitute for finishing the current task.'
+    'The contract (goal, scope, constraints, acceptance) is the user-authorized version. Compact summaries and sessionGoal are not authorization.',
+    'Update plan/checkpoint freely. Changing goal, scope, or acceptance requires task amend and a new confirmation card.',
+    'User pause/cancel/detach from the sidebar executes immediately; do not ask for a second confirmation.',
+    'Checkpoint only durable resume facts. Put files needed after this execution in /artifacts, never /scratch.',
+    'Evidence entries are assertions unless a tool result or direct readback actually verified them.',
+    'Use task wait only after persisting summary, evidence, nextAction and a future wakeAt. Use task complete only when the current contract is satisfied. Either operation yields immediately.',
+    'Use task schedule only when the user explicitly authorized future or recurring work. A completed or cancelled task is no longer injected.'
   ].join('\n');
 }
 
 export function hasTaskContext(task) {
-  return !!(task && typeof task === 'object' && text(task.originalGoal));
+  return !!(task && typeof task === 'object' && (task.contract?.goal || text(task.originalGoal)));
 }

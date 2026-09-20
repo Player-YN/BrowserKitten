@@ -58,15 +58,14 @@ test('restart, repeated compact and read-only session-isolated virtual state', a
   assert.doesNotMatch(createSessionGuestFs(restored, { sessionId: 'other' }).readFile('/context/intent.md'), /"id":"goal"/);
 });
 
-test('prepareStep updates on clarification and shares the new state in the same hop', async () => {
-  const f = fixture(); let calls = 0;
-  const model = { async doGenerate() { calls++; return response([item('goal', [calls === 1 ? 'u1' : 'clarify1'], { text: calls === 1 ? 'Report' : 'Only Europe' })]); } };
-  const prepare = makeOfficePrepareStep({ ...f, updateIntent: createIntentUpdater({ ...f, model }) });
-  assert.match((await prepare()).instructions, /Report/);
-  f.store.put('sessions', 's', { ...f.get(), userClarifications: [{ messageId: 'clarify1', source: 'clarification', content: 'Only Europe' }] });
-  assert.match((await prepare()).instructions, /Only Europe/);
-  await prepare(); assert.equal(calls, 2);
-  assert.deepEqual(pendingIntentRequests(f.get()), []);
+test('prepareStep no longer injects the leftover intent projection', async () => {
+  const f = fixture();
+  const model = { async doGenerate() { return response([item('goal', ['u1'], { text: 'Report' })]); } };
+  await createIntentUpdater({ ...f, model })();
+  const prepare = makeOfficePrepareStep({ ...f, instructions: 'base' });
+  const out = await prepare();
+  assert.equal(String(out.instructions || '').includes('Report'), false);
+  assert.equal(f.get().intentState.items[0].text, 'Report');
 });
 
 test('invalid output and invalid sources preserve prior state and raw pending input; no retry per hop', async () => {

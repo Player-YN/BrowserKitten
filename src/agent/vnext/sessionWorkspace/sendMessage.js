@@ -1,4 +1,3 @@
-import { createIntentUpdater } from './intentState.js';
 /**
  * Unified production path: sendMessage → AI SDK 7 ToolLoopAgent (toolChoice=auto).
  * No Task object, no chat/run mode split, no handwritten tool loop.
@@ -567,9 +566,6 @@ export async function sendMessage(store, input) {
           tools,
           execution,
           instructions: system,
-          updateIntent: typeof input.callModel === 'function' ? null : createIntentUpdater({
-            store, sessionId, model, signal: execution.abortSignal, contextWindow
-          }),
           taskContext,
           getTaskContext: input.getTaskContext,
           mediaContext: input.mediaContext,

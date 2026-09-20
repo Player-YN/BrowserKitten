@@ -1835,6 +1835,11 @@ export function createSessionTools(env) {
     promptId: env.promptId
   });
   const task = createTaskTool({
+    store,
+    sessionId,
+    signal,
+    onEvent,
+    waitForClarify: waitClarify,
     taskContext: env.taskContext,
     getTaskContext: env.getTaskContext,
     hostTask: env.hostTask,

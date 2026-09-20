@@ -1,6 +1,16 @@
 /** Durable task tool and execution gate. The service owns persistence. */
 
-const OPS = ['inspect', 'plan', 'checkpoint', 'wait', 'complete', 'schedule'];
+import { classifyPlanDecision } from './planContract.js';
+import { newClarifyId, waitForClarifyAnswer } from './clarifyGate.js';
+import {
+  contractFingerprint,
+  contractToPlan,
+  finalizeTaskCard,
+  normalizeContractDraft,
+  putTaskCard
+} from './taskContract.js';
+
+const OPS = ['inspect', 'plan', 'checkpoint', 'wait', 'complete', 'schedule', 'start', 'amend'];
 const TERMINAL_OPS = new Set(['wait', 'complete']);
 const TERMINAL_STATUSES = new Set(['waiting', 'completed', 'complete']);
 
@@ -112,12 +122,120 @@ export function createTaskExecutionGate(env = {}) {
   };
 }
 
+async function presentContractCard(env, kind, draft, steps) {
+  const store = env.store;
+  const sessionId = String(env.sessionId || '');
+  const waitClarify =
+    typeof env.waitForClarify === 'function' ? env.waitForClarify : waitForClarifyAnswer;
+  if (!store || !sessionId || typeof waitClarify !== 'function') {
+    return { ok: false, code: 'TASK_CARD_REQUIRED', error: 'Task start/amend requires a host confirmation card.' };
+  }
+  const fingerprint = contractFingerprint(draft);
+  const cardId = newClarifyId();
+  putTaskCard(store, sessionId, {
+    cardId,
+    kind,
+    draft,
+    draftSteps: Array.isArray(steps) ? steps : [],
+    fingerprint,
+    status: 'pending',
+    createdAt: Date.now()
+  });
+  const plan = contractToPlan(draft, steps);
+  if (typeof env.onEvent === 'function') {
+    try {
+      env.onEvent({
+        type: 'clarify',
+        sessionId,
+        clarifyId: cardId,
+        kind,
+        contract: draft,
+        plan,
+        questions: []
+      });
+    } catch {
+      /* UI listener must not fail the yield */
+    }
+  }
+  let answers = {};
+  try {
+    answers = await waitClarify({
+      clarifyId: cardId,
+      sessionId,
+      signal: env.signal,
+      questions: []
+    });
+  } catch (error) {
+    finalizeTaskCard(store, sessionId, cardId, 'cancelled');
+    if (error?.name === 'AbortError') throw error;
+    return { ok: false, created: false, code: 'TASK_CARD_CANCELLED', error: String(error?.message || error) };
+  }
+  const decision = classifyPlanDecision(answers);
+  if (decision.kind !== 'approved') {
+    finalizeTaskCard(
+      store,
+      sessionId,
+      cardId,
+      decision.kind === 'revise' ? 'revised' : 'declined'
+    );
+    if (typeof env.onEvent === 'function') {
+      try {
+        env.onEvent({
+          type: 'clarify-done',
+          sessionId,
+          clarifyId: cardId,
+          kind,
+          approved: false,
+          decision: decision.kind,
+          answers
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    return {
+      ok: false,
+      created: false,
+      decision: decision.kind,
+      notes: decision.notes,
+      code: decision.kind === 'revise' ? 'TASK_CARD_REVISE' : 'TASK_CARD_DECLINED'
+    };
+  }
+  try {
+    const out = await env.hostTask({ op: kind === 'task-amend' ? 'amend' : 'start', cardId, fingerprint });
+    if (typeof env.onEvent === 'function') {
+      try {
+        env.onEvent({
+          type: 'clarify-done',
+          sessionId,
+          clarifyId: cardId,
+          kind,
+          approved: true,
+          decision: 'approved',
+          taskId: out?.task?.taskId || '',
+          answers
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    return { ...out, created: out?.created === true, decision: 'approved' };
+  } catch (error) {
+    return {
+      ok: false,
+      created: false,
+      code: String(error?.code || 'TASK_FAILED'),
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 /** @param {object} env */
 export function createTaskTool(env = {}) {
   return {
     name: 'task',
     description:
-      'Inspect and persist durable task state. plan/checkpoint update the current task; wait/complete persist and yield immediately. schedule is only for future or recurring work explicitly requested by the user.',
+      'Durable work after the user confirms a contract. start opens a task-start card (goal, scope, constraints, acceptance, first steps) — only a UI receipt creates the task and binds this turn. Ordinary clarify plan cards do not create tasks. amend opens a change card when goal/scope/acceptance must change; plan/checkpoint update progress only. wait/complete persist and yield. schedule is future/recurring work the user explicitly asked for. Propose start for resume/wait/multi-stage delivery; do not pop a card every turn or after a fixed message count.',
     parameters: {
       type: 'object',
       properties: {
@@ -137,7 +255,11 @@ export function createTaskTool(env = {}) {
         evidence: { type: 'array', items: { type: 'string' } },
         nextAction: { type: 'string' },
         wakeAt: { type: 'string', description: 'ISO-8601 timestamp for wait or schedule' },
-        goal: { type: 'string', description: 'Goal for a separately scheduled future task' },
+        goal: { type: 'string', description: 'Goal for start, amend, or a separately scheduled future task' },
+        scope: { type: 'string' },
+        constraints: { type: 'array', items: { type: 'string' } },
+        acceptance: { type: 'array', items: { type: 'string' } },
+        sources: { type: 'array', items: { type: 'string' } },
         intervalMinutes: { type: 'number', description: 'Positive recurrence interval for schedule' }
       },
       required: ['op']
@@ -148,6 +270,16 @@ export function createTaskTool(env = {}) {
         return { ok: false, code: 'BAD_INPUT', error: `unknown task op ${op || '(empty)'}` };
       }
       if (typeof env.hostTask !== 'function') return taskUnavailable();
+      if (op === 'start' || op === 'amend') {
+        const draft = normalizeContractDraft(input);
+        if (!draft) {
+          return { ok: false, code: 'BAD_INPUT', error: `${op} requires a goal` };
+        }
+        if (op === 'amend' && !currentTask(env)?.taskId) {
+          return { ok: false, code: 'TASK_NOT_BOUND', error: 'amend requires a bound durable task' };
+        }
+        return presentContractCard(env, op === 'amend' ? 'task-amend' : 'task-start', draft, input.steps);
+      }
       if (op === 'schedule') {
         const goal = String(input.goal || '').trim();
         const intervalMinutes = Number(input.intervalMinutes);
@@ -183,7 +315,15 @@ export function createTaskTool(env = {}) {
         };
       }
       const payload = { op };
-      for (const key of ['steps', 'summary', 'evidence', 'nextAction', 'wakeAt', 'goal', 'intervalMinutes']) {
+      for (const key of [
+        'steps',
+        'summary',
+        'evidence',
+        'nextAction',
+        'wakeAt',
+        'goal',
+        'intervalMinutes'
+      ]) {
         if (input[key] !== undefined) payload[key] = input[key];
       }
       try {
