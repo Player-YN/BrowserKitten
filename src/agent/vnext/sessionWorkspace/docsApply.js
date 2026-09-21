@@ -1,5 +1,5 @@
 /**
- * Host doc commands on a simple block snapshot (no Univer).
+ * Host doc commands on a block snapshot.
  * Durable save format is marked HTML so the HTML preview tab can also open it.
  */
 
@@ -216,7 +216,7 @@ export function serializeDocHtml(snapshot) {
     })
     .join('\n');
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-browserbot-preview="blocks">
+<html lang="zh-CN" data-browserbot-kind="document" data-browserbot-preview="blocks">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -335,114 +335,6 @@ export function parseDocSnapshot(raw, extra = {}) {
     }
   }
   return parsePlainText(text, extra.title);
-}
-
-/**
- * Univer IDocumentData seed. Images are drawings + customBlocks, never markdown paragraphs.
- */
-export function snapshotToUniverData(snapshot, opts = {}) {
-  const snap = cloneDocSnapshot(snapshot);
-  const paragraphs = [];
-  const customBlocks = [];
-  const drawings = {};
-  const drawingsOrder = [];
-  let stream = '';
-  for (const block of snap.blocks) {
-    if (block.type === 'img') {
-      const drawingId = String(block.id || `draw${drawingsOrder.length + 1}`);
-      drawings[drawingId] = {
-        drawingId,
-        title: block.text || 'image',
-        source: sanitizeSrc(block.src || ''),
-        imageSourceType: 'URL'
-      };
-      drawingsOrder.push(drawingId);
-      customBlocks.push({ startIndex: stream.length, blockId: drawingId });
-      stream += '\r';
-      paragraphs.push({ startIndex: stream.length - 1 });
-      continue;
-    }
-    const text = String(block.text || '').replace(/[\r\n]/g, ' ');
-    stream += text + '\r';
-    const para = { startIndex: stream.length - 1 };
-    if (block.type === 'h1') para.paragraphStyle = { namedStyleType: HEADING_1 };
-    if (block.type === 'li' || block.list) {
-      para.bullet = { listType: block.list === 'ol' ? 'ol' : 'ul', nestingLevel: 0 };
-    }
-    paragraphs.push(para);
-  }
-  if (!stream) {
-    stream = '\r';
-    paragraphs.push({ startIndex: 0 });
-  }
-  stream += '\n';
-  return {
-    id: String(opts.id || `paw-doc-${Date.now().toString(36)}`),
-    title: snap.title || '',
-    body: {
-      dataStream: stream,
-      paragraphs,
-      sectionBreaks: [{ startIndex: stream.length - 1 }],
-      textRuns: [],
-      customBlocks,
-      tables: []
-    },
-    drawings,
-    drawingsOrder,
-    documentStyle: {
-      pageSize: { width: 595.3, height: 841.9 },
-      marginTop: 50,
-      marginBottom: 50,
-      marginLeft: 72,
-      marginRight: 72
-    }
-  };
-}
-
-export function univerDataToSnapshot(data, extra = {}) {
-  const stream = String(data?.body?.dataStream || '');
-  const paras = Array.isArray(data?.body?.paragraphs) ? data.body.paragraphs : [];
-  const custom = Array.isArray(data?.body?.customBlocks) ? data.body.customBlocks : [];
-  const drawings = data?.drawings && typeof data.drawings === 'object' ? data.drawings : {};
-  const customAt = new Map(custom.map((c) => [Number(c.startIndex), c]));
-  const blocks = [];
-  let prev = 0;
-  for (let i = 0; i < paras.length; i++) {
-    const end = Number(paras[i].startIndex);
-    if (!Number.isFinite(end) || end < prev) continue;
-    const cb = customAt.get(prev);
-    if (cb && drawings[cb.blockId]) {
-      const d = drawings[cb.blockId];
-      blocks.push({
-        id: String(cb.blockId),
-        type: 'img',
-        src: sanitizeSrc(d.source || d.src || '')
-      });
-      prev = end + 1;
-      continue;
-    }
-    const text = stream.slice(prev, end);
-    prev = end + 1;
-    if (IMG_MD.test(String(text).trim())) continue;
-    const named = paras[i]?.paragraphStyle?.namedStyleType;
-    const bullet = paras[i]?.bullet;
-    if (bullet) {
-      blocks.push({
-        id: nextBlockId({ blocks }),
-        type: 'li',
-        list: bullet.listType === 'ol' ? 'ol' : 'ul',
-        text
-      });
-    } else if (named === HEADING_1 || named === TITLE_STYLE) {
-      blocks.push({ id: nextBlockId({ blocks }), type: 'h1', text });
-    } else if (text !== '' || blocks.length) {
-      blocks.push({ id: nextBlockId({ blocks }), type: 'p', text });
-    }
-  }
-  return cloneDocSnapshot({
-    title: extra.title || data?.title || '',
-    blocks
-  });
 }
 
 export function overviewFromDocSnapshot(snapshot, extra = {}) {

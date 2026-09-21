@@ -35,8 +35,7 @@ jobs:
         run: |
           test -f extension/manifest.json
           test -d extension/src
-          test -f extension/src/preview/vendor/sheet-runtime.js
-          test -f extension/src/preview/vendor/docs-runtime.js
+          test -f extension/src/preview/vendor/fflate.js
           if find extension -name '*.md' ! -name 'README.md' | grep -q .; then
             echo "pack leaked non-README .md files"; exit 1
           fi

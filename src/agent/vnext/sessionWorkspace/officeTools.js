@@ -37,10 +37,9 @@ import {
   workbookDataToSheets
 } from '../../../preview/sheetCodec.js';
 import { NEED_SELECTION } from './htmlApply.js';
-import { applyUniverDocCommands, parseUniverDoc, serializeUniverDoc, fromUniverDoc } from './docsModel.js';
 import { applySiteCommands, listSiteNodes, stampSiteHtml, pinnedSiteIds, siteSelectionsFromIds } from './siteApply.js';
 import { runSiteClone, WEB_CLONE_DESCRIPTION } from './siteClone.js';
-import { overviewFromDocSnapshot } from './docsApply.js';
+import { applyDocCommands, overviewFromDocSnapshot, parseDocSnapshot, serializeDocHtml } from './docsApply.js';
 import {
   hydrateDocCommands,
   malformedDocWriteError,
@@ -52,8 +51,15 @@ import { sessionToolToModelOutput } from './canvasPreview.js';
 const NO_CANVAS = {
   ok: false,
   code: 'NO_CANVAS',
-  error: 'no office canvas in this session',
-  hint: 'page tables → inspect; register a workbook → run op=sheet / createWorkbook; then edit with sheet'
+  error: 'no spreadsheet or website canvas in this session',
+  hint: 'register a workbook with run op=sheet, or a site with write_artifact data-browserbot-kind=site'
+};
+
+const NO_DOCUMENT = {
+  ok: false,
+  code: 'NO_DOCUMENT',
+  error: 'no document file in this session',
+  hint: 'register a document with run op=doc (createDocument); then edit with the doc tool. Documents are marked HTML, not a canvas engine.'
 };
 
 /**
@@ -61,163 +67,12 @@ const NO_CANVAS = {
  */
 export function createOfficeTools(env) {
   const { store, fs, sessionId } = env;
-  const hostSheet = typeof env.hostSheet === 'function' ? env.hostSheet : null;
   const onEvent = typeof env.onEvent === 'function' ? env.onEvent : null;
-
-  const sheet = {
-    name: 'sheet',
-    description:
-      'Read, write, and snapshot a live Univer spreadsheet. Omit artifactId to target the focused book. act=read returns a used-range sample (truncated/next/sheetRowCount — never the whole table). act=snapshot dumps the used range (omit a1) to /scratch CSV for run; SNAPSHOT_TOO_LARGE → pass a smaller a1, never silent truncate. act=write applies commands[] in place (host pulses + Undo). Commands: setRange {a1,value,sheet?} (a1 may be B:B); setFormula {a1,formula}; setValues2d/applyGrid {a1,values[][] or path|valuesPath|from to /scratch|/artifacts JSON — after run writes the grid, pass the path, do not retype cells; missing op or missing both values and path → BAD_INPUT, never ok with applied:0}; insertRow/insertCol/deleteRow/deleteCol {index,count?}; sort {a1,column,direction,hasHeader}; numberFormat {a1,pattern} e.g. 0%; createSheet/renameSheet (createSheet materializes before later writes in the same or next apply); named sheet must exist or NO_SUCH_SHEET — omit sheet to target the active one. reshapeSplit {a1|column,itemDelim,fieldDelim?,mode?,headers?} splits one column into a draft sheet. insertCellImage/insertFloatImage/insertImage {a1,src} — omit src to pin the selection; src may be a data URL, http(s), wi_ web-item id, or 图片N. Host resolves bound items to pixels. xlsx download may drop pictures. Successful writes return readback — quote the readback A1, not a guess. Trust sheets[].rowCount as used rows.',
-    parameters: {
-      type: 'object',
-      properties: {
-        act: { type: 'string', enum: ['read', 'write', 'snapshot'], description: 'read | write | snapshot' },
-        artifactId: { type: 'string' },
-        a1: { type: 'string' },
-        sheet: { type: 'string' },
-        value: {},
-        text: { type: 'string' },
-        commands: { type: 'array', items: { type: 'object' } }
-      }
-    },
-    async execute(input = {}) {
-      const inv = inventoryFromSession(store, sessionId, fs);
-      if (!inv.sheet.length) return { ...NO_CANVAS, hint: 'register a workbook first: run op=sheet (createWorkbook); then edit with this tool' };
-      const artifactId = String(input.artifactId || focusSheetId(store, sessionId, inv) || '');
-      if (!artifactId) return { ...NO_CANVAS };
-      const gate = assertArtifactOwned(store, sessionId, artifactId);
-      if (!gate.ok) return { ok: false, error: gate.error, code: gate.code };
-      const act = String(input.act || (input.commands ? 'write' : 'read'));
-      if (act === 'snapshot') {
-        return snapshotArtifact(env, {
-          fs,
-          hostSheet,
-          gate,
-          artifactId,
-          a1: input.a1,
-          sheet: input.sheet
-        });
-      }
-      if (act === 'read') {
-        const loaded = loadWorkbook(fs, gate.record, artifactId);
-        if (!loaded.ok) return loaded;
-        const a1 = String(input.a1 || focusA1(store, sessionId) || 'A1:Z20');
-        const range = inspectSheetSelection(loaded.data, a1, input.sheet);
-        return { ok: true, act, artifactId, sheets: compactSheetList(overviewFromWorkbookData(loaded.data)), ...range };
-      }
-      const sess = store.get('sessions', sessionId) || {};
-      const rawCommands = officeSheetCommands(input, store, sessionId);
-      if (!rawCommands.length) {
-        return {
-          ok: false,
-          error: 'sheet write needs value, commands, or bound images to insert',
-          code: 'BAD_INPUT',
-          hint: 'pass commands[] (setRange / setFormula / …) or value + a1',
-          available: sheetNamesFrom(store, sessionId, fs, artifactId)
-        };
-      }
-      const malformed = malformedSheetWriteError(rawCommands);
-      if (malformed) {
-        return {
-          ...malformed,
-          available: sheetNamesFrom(store, sessionId, fs, artifactId)
-        };
-      }
-      const hydratedGrids = hydrateSheetGridCommands(fs, rawCommands);
-      if (!hydratedGrids.ok) {
-        return {
-          ok: false,
-          error: hydratedGrids.error,
-          code: hydratedGrids.code,
-          hint: hydratedGrids.hint,
-          available: sheetNamesFrom(store, sessionId, fs, artifactId)
-        };
-      }
-      const sel = sess.activeWorkbook?.overview?.selections?.[0] || sess.activeWorkbook?.overview?.selection || {};
-      const expanded = expandOmittedImageCommands(store, sessionId, hydratedGrids.commands, {
-        defaultA1: input.a1 || sel.a1,
-        defaultSheet: input.sheet || sel.sheet
-      });
-      const commands = await hydrateOfficeImageCommands(store, sessionId, expanded, {
-        fetchImpl: env.fetchImpl,
-        onEvent: env.onEvent,
-        signal: env.signal || env.execution?.abortSignal,
-        fs,
-        ops: SHEET_DRAWING_OPS
-      });
-      const hydrateFails = drawingHydrateFailed(commands);
-      const drawingCmds = commands.filter((c) => SHEET_DRAWING_OPS.has(String(c.op || '')));
-      if (hydrateFails.length && hydrateFails.length === drawingCmds.length && drawingCmds.length) {
-        return {
-          ok: false,
-          error: hydrateFails[0].srcError || 'image bytes unavailable',
-          failed: hydrateFails.map((c) => ({ a1: c.a1, src: c.src, error: c.srcError }))
-        };
-      }
-      if (hostSheet) {
-        const res = await hostSheet({
-          method: 'apply',
-          artifactId,
-          commands,
-          promptId: String(env.promptId || env.execution?.executionId || '')
-        });
-        const body = res?.result || res || {};
-        const ok = res?.ok !== false && body?.ok !== false;
-        const decorated = decorateSheetResult(ok, artifactId, body, body.error || res?.error, commands);
-        if (ok && (readbackLooksLikeUnresolvedImage(decorated.readback) || liveDrawingsMissed(body, drawingCmds))) {
-          return {
-            ...decorated,
-            ok: false,
-            error: 'image did not land in the cell (unresolved src or live insert failed)',
-            code: 'IMAGE_UNRESOLVED',
-            hint: 'pass src as path, wi_ id, or 图片N, or omit src to pin the selection'
-          };
-        }
-        return decorated;
-      }
-      const loaded = loadWorkbook(fs, gate.record, artifactId);
-      if (!loaded.ok) return loaded;
-      const applied = applyCommandsToWorkbookData(loaded.data, commands, {
-        selections: sess.activeWorkbook?.overview?.selections,
-        inPlace: true,
-        fs
-      });
-      if (applied.ok === false) {
-        const overview = overviewFromWorkbookData(applied.data || loaded.data);
-        return speakOfficeApplyResult(
-          {
-            ok: false,
-            error: applied.error,
-            code: applied.code,
-            hint: applied.hint,
-            available: applied.available || overview?.sheets?.map((s) => s.name),
-            sheets: compactSheetList(overview),
-            overview,
-            applied: applied.applied
-          },
-          commands
-        );
-      }
-      persistWorkbook(store, fs, sessionId, artifactId, gate.record, applied, loaded.kind);
-      const overview = overviewFromSheets(applied.sheets);
-      const decorated = decorateSheetResult(true, artifactId, { ...applied, overview }, null, commands);
-      if (readbackLooksLikeUnresolvedImage(decorated.readback)) {
-        return {
-          ...decorated,
-          ok: false,
-          error: 'image did not land in the cell (unresolved src)',
-          code: 'IMAGE_UNRESOLVED',
-          hint: 'pass src as path, wi_ id, or 图片N, or omit src to pin the selection'
-        };
-      }
-      return decorated;
-    }
-  };
 
   const doc = {
     name: 'doc',
     description:
-      'Read and write long-form Univer document artifacts: paragraphs, lists, and drawings. act=write applies commands[] in place. After run writes blocks/commands JSON, pass path|from — do not retype. Missing op or empty/invalid payload → BAD_INPUT, never ok with applied:0. Missing file → ENOENT.',
+      'Read and write a session document stored as marked HTML (headings, paragraphs, lists, images). act=write applies commands[] (createDocument, insertParagraph, setText, insertList, insertImage) and saves HTML. After run writes commands JSON, pass path|from — do not retype. Missing op or empty payload → BAD_INPUT. Missing file → ENOENT. No document yet → NO_DOCUMENT.',
     parameters: {
       type: 'object',
       properties: {
@@ -232,7 +87,7 @@ export function createOfficeTools(env) {
     async execute(input = {}) {
       const inv = inventoryFromSession(store, sessionId, fs);
       if (!inv.doc.length) {
-        return { ...NO_CANVAS, hint: 'register a document first: run op=doc (createDocument); then edit with this tool' };
+        return { ...NO_DOCUMENT };
       }
       const artifactId = String(input.artifactId || inv.doc[0] || '');
       const rec = listArtifacts(store, sessionId).find((a) => a.artifactId === artifactId);
@@ -243,11 +98,10 @@ export function createOfficeTools(env) {
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
-      const univer = parseUniverDoc(raw, { title: rec.name });
+      const current = parseDocSnapshot(raw, { title: rec.name });
       const act = String(input.act || (input.commands || input.text != null || input.path || input.from ? 'write' : 'read'));
       if (act === 'read') {
-        const snap = fromUniverDoc(univer);
-        return { ok: true, artifactId, overview: overviewFromDocSnapshot(snap, { artifactId }) };
+        return { ok: true, artifactId, overview: overviewFromDocSnapshot(current, { artifactId }) };
       }
       const resolvedDoc = resolveOfficeWriteInput(fs, input, 'doc');
       if (!resolvedDoc.ok) {
@@ -291,8 +145,8 @@ export function createOfficeTools(env) {
           error: docImgFails[0].srcError || 'image bytes unavailable'
         };
       }
-      const applied = applyUniverDocCommands(
-        univer,
+      const applied = applyDocCommands(
+        current,
         commands.filter((c) => !c.srcError)
       );
       if (applied.ok === false) {
@@ -300,25 +154,23 @@ export function createOfficeTools(env) {
           {
             ok: false,
             error: applied.error,
-            available: (fromUniverDoc(univer).blocks || []).map((b) => b.id),
+            available: (current.blocks || []).map((b) => b.id),
             applied: applied.applied
           },
           commands
         );
       }
-      const payload = serializeUniverDoc(applied.univer);
-      updateArtifactContent(store, fs, sessionId, artifactId, payload, { mimeType: 'application/json', expectedRevision: Number(rec.revision) || 0 });
+      const payload = applied.html || serializeDocHtml(applied.snapshot);
+      updateArtifactContent(store, fs, sessionId, artifactId, payload, { mimeType: 'text/html', expectedRevision: Number(rec.revision) || 0 });
       return speakOfficeApplyResult(
         {
           ok: true,
           artifactId,
-          dirty: applied.dirty,
           applied: applied.applied,
           readback: {
             title: applied.snapshot.title,
             blocks: applied.snapshot.blocks
-          },
-          univer: applied.univer
+          }
         },
         commands
       );
@@ -508,7 +360,7 @@ export function createOfficeTools(env) {
     }
   };
 
-  return { sheet, doc, web };
+  return { doc, web };
 }
 
 function focusSheetId(store, sessionId, inv) {

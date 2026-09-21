@@ -20,7 +20,9 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   NEED_CAPTURE_GRANT: 'wait for the side-panel capture grant, then retry the requested listen or record operation',
   NEED_EXPLICIT_TAB: 'pass tabId from this turn world or the previous action receipt',
   NEED_PAGE: 'target a live http(s) tab; action op=snapshot, or run + sys.tabs.list',
-  NO_CANVAS: 'inspect artifacts; register with run op=sheet|doc|html, then edit with sheet|doc|web',
+  NO_CANVAS: 'register a workbook with run op=sheet, or a site with write_artifact data-browserbot-kind=site; then edit with sheet or web',
+  NO_DOCUMENT: 'register a document with run op=doc (createDocument), then edit with the doc tool. Documents are marked HTML.',
+  OP_REMOVED: 'there is no canvas HTML op. Use run op=doc for a document, or write_artifact with data-browserbot-kind=site for a website.',
   NO_TARGET:
     'action op=snapshot and pass a current ref, or wait with matching text. If the control exists but the page forbids the act (no-select / no-copy / click has no effect), run + sys.eval world:"MAIN" on this tabId',
   PAYMENT_DENIED: 'stop; payment surfaces are not dispatched',

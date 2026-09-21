@@ -1,6 +1,6 @@
 /**
  * Shared host file strip for sheet / docs / HTML preview tabs.
- * Univer's own format toolbar stays below this strip.
+ * Host file actions sit above the page.
  */
 :root {
   --host-bar-bg: #111113;

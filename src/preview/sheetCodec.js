@@ -1,5 +1,5 @@
 /**
- * Host-only sheet codec: CSV/TSV + Univer IWorkbookData.
+ * Host-only sheet codec: CSV/TSV and workbook JSON.
  * xlsx bytes go through the vendored SheetJS runtime, not this file.
  */
 

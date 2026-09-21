@@ -15,7 +15,7 @@ Chrome MV3 **unpacked** 扩展：把已登录浏览器当成可编程层（live-
 | 本文件 | 产品边界、进程分层、领域对象、目录地图 | 任何任务的第一站 |
 | [src/AGENTS.md](src/AGENTS.md) | Chrome 宿主：SW / offscreen / 侧栏 / content script / 消息总线 / `action` 运输 | 改扩展壳、RPC、标签、选区 |
 | [src/agent/AGENTS.md](src/agent/AGENTS.md) | Session Workspace：store、工具循环、工具契约、skills、guest FS、`sys` ABI | 改模型循环、工具、prompt、持久化领域 |
-| [src/preview/AGENTS.md](src/preview/AGENTS.md) | 画布标签页（Univer / site） | 改 sheet / docs / site 预览 |
+| [src/preview/AGENTS.md](src/preview/AGENTS.md) | 画布标签页（docs / site） | 改 docs / site 预览 |
 | [src/sidepanel/README.md](src/sidepanel/README.md) | 侧栏 UI 模块与滚动契约 | 改对话面板布局 / i18n |
 | 本文件「未实现的边界」 | 持久化 / `sys` / 长任务的硬边界 | 改这三块方向前 |
 
@@ -42,7 +42,7 @@ Chrome MV3 **unpacked** 扩展：把已登录浏览器当成可编程层（live-
 ┌─ Offscreen  src/offscreen/ ─┐  ┌─ Preview  src/preview/ ──┐
 │ SessionWorkspaceService     │  │ sheet / docs / site /    │
 │ IDB + OPFS 会话仓库         │  │ artifactPreview          │
-│ AI SDK ToolLoopAgent        │  │ Univer / site 运行时     │
+│ AI SDK ToolLoopAgent        │  │ docs / site 预览         │
 │ iframe → sandbox QuickJS    │  └──────────────────────────┘
 └──────────────▲──────────────┘
                │ workspaceRpc(method, params)
@@ -88,13 +88,13 @@ Chrome MV3 **unpacked** 扩展：把已登录浏览器当成可编程层（live-
 |------|--------|------|
 | **Session** | 一轮任务：messages、title、绑定的 group ids | UI RPC + `sendMessage` |
 | **Group + WebItem** | 用户拥有的环境上下文（点选选区、剪贴板钉、页面条目） | **仅 UI RPC**。工具禁止 mutate SelectionGroup |
-| **Artifact** | 会话交付物（表 / Univer 文档 / site HTML / 文件） | 工具 `run` / office 工具 / UI 创建。UI 按 `docs`/`data`/`web`/`media`/`files` 投影；打开面见 `artifactCapability.js` |
+| **Artifact** | 会话交付物（文档 HTML / site HTML / 文件） | 工具 `run` / office 工具 / UI 创建。UI 按 `docs`/`data`/`web`/`media`/`files` 投影；打开面见 `artifactCapability.js` |
 | **Execution** | 单次用户 turn 的租约与 `/scratch`；崩溃后作废 | `sendMessage` |
 | **Task** | 可选 durable 进度对象（`meta` 的 `task:*`：plan / evidence / dueAt）。**不是** call journal | 模型 `task` 工具（`schedule` 才新建）；UI `updateTask`；alarms 续跑 |
 | **Guest FS** | 访客可见 `/context`（只读）· `/artifacts`（持久）· `/scratch`（本轮） | `run` 沙箱 |
 | **sys** | 浏览器机器 ABI（tabs / eval / fetch / **cdp** / download / screenshot）。guest 无 `chrome.*` | `run` → SW `workspace_sys` |
 
-画布种类（inventory 瞄准，工具始终在）：`sheet` · `doc` · `web`（`data-browserbot-kind=site`）。没有 Design/Slides（tldraw）。
+画布种类（inventory 瞄准，工具始终在）：`doc` · `web`（`data-browserbot-kind=site`）。文档预览是标记 HTML。csv / xlsx 按文件打开。
 
 ## 加载根树
 
@@ -123,7 +123,7 @@ src/
     vnext/skills/          # playbook（不是工具）
 ```
 
-`src/preview/vendor/{sheet,docs}-runtime.*` 是已跟踪的 Univer 包，unpacked 加载需要，勿从 `.gitignore` 排除。
+`src/preview/vendor/fflate.js` 已跟踪，打开 docx 时用。
 
 ## 未实现的边界
 

@@ -99,7 +99,7 @@ Guest FS（`fs.js`）：
 
 清单：`canvasInventory.js` 的 `SESSION_TOOL_NAMES`（含 `task`）。`toolSchedule.js` 原样返回该列表。
 
-System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v22-browser-kitten'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions；语气：说话清楚、先把事情做对、不确定就问、受阻直说、尽最大努力且不凑合——不越过宿主门。`/artifacts/AGENTS.md` 对标 coding-agent 用法：短合同、文件存在时每 hop 有界注入、不是用户授权；进度在 task checkpoint 或 `/artifacts/STATUS.md`。计划批准或 `task start` 成功时宿主才脚手架，普通 send 不建）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
+System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v23-browser-kitten'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions；语气：说话清楚、先把事情做对、不确定就问、受阻直说、尽最大努力且不凑合——不越过宿主门。`createSession` 即写入 `/artifacts/AGENTS.md`、`Memory.md`、`STATUS.md`。AGENTS 是短合同，每 hop 有界注入，Pointers 在 `settleExecution` 重写，不是用户授权。Memory 是跨回合事实，宿主不覆盖已改正文。STATUS 是日常进度；绑定 Task 时 checkpoint 优先。Durable Task 仍只来自确认过的 `task start`/`amend`、勾选长任务的 `/plan`、或 `task schedule`。普通 send 不建 task。回合结束清空 `/artifacts/.trash/`）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
 
 交付物打开：`openClassify.js` 负责 kind；`artifactCapability.js` 是家族 × 打开面 × 徽标的单一映射。主 chip 是 `docs` / `data` / `web` / `media` / `files`；`design`/`slides` 只兼容旧数据。未知 HTML/JS 不得在 extension origin 执行。仅文件名的 `.html` 保持中性，不假装 proven site/doc；首次打开分类后可持久化 `capability` hint。site 本波 = 可编辑/可渲染的静态 HTML+CSS + 宿主 postMessage bridge（`src/sandbox/siteFrame.*`），**不是**任意 guest JS。
 
@@ -109,15 +109,14 @@ System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v22-browser-kitten'`�
 |----|------|------|
 | `inspect` | `sessionWorkspace/tools.js` | 只读查找：`view` = groups / group / item / artifacts / files / skill / workbook / range / html / sys |
 | `acquire` | 同上 | 把未知公开网带进会话：search / fetch / map / crawl / image / note / transcribe。已打开或需登录/验证码的 URL 走 `run` + `sys.fetch as:"page"`。`transcribe` 读 guest path / artifactId / 公开音频 URL，走设置里的转写 API（`purpose:'stt'`） |
-| `run` | 同上 | 访客机：sandbox JS/TS + fs + `sys`。`op` 是登记 ABI（persist / scratch / register workbook\|document\|html）。日常改画布走 sheet / doc / web |
+| `run` | 同上 | 访客机：sandbox JS/TS + fs + `sys`。`op` 登记文档、站点、文件。日常改文档走 `doc`，改站点走 `web` |
 | `clarify` | 同上 | 模型主动提问或 plan 卡。删除/模糊提交的门是宿主 `answerApproval`，不依赖模型调用 clarify |
 | `action` | 同上 | 本轮 `activeTab` 的显式 `tabId` live-page（snapshot 后同代 mutate）。`op=listen` 听当前标签声音（需侧栏授权），画面仍用 snapshot。无 tabId → `NEED_EXPLICIT_TAB`。运输见 [../AGENTS.md](../AGENTS.md) |
 | `task` | `sessionWorkspace/taskTool.js` | 合同与进度：`start` / `amend` / `inspect` / `plan` / `checkpoint` / `wait` / `complete` / `schedule`。`start`/`amend` 走确认卡。`wait`/`complete` 成功即 yield。`schedule` 只建未来/周期任务 |
-| `sheet` | `sessionWorkspace/officeTools.js` | Univer 表：`act` = read / write / snapshot |
-| `doc` | 同上 | Univer 文档：`act` = read / write |
+| `doc` | 同上 | 标记 HTML 文档：`act` = read / write。无文件 → `NO_DOCUMENT` |
 | `web` | 同上 | `data-browserbot-kind=site`：`act` = read / write / undo / clone / capture。画布是静态 HTML+CSS；宿主 bridge 在 sandbox frame，用户脚本仍被剥 |
 
-Office 无对应 canvas 时返回 `NO_CANVAS`（工具仍在 schema 里）。没有 Design/Slides（tldraw）。网站复刻走 `web act=clone`。
+网站没有对应页时返回 `NO_CANVAS`。文档未登记返回 `NO_DOCUMENT`。网站复刻走 `web act=clone`。
 
 BYOK：`llm.js` → `browserbot_providers`。推理 / 生图 / 转写各有独立 active id（`browserbot_active_provider_id` · `browserbot_active_image_provider_id` · `browserbot_active_stt_provider_id`）。转写供应商 `purpose:'stt'`，POST `{base}/audio/transcriptions`。`run`：`vnext/adapters`（QuickJS / esbuild-wasm / AI SDK loader）+ `src/sandbox/`。Offscreen 经 `sandboxClient.js` postMessage；channel `browserbot-code-sandbox-v1`。`fs` 与 `sys` 都是同一条 RPC。
 

@@ -7,7 +7,6 @@ import { SESSION_TOOL_NAMES } from './canvasInventory.js';
 import { formatFrozenPlanInstructions } from './planContract.js';
 import { formatTaskInstructions } from './taskInstructions.js';
 import { formatUserRequestInstructions } from './sessionIntent.js';
-import { formatAgentsMdInstructions, readSessionAgentsMd } from './sessionAgentsMd.js';
 import {
   COMPACT_RATIO,
   contextUsageRatio,
@@ -69,8 +68,7 @@ export function makeOfficePrepareStep(env = {}) {
       const additions = [
         taskText,
         pinned,
-        formatUserRequestInstructions(sess, env.contextWindow),
-        formatAgentsMdInstructions(readSessionAgentsMd(env.store, env.sessionId))
+        formatUserRequestInstructions(sess, env.contextWindow)
       ].filter(Boolean);
       if (media) additions.push(
         `Current chat media input (host-resolved for this step): ${JSON.stringify(media)}\nVideo picture capability does not prove soundtrack perception; when videoAudio is unknown, use separate audio input or STT for sound evidence. Never issue capability checks from tools.`

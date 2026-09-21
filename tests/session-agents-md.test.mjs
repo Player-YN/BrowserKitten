@@ -22,6 +22,8 @@ test('AGENTS.md stub is a short contract, not a progress diary', () => {
   assert.match(md, /## Pointers/);
   assert.match(md, /not user authorization/i);
   assert.match(md, /\/artifacts\/STATUS\.md/);
+  assert.doesNotMatch(md, /闲鱼调研/);
+  assert.doesNotMatch(md, /先验证需求再上架/);
   assert.doesNotMatch(md, /## 进度/);
   assert.doesNotMatch(md, /## Progress/);
 });
@@ -36,7 +38,8 @@ test('host scaffolds AGENTS.md once; ordinary absence stays empty', () => {
   assert.equal(sessionAgentsPresent(store, 's1'), true);
   const again = ensureSessionAgentsMd(store, 's1', { title: 'Other' });
   assert.equal(again.created, false);
-  assert.match(readSessionAgentsMd(store, 's1'), /Long work/);
+  assert.match(readSessionAgentsMd(store, 's1'), /## How to work/);
+  assert.doesNotMatch(readSessionAgentsMd(store, 's1'), /Long work/);
   const fs = createSessionGuestFs(store, { sessionId: 's1' });
   assert.equal(fs.exists(SESSION_AGENTS_PATH), true);
 });
@@ -52,20 +55,22 @@ test('injected AGENTS.md is fallible and capped; empty text injects nothing', ()
   const clipped = formatAgentsMdInstructions(huge);
   assert.match(clipped, /truncated/);
   assert.equal(clipped.includes(huge), false);
-  assert.ok((clipped.match(/x/g) || []).length <= AGENTS_MD_INJECT_CAP);
+  const body = clipped.slice(clipped.lastIndexOf('\n'));
+  assert.ok((body.match(/x/g) || []).length <= AGENTS_MD_INJECT_CAP);
 });
 
 test('world block reports AGENTS.md presence without dumping the body', () => {
   const absent = buildWorldStateBlock({ agentsMd: { present: false } });
   assert.match(absent, /agentsMd=\{"present":false/);
-  assert.match(absent, /No AGENTS\.md yet/);
+  assert.match(absent, /Workspace files are missing/);
+  assert.match(absent, /statusMd=\/artifacts\/STATUS\.md/);
   const present = buildWorldStateBlock({ agentsMd: { present: true } });
   assert.match(present, /agentsMd=\{"present":true/);
-  assert.match(present, /bounded copy/);
+  assert.match(present, /stable system prefix/);
   assert.doesNotMatch(present, /## Red lines/);
 });
 
-test('prepareStep injects AGENTS.md after the host instruction prefix', async () => {
+test('prepareStep leaves the system prefix untouched so AGENTS.md cannot bust it', async () => {
   const store = new SessionWorkspaceStore();
   store.put('sessions', 's1', { sessionId: 's1', messages: [] });
   ensureSessionAgentsMd(store, 's1', { title: 'Contract title' });
@@ -76,15 +81,18 @@ test('prepareStep injects AGENTS.md after the host instruction prefix', async ()
     contextWindow: 128000
   });
   const out = await prepare({ messages: [], steps: [] });
-  const text = String(out.instructions || '');
-  assert.match(text, /base host prefix/);
-  assert.match(text, /Workspace AGENTS\.md/);
-  assert.match(text, /Contract title/);
-  assert.ok(text.indexOf('base host prefix') < text.indexOf('Workspace AGENTS.md'));
+  assert.equal(out.instructions, undefined);
+  const body = readSessionAgentsMd(store, 's1');
+  const tail = formatAgentsMdInstructions(body);
+  assert.match(tail, /Workspace AGENTS\.md/);
+  assert.doesNotMatch('base host prefix', /Workspace AGENTS\.md/);
 });
 
 test('system prefix names the AGENTS.md contract', () => {
   const text = buildSessionAgentInstructions();
   assert.match(text, /\/artifacts\/AGENTS\.md/);
+  assert.match(text, /Memory\.md/);
+  assert.match(text, /STATUS\.md/);
   assert.match(text, /不是用户授权/);
+  assert.match(text, /普通 send 不建 Durable Task/);
 });

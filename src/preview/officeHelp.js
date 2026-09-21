@@ -241,7 +241,7 @@ function relabel(btn) {
 }
 
 /**
- * Mount “?” on the existing host-file-actions row, or a quiet dock on Univer chrome.
+ * Mount “?” on the host-file-actions row.
  * @param {string} surface sheet | docs | site
  */
 export function mountOfficeHelp(surface) {

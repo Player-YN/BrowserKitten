@@ -8,8 +8,7 @@ import {
   classifyOpenArtifact,
   DOCS_OPEN_KINDS,
   RASTER_OPEN_KINDS,
-  SHEET_OPEN_KINDS,
-  isRemovedCanvasDoc
+  SHEET_OPEN_KINDS
 } from './openClassify.js';
 
 export const PRIMARY_FAMILIES = ['docs', 'data', 'web', 'media', 'files'];
@@ -140,8 +139,7 @@ export function resolveArtifactCapability(kind, item = {}) {
   const mime = itemMime(item);
   let k = String(kind || '');
 
-  const rawText = itemText(item);
-  if (item.legacyCanvas === true || k === 'json-canvas' || (rawText && isRemovedCanvasDoc(rawText))) {
+  if (item.legacyCanvas === true) {
     return pack({
       kind: k || 'json-canvas',
       family: 'legacy',
@@ -157,14 +155,16 @@ export function resolveArtifactCapability(kind, item = {}) {
   if ((k === 'binary' || k === 'empty' || !k) && media) k = media;
 
   if (SHEET_OPEN_KINDS.has(k)) {
+    const binary = k === 'xlsx';
     return pack({
       kind: k,
-      family: 'data',
-      entry: 'sheet.html',
-      view: 'sheet',
-      editable: true,
-      previewable: true,
-      mimeType: mime,
+      family: 'files',
+      entry: 'artifactPreview.html',
+      view: binary ? 'inspector' : 'text',
+      previewable: !binary,
+      downloadOnly: binary,
+      escape: !binary,
+      mimeType: mime || (binary ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv'),
       downloadName: name
     });
   }

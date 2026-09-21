@@ -7,7 +7,7 @@ import { bytesToUtf8, isSheetArtifact } from '../../../preview/sheetCodec.js';
 import { classifyOpenArtifact, isUtf8OpenKind } from './openClassify.js';
 
 export const KERNEL_TOOL_NAMES = ['inspect', 'acquire', 'run', 'clarify', 'action', 'task'];
-export const OFFICE_TOOL_NAMES = ['sheet', 'doc', 'web'];
+export const OFFICE_TOOL_NAMES = ['doc', 'web'];
 /** Always-on model surface. Inventory aims tools; it does not hide them. */
 export const SESSION_TOOL_NAMES = [...KERNEL_TOOL_NAMES, ...OFFICE_TOOL_NAMES];
 
@@ -17,7 +17,7 @@ export const SESSION_TOOL_NAMES = [...KERNEL_TOOL_NAMES, ...OFFICE_TOOL_NAMES];
  * @returns {'sheet'|'doc'|'web'|null}
  */
 export function classifyCanvasKind(rec = {}, content) {
-  if (isSheetArtifact(rec)) return 'sheet';
+  if (isSheetArtifact(rec)) return null;
   const bytes =
     content instanceof Uint8Array
       ? content
@@ -30,12 +30,12 @@ export function classifyCanvasKind(rec = {}, content) {
     bytes: bytes || undefined,
     text: typeof content === 'string' ? content : ''
   });
-  if (opened.canvas === 'sheet') return 'sheet';
+  if (opened.canvas === 'sheet') return null;
   if (opened.canvas === 'docs') return 'doc';
   if (opened.kind === 'json-canvas') return null;
   const text = contentToText(content);
   if (opened.kind === 'html-plates') {
-    return null;
+    return 'doc';
   }
   if (opened.kind === 'html-site' || htmlKindAttr(text) === 'site' || htmlKindAttr(text) === 'web') {
     return 'web';

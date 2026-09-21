@@ -1,6 +1,5 @@
 /**
- * Office tool result → model output. Frame-pixel attach is leftover from
- * Design/Slides and unused by sheet / doc / web.
+ * Office tool result → model output. Frame-pixel attach is unused by sheet / doc / web.
  *
  * HARD: preview JPEGs are ephemeral model-vision only — never createArtifact,
  * never list in 交付物, never download.
@@ -9,7 +8,7 @@
 import { attachToolFailureHint } from './toolReceipt.js';
 
 export const PREVIEW_MAX_FRAMES = 8;
-/** Live tldraw toImage must not block the tool loop (headless / watermark / busy tab). */
+/** Preview capture must not block the tool loop. */
 export const PREVIEW_TIMEOUT_MS = 12000;
 
 function previewTimeout(ms = PREVIEW_TIMEOUT_MS) {

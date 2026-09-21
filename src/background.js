@@ -591,7 +591,7 @@ function artifactPreviewUrl(sessionId, artifactIds, entry = 'artifactPreview.htm
   return chrome.runtime.getURL(`src/preview/${page}?${q.toString()}`);
 }
 
-/** sessionId|artifactId → tabId for the live Univer sheet. */
+/** sessionId|artifactId → tabId for a workbook preview tab. */
 const sheetTabByKey = new Map();
 const sheetReadyWaiters = new Map();
 
@@ -605,7 +605,7 @@ function sheetUrl(sessionId, artifactId, lang) {
   q.set('artifactId', String(artifactId || ''));
   const loc = previewLangParam(lang);
   if (loc) q.set('lang', loc);
-  return chrome.runtime.getURL(`src/preview/sheet.html?${q.toString()}`);
+  return chrome.runtime.getURL(`src/preview/artifactPreview.html?${q.toString()}`);
 }
 
 async function findSheetTab(sessionId, artifactId) {
@@ -920,7 +920,7 @@ async function handleCanvasHost(_request) {
   return {
     ok: false,
     code: 'NO_CANVAS',
-    error: 'Design/Slides (tldraw) is removed. Leftover json-canvas opens as generic preview.'
+    error: 'There is no design canvas.'
   };
 }
 

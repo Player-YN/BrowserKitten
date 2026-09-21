@@ -10,11 +10,16 @@ import { getBoundGroupsCompact } from './groups.js';
 import { listBoundItemIndex } from './itemLabel.js';
 import { getArtifactIndexCompact, listArtifacts } from './artifacts.js';
 import { compactShelfSnapshot } from './artifactShelf.js';
-import { isRemovedCanvasDoc } from './openClassify.js';
 import { buildSessionAgentInstructions, buildWorldStateBlock, compactOpenTabOverview } from './prompt.js';
 import { formatTaskInstructions } from './taskInstructions.js';
 import { userRequestedPlan } from './planContract.js';
-import { sessionAgentsPresent } from './sessionAgentsMd.js';
+import {
+  formatAgentsMdInstructions,
+  formatMemoryMdInstructions,
+  readSessionAgentsMd,
+  readSessionMemoryMd,
+  sessionAgentsPresent
+} from './sessionAgentsMd.js';
 import { runLearnTurn, userRequestedLearn } from './learnFromTrajectory.js';
 import { createSessionTools } from './tools.js';
 import { inventoryFromSession } from './canvasInventory.js';
@@ -197,21 +202,7 @@ export async function sendMessage(store, input) {
     rememberVisitedPage(store, sessionId, pages.activeTab);
   }
   const sessionNow = store.get('sessions', sessionId) || session;
-  let activeHtml = sessionNow.activeHtml || null;
-  if (activeHtml?.artifactId && fs) {
-    try {
-      const rec = (listArtifacts(store, sessionId) || []).find((a) => a.artifactId === activeHtml.artifactId);
-      const raw = rec?.primaryPath ? fs.readFile(rec.primaryPath) : '';
-      if (isRemovedCanvasDoc(raw)) {
-        activeHtml = {
-          ...activeHtml,
-          overview: { ...(activeHtml.overview || {}), kind: 'json-canvas', engine: 'removed' }
-        };
-      }
-    } catch {
-      /* overview is a hint */
-    }
-  }
+  const activeHtml = sessionNow.activeHtml || null;
   // Skills: catalog only (id / name / description). Playbooks load via inspect view=skill.
   // System prompt is identity + composition — do not duplicate tool schemas here.
   const durableSkills = await getDurableSkillStore().list();
@@ -516,9 +507,13 @@ export async function sendMessage(store, input) {
   let titlePromise = null;
   try {
     const packed = await maybeCompactHistory(messages);
+    const workspaceTail = [
+      formatAgentsMdInstructions(readSessionAgentsMd(store, sessionId)),
+      formatMemoryMdInstructions(readSessionMemoryMd(store, sessionId))
+    ].filter(Boolean).join('\n\n');
     const history = attachWorldToLastUser(
       [...compactPrefixMessages(packed.compact), ...replayWireMessages(packed.live)],
-      worldBlock
+      [worldBlock, workspaceTail].filter(Boolean).join('\n\n')
     );
     let finalText = '';
     /** @type {Array<object>} */

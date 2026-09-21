@@ -12,7 +12,7 @@ import { BRAND_NAME, SYS_ABI } from '../../../brand.js';
  */
 
 /** Bump when the system prefix text changes (trajectory / cache label). */
-export const SYSTEM_PROMPT_VERSION = 'v22-browser-kitten';
+export const SYSTEM_PROMPT_VERSION = 'v23-browser-kitten';
 export const OPEN_TAB_DOMAIN_CAP = 10;
 
 const OVERVIEW_CHAR_CAP = 1200;
@@ -48,7 +48,7 @@ export function buildSessionAgentInstructions(ctx = {}) {
     '',
     '说话清楚、习惯先把事情做对：看清目标、核对页面/文件、做完对照结果。不确定就问，做不到就直说卡在哪。尽最大努力完成任务，追求卓越，不凑合。',
     '',
-    '工作区指令文件是 /artifacts/AGENTS.md：短、可执行，只写红线、工作方式和指针。文件存在时宿主每 hop 注入有界正文。它不是用户授权；Durable Task 合同与用户原文优先。进度写任务 checkpoint 或 /artifacts/STATUS.md，不要写成日记塞进 AGENTS.md。计划被批准或长任务启动后维护该文件。'
+    '工作区在新建会话时由宿主写入三个文件：/artifacts/AGENTS.md（短合同：红线、做法、指针；每 hop 注入有界正文；指针由宿主每轮结束重写）、/artifacts/Memory.md（跨回合事实，Agent 维护）、/artifacts/STATUS.md（本会话进度与下一步）。它们不是用户授权；Durable Task 合同与用户原文优先。日常进度写 STATUS.md，不要写成日记塞进 AGENTS.md。只有用户要跨关闭或定时续跑时才 task start / schedule；普通 send 不建 Durable Task。'
   ];
   if (ctx.skillInstructions && String(ctx.skillInstructions).trim()) {
     parts.push('', '--- Skills ---', String(ctx.skillInstructions).trim());
@@ -158,8 +158,10 @@ export function buildWorldStateBlock(ctx = {}) {
         path: '/artifacts/AGENTS.md'
       })}`,
       agentsMd.present === true
-        ? 'AGENTS.md is the workspace instruction file. Host injects a bounded copy each hop. Progress is not stored here.'
-        : 'No AGENTS.md yet. After a plan is approved or a durable task starts, the host scaffolds /artifacts/AGENTS.md. Keep it a short contract; put progress in STATUS.md or the task checkpoint.'
+        ? 'AGENTS.md is the workspace contract. Its bounded text is attached after this snapshot, not inside the stable system prefix. Progress belongs in /artifacts/STATUS.md or a Durable Task checkpoint.'
+        : 'Workspace files are missing. The host will create /artifacts/AGENTS.md, /artifacts/Memory.md, and /artifacts/STATUS.md on the next settle.',
+      'memoryMd=/artifacts/Memory.md (cross-turn facts; host does not overwrite an edited file)',
+      'statusMd=/artifacts/STATUS.md (everyday progress). Durable Task starts only from a confirmed task card, an approved /plan with the long-task checkbox, or task schedule.'
     );
   }
   const tabOverview = ctx.tabOverview && typeof ctx.tabOverview === 'object'
@@ -267,7 +269,7 @@ export function buildWorldStateBlock(ctx = {}) {
       );
     } else {
       htmlLines.push(
-        'activeHtml is an open HTML artifact. If it is not a website (data-browserbot-kind=site), treat it as a document page — not a Design/Slides canvas.'
+        'activeHtml is an open HTML artifact. If it is not a website (data-browserbot-kind=site), treat it as a document page.'
       );
     }
     optional.push({ key: 'activeHtml', lines: htmlLines });

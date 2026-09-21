@@ -13,6 +13,7 @@ import {
   DurableSessionWorkspaceStore
 } from '../sessionWorkspace/durableStore.js';
 import { createSessionGuestFs } from '../sessionWorkspace/fs.js';
+import { isWorkspaceContractArtifact } from '../sessionWorkspace/sessionAgentsMd.js';
 import {
   bytesFromRpcContent,
   createArtifact as createArtifactRecord,
@@ -2604,7 +2605,7 @@ export class SessionWorkspaceService {
    */
   async getStorageStats({ sessionId = 'default' } = {}) {
     this.ensureSession(sessionId);
-    const arts = this.runtime.listArtifacts(sessionId);
+    const arts = this.runtime.listArtifacts(sessionId).filter((a) => !isWorkspaceContractArtifact(a));
     let artifactBytes = 0;
     const fs = createSessionGuestFs(this.runtime.store, { sessionId, executionId: null });
     for (const a of arts) {
@@ -2631,7 +2632,9 @@ export class SessionWorkspaceService {
       if (!node || node.sessionId !== sessionId) continue;
       if (node.kind === 'dir') continue;
       const guest = String(node.guestPath || '');
-      if (guest.startsWith('/artifacts')) fileCount += 1;
+      if (!guest.startsWith('/artifacts')) continue;
+      if (guest === '/artifacts/AGENTS.md' || guest === '/artifacts/Memory.md' || guest === '/artifacts/STATUS.md') continue;
+      fileCount += 1;
     }
     return {
       sessionId,
@@ -2763,16 +2766,10 @@ export class SessionWorkspaceService {
    */
   async createBlankArtifact({ sessionId = 'default', kind } = {}) {
     this.ensureSession(sessionId);
-    const spec = blankArtifactPayload(kind);
-    if (spec.kind === 'sheet') {
-      const created = await this.createSheetArtifact({
-        sessionId,
-        name: 'workbook.csv',
-        sheets: [{ name: 'Sheet1', rows: [['列1']] }],
-        kind: 'csv'
-      });
-      return { ...created, kind: 'sheet' };
+    if (kind === 'sheet') {
+      return { ok: false, code: 'BAD_INPUT', error: 'unknown blank kind: sheet' };
     }
+    const spec = blankArtifactPayload(kind);
     const fs = createSessionGuestFs(this.runtime.store, { sessionId, executionId: null });
     const rec = createArtifactRecord(this.runtime.store, fs, {
       sessionId,

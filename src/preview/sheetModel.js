@@ -1,5 +1,5 @@
 /**
- * Full Univer IWorkbookData persist, inspect, and command policy.
+ * Workbook JSON persist, inspect, and command policy.
  * AOA remains export-only (csv/tsv). XLSX carries paw/workbook.json sidecar.
  */
 

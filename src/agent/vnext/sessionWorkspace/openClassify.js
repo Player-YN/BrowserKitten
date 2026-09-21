@@ -4,11 +4,10 @@
  */
 
 export const SHEET_OPEN_KINDS = new Set(['xlsx', 'csv', 'tsv', 'json-workbook']);
-export const DOCS_OPEN_KINDS = new Set(['docx', 'json-document', 'html-document']);
+export const DOCS_OPEN_KINDS = new Set(['docx', 'json-document', 'html-document', 'html-plates']);
 export const UTF8_OPEN_KINDS = new Set([
   'json-workbook',
   'json-document',
-  'json-canvas',
   'html-document',
   'html-plates',
   'html',
@@ -62,9 +61,8 @@ export function isRasterOpenKind(kind) {
 
 export function previewEntryForKind(kind) {
   const k = String(kind || '');
-  if (SHEET_OPEN_KINDS.has(k)) return 'sheet.html';
+  if (SHEET_OPEN_KINDS.has(k)) return 'artifactPreview.html';
   if (DOCS_OPEN_KINDS.has(k)) return 'docs.html';
-  if (k === 'json-canvas') return 'artifactPreview.html';
   if (k === 'html-site') return 'site.html';
   return 'artifactPreview.html';
 }
@@ -107,52 +105,9 @@ function finish(kind, reason) {
   return { kind, canvas: canvasForKind(kind), reason };
 }
 
-/**
- * Leftover tldraw Design/Slides JSON. Not a product surface — generic preview only.
- * @param {unknown} raw
- * @returns {boolean}
- */
-export function isRemovedCanvasDoc(raw) {
-  const obj = coerceJsonObject(raw);
-  if (!obj) return false;
-  if (Number(obj.pawCanvas) === 1) return true;
-  const shell = String(obj.shell || obj.kind || '').toLowerCase();
-  if (shell === 'slides' || shell === 'design' || shell === 'deck' || shell === 'poster') return true;
-  return looksLikeTldrawStore(obj);
-}
-
-function coerceJsonObject(raw) {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
-  const text = typeof raw === 'string' ? raw.trim() : '';
-  if (!text.startsWith('{')) return null;
-  try {
-    const obj = JSON.parse(text);
-    return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : null;
-  } catch {
-    return null;
-  }
-}
-
-function looksLikeTldrawStore(doc) {
-  if (!doc || typeof doc !== 'object') return false;
-  const store =
-    doc.tldraw?.document?.store ||
-    doc.document?.store ||
-    (doc.store && typeof doc.store === 'object' && !Array.isArray(doc.store) ? doc.store : null);
-  if (!store || typeof store !== 'object' || Array.isArray(store)) return false;
-  return Object.keys(store).some(
-    (k) =>
-      k.startsWith('shape:') ||
-      k.startsWith('asset:') ||
-      k.startsWith('page:') ||
-      k === 'document:document'
-  );
-}
-
 function canvasForKind(kind) {
-  if (SHEET_OPEN_KINDS.has(kind)) return 'sheet';
+  if (SHEET_OPEN_KINDS.has(kind)) return 'none';
   if (DOCS_OPEN_KINDS.has(kind)) return 'docs';
-  if (kind === 'json-canvas') return 'none';
   if (kind === 'html-site') return 'web';
   if (kind === 'html' || kind === 'json' || kind === 'yaml' || kind === 'javascript' || kind === 'typescript' || kind === 'css') {
     return 'none';
@@ -225,9 +180,6 @@ function kindFromUtf8(bytes, text) {
         }
         if (obj.sheets && typeof obj.sheets === 'object' && Array.isArray(obj.sheetOrder)) {
           return 'json-workbook';
-        }
-        if (Number(obj.pawCanvas) === 1 && obj.tldraw && typeof obj.tldraw === 'object') {
-          return 'json-canvas';
         }
       }
     } catch {

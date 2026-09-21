@@ -304,12 +304,26 @@ export function reindexArtifacts(store, sessionId) {
  * @param {string} sessionId
  * @param {string} artifactId
  */
+function isWorkspaceContractRecord(rec) {
+  const path = String(rec?.primaryPath || '');
+  const name = String(rec?.name || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
+  return path === '/artifacts/AGENTS.md' || path === '/artifacts/Memory.md' || path === '/artifacts/STATUS.md'
+    || name === 'agents.md' || name === 'memory.md' || name === 'status.md';
+}
+
 export function deleteArtifact(store, fs, sessionId, artifactId) {
   const gate = assertArtifactOwned(store, sessionId, artifactId);
   if (!gate.ok) {
     return { deleted: false, error: gate.error, code: gate.code };
   }
   const rec = gate.record;
+  if (isWorkspaceContractRecord(rec)) {
+    return {
+      deleted: false,
+      code: 'WORKSPACE_FILE',
+      error: 'AGENTS.md, Memory.md, and STATUS.md can be edited and cannot be deleted'
+    };
+  }
   const packagePrefix = `/artifacts/${rec.packageDir}`;
   // Remove all package files (primary + siblings)
   for (const guest of [...fs.list(packagePrefix)]) {
@@ -381,7 +395,7 @@ export function registerWrittenArtifacts(store, fs, sessionId, writtenGuestPaths
       }
       const policy = htmlWritePolicy(text, name);
       if (policy.allow === false) {
-        rejected.push({ path: guestPath, error: policy.error || policy.code || 'USE_CANVAS' });
+        rejected.push({ path: guestPath, error: policy.error || policy.code || 'NEED_HTML_KIND' });
         continue;
       }
       const rec = createArtifact(store, fs, {

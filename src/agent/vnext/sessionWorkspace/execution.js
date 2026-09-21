@@ -2,8 +2,14 @@
  * ExecutionContext + leases — bookkeeping only, not Task domain.
  */
 
+import { createSessionGuestFs } from './fs.js';
 import { createExecutionId } from './ids.js';
+import {
+  ensureSessionWorkspaceFiles,
+  refreshAgentsMdPointers
+} from './sessionAgentsMd.js';
 import { clearVisualCreationLedger } from './visualCreationLedger.js';
+import { emptyWorkspaceTrash } from './workspaceTrash.js';
 
 /**
  * @param {import('./store.js').SessionWorkspaceStore} store
@@ -76,6 +82,14 @@ export function settleExecution(store, ctx, status = 'settled') {
     });
   }
   clearVisualCreationLedger(ctx);
+  try {
+    const fs = createSessionGuestFs(store, { sessionId });
+    ensureSessionWorkspaceFiles(store, sessionId);
+    refreshAgentsMdPointers(store, sessionId);
+    emptyWorkspaceTrash(store, fs, sessionId);
+  } catch {
+    /* workspace maintenance must not fail settle */
+  }
   // Delete scratch FS nodes + blobs for this execution
   const scratchPrefix = `/tmp/${sessionId}/${executionId}`;
   for (const hp of [...store.keys('fsNodes')]) {

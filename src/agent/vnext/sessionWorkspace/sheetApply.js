@@ -1,5 +1,5 @@
 /**
- * Host sheet commands on IWorkbookData. Univer Facade executes the same ops in the tab.
+ * Workbook command apply on CSV/TSV rows.
  * Selection is never a permission gate.
  */
 
@@ -36,7 +36,7 @@ export const SHEET_OPS = [
 ];
 
 export const XLSX_DRAWING_EXPORT_WARNING =
-  'SheetJS xlsx export drops Univer drawings (cell/float images). Keep the live tab or export HTML/PDF for pictures.';
+  'xlsx export does not include cell images.';
 
 export const DRAFT_SUFFIX = '（草稿）';
 

@@ -1,28 +1,23 @@
 /**
- * Host law: HTML files are websites or documents — not a design engine.
- * Model-origin generic writes cannot land leftover pawCanvas / tldraw snapshots.
+ * Host law: HTML files are websites or documents.
+ * Model-origin generic writes cannot land leftover visual-canvas snapshots.
  */
 
-import { isRemovedCanvasDoc } from './openClassify.js';
-
-const USE_CANVAS = {
+const NEED_HTML_KIND = {
   ok: false,
-  code: 'USE_CANVAS',
+  code: 'NEED_HTML_KIND',
   error:
-    'Design/Slides (tldraw) is removed. write_artifact cannot create pawCanvas JSON. HTML files are only a website (data-browserbot-kind="site") or a document (data-browserbot-kind="document").',
-  hint: 'use write_artifact with data-browserbot-kind=site, or run op=doc'
+    'HTML files must be a website (data-browserbot-kind="site") or a document (data-browserbot-kind="document").',
+  hint: 'add data-browserbot-kind=site, or register a document with run op=doc (createDocument)'
 };
 
 export function htmlWritePolicy(content, name = '') {
   const decoded = decodeWritePayload(content);
   const text = typeof decoded === 'string' ? decoded : '';
   const n = String(name || '');
-  if (looksLikeVisualCanvasPayload(decoded, n)) {
-    return { ...USE_CANVAS, allow: false };
-  }
   const trimmed = text.trim();
   if (!trimmed && (decoded == null || decoded === '')) return { allow: true };
-  if (decoded && typeof decoded === 'object' && !isRemovedCanvasDoc(decoded) && !looksLikeTldrawStore(decoded)) {
+  if (decoded && typeof decoded === 'object') {
     return { allow: true, kind: 'json' };
   }
   if (!trimmed) return { allow: true };
@@ -37,22 +32,10 @@ export function htmlWritePolicy(content, name = '') {
   if (/data-browserbot-kind\s*=\s*["']document["']/i.test(text) || /id=["']paw-document["']/i.test(text)) {
     return { allow: true, kind: 'doc' };
   }
-  return { ...USE_CANVAS, allow: false };
+  return { ...NEED_HTML_KIND, allow: false };
 }
 
-export function looksLikeVisualCanvasPayload(content, name = '') {
-  const decoded = decodeWritePayload(content);
-  if (isRemovedCanvasDoc(decoded) || looksLikeTldrawStore(decoded)) return true;
-  if (typeof decoded === 'string') {
-    const trimmed = decoded.trim();
-    if (isRemovedCanvasDoc(trimmed)) return true;
-    const parsed = tryParseJson(trimmed);
-    if (parsed && (isRemovedCanvasDoc(parsed) || looksLikeTldrawStore(parsed))) return true;
-  }
-  if (isCanonicalCanvasFileName(name)) {
-    const parsed = typeof decoded === 'object' && decoded ? decoded : tryParseJson(String(decoded || ''));
-    if (parsed && looksLikeCanvasishJson(parsed)) return true;
-  }
+export function looksLikeVisualCanvasPayload() {
   return false;
 }
 
@@ -62,8 +45,6 @@ export function decodeWritePayload(content) {
   const text = asUtf8(content);
   if (!text) return text;
   const unwrapped = unwrapEncodedText(text);
-  const parsed = tryParseJson(unwrapped);
-  if (parsed && (isRemovedCanvasDoc(parsed) || looksLikeTldrawStore(parsed))) return parsed;
   return unwrapped;
 }
 
@@ -128,50 +109,4 @@ function tryDecodeBase64(s) {
 function looksLikeJsonText(s) {
   const x = String(s || '').trim();
   return x.startsWith('{') || x.startsWith('[');
-}
-
-function tryParseJson(text) {
-  try {
-    return JSON.parse(String(text || ''));
-  } catch {
-    return null;
-  }
-}
-
-function looksLikeTldrawStore(doc) {
-  if (!doc || typeof doc !== 'object') return false;
-  const store =
-    doc.tldraw?.document?.store ||
-    doc.document?.store ||
-    (doc.store && typeof doc.store === 'object' && !Array.isArray(doc.store) ? doc.store : null);
-  if (!store || typeof store !== 'object' || Array.isArray(store)) return false;
-  return Object.keys(store).some(
-    (k) =>
-      k.startsWith('shape:') ||
-      k.startsWith('asset:') ||
-      k.startsWith('page:') ||
-      k === 'document:document'
-  );
-}
-
-function looksLikeCanvasishJson(doc) {
-  if (!doc || typeof doc !== 'object') return false;
-  if (isRemovedCanvasDoc(doc) || looksLikeTldrawStore(doc)) return true;
-  const shell = String(doc.shell || doc.kind || '').toLowerCase();
-  return (
-    Number(doc.pawCanvas) === 1 ||
-    shell === 'slides' ||
-    shell === 'design' ||
-    shell === 'deck' ||
-    shell === 'poster'
-  );
-}
-
-function isCanonicalCanvasFileName(name) {
-  const n = String(name || '')
-    .replace(/\\/g, '/')
-    .split('/')
-    .pop()
-    .toLowerCase();
-  return /^(slides|design|deck|pawcanvas|paw-canvas)(\.json)?$/.test(n);
 }

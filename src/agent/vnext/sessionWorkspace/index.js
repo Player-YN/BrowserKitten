@@ -80,8 +80,7 @@ export {
   previewEntryForItem,
   looksLikeZipBytes,
   looksLikePdfBytes,
-  isUtf8OpenKind,
-  isRemovedCanvasDoc
+  isUtf8OpenKind
 } from './openClassify.js';
 export {
   capabilityForItem,
@@ -116,10 +115,14 @@ export {
 export { buildSessionAgentInstructions, buildWorldStateBlock, SYSTEM_PROMPT_VERSION } from './prompt.js';
 export {
   SESSION_AGENTS_PATH,
+  SESSION_MEMORY_PATH,
   SESSION_STATUS_PATH,
   ensureSessionAgentsMd,
+  ensureSessionWorkspaceFiles,
   formatAgentsMdInstructions,
-  readSessionAgentsMd
+  formatMemoryMdInstructions,
+  readSessionAgentsMd,
+  readSessionMemoryMd
 } from './sessionAgentsMd.js';
 export {
   appendSessionAudit,
@@ -267,7 +270,6 @@ export {
   writeSkillPackToGuest,
   sanitizeSkillId
 } from './skillStore.js';
-export { applyUniverDocCommands, toUniverDoc, fromUniverDoc } from './docsModel.js';
 export { listCapabilities, invoke as invokeCapability } from './capabilityCatalog.js';
 export {
   waitForClarifyAnswer,

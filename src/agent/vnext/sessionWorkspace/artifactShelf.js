@@ -155,9 +155,64 @@ export function setArtifactFolder(store, sessionId, artifactId, folder) {
     return { ok: false, code: 'AUTH_DENIED', error: 'artifact not owned by session' };
   }
   const nextFolder = normalizeShelfFolderId(folder);
+  if (nextFolder === 'trash') {
+    const name = String(rec.name || '').toLowerCase();
+    const path = String(rec.primaryPath || '');
+    if (
+      name === 'agents.md' ||
+      name === 'memory.md' ||
+      name === 'status.md' ||
+      /\/AGENTS\.md$/i.test(path) ||
+      /\/Memory\.md$/i.test(path) ||
+      /\/STATUS\.md$/i.test(path)
+    ) {
+      return {
+        ok: false,
+        code: 'WORKSPACE_FILE',
+        error: 'AGENTS.md, Memory.md, and STATUS.md cannot go in the trash'
+      };
+    }
+  }
   const next = { ...rec, folder: nextFolder, updatedAt: Date.now() };
   store.put('artifacts', artifactId, next);
   return { ok: true, artifact: next };
+}
+
+/**
+ * Path tree under /artifacts. Trash is a root folder, not a family chip.
+ * @param {object[]} arts
+ * @returns {Array<{id:string,label:string,items:object[],children:object[]}>}
+ */
+export function buildArtifactPathTree(arts = []) {
+  const root = { id: 'root', label: '', items: [], children: [] };
+  const trash = { id: 'trash', label: 'trash', items: [], children: [] };
+  for (const rec of Array.isArray(arts) ? arts : []) {
+    if (!rec?.artifactId) continue;
+    const path = String(rec.primaryPath || '');
+    const trashed = rec.folder === 'trash' || path.startsWith('/artifacts/.trash/');
+    const rel = trashed
+      ? path.replace(/^\/artifacts\/\.trash\//, '')
+      : path.replace(/^\/artifacts\//, '');
+    const parts = rel.split('/').filter(Boolean);
+    const fileName = parts.pop() || rec.name || rec.artifactId;
+    const host = trashed ? trash : root;
+    let node = host;
+    let acc = trashed ? 'trash' : 'path';
+    for (const part of parts) {
+      acc += `/${part}`;
+      let child = node.children.find((c) => c.label === part);
+      if (!child) {
+        child = { id: acc, label: part, items: [], children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    }
+    node.items.push({ ...rec, displayLabel: rec.displayLabel || fileName });
+  }
+  const folders = root.children.slice();
+  if (root.items.length) folders.unshift({ id: 'path/files', label: 'files', items: root.items, children: [] });
+  if (trash.items.length || trash.children.length) folders.push(trash);
+  return folders;
 }
 
 export function setShelfMeta(store, sessionId, patch = {}) {

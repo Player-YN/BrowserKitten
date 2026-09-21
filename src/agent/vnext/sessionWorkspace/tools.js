@@ -67,6 +67,7 @@ import {
 } from './planContract.js';
 import { startTaskFromPlanApproval } from './tasks.js';
 import { ensureSessionAgentsMd } from './sessionAgentsMd.js';
+import { moveArtifactToTrash } from './workspaceTrash.js';
 import {
   applyCommandsToWorkbookData,
   capRangeRead,
@@ -78,7 +79,6 @@ import {
   classifySheetImageSrc,
   hydrateSheetGridCommands
 } from './sheetApply.js';
-import { extractWorkbookSnapshot } from '../../../preview/sheetModel.js';
 import { inspectHtml } from './htmlApply.js';
 import { hydrateDocCommands } from './officePathHydrate.js';
 import { htmlWritePolicy } from './htmlWritePolicy.js';
@@ -88,7 +88,7 @@ import { SITE_MOTION_CAPABILITY } from './siteMotionSchema.js';
 import { guestPathToDataUrl, isGuestArtifactPath, rewriteGuestImageSrcs } from './htmlMedia.js';
 import { applyDocCommands, emptyDocSnapshot } from './docsApply.js';
 import { pdfBytesToHtml, looksLikePdf, PDF_RECONSTRUCTION_WARNING } from './pdfIngest.js';
-import { classifyOpenArtifact, isRemovedCanvasDoc, isUtf8OpenKind } from './openClassify.js';
+import { classifyOpenArtifact, isUtf8OpenKind } from './openClassify.js';
 import { resolveHtmlUpsertTarget } from './htmlArtboard.js';
 import { createOfficeTools } from './officeTools.js';
 import { sessionToolToModelOutput } from './canvasPreview.js';
@@ -196,11 +196,19 @@ export function createSessionTools(env) {
     }
   }
 
+  function assignShelfFolder(artifactId, folder) {
+    const dest = String(folder || '').trim().toLowerCase();
+    if (dest === 'trash' || dest === '.trash') {
+      return moveArtifactToTrash(store, fs, sessionId, String(artifactId || ''));
+    }
+    return setArtifactFolder(store, sessionId, String(artifactId || ''), folder);
+  }
+
   function executeShelfOp(input = {}) {
     const commands = Array.isArray(input.commands) ? input.commands : [];
     const applied = [];
     if (input.artifactId && (input.folder || input.shelf)) {
-      const one = setArtifactFolder(store, sessionId, String(input.artifactId), input.folder || input.shelf);
+      const one = assignShelfFolder(input.artifactId, input.folder || input.shelf);
       if (!one.ok) return { ok: false, op: 'shelf', error: one.error, code: one.code };
       applied.push({ op: 'setFolder', artifactId: String(input.artifactId), folder: one.artifact.folder });
     }
@@ -208,7 +216,7 @@ export function createSessionTools(env) {
       if (!cmd || typeof cmd !== 'object') continue;
       const cop = String(cmd.op || cmd.act || '');
       if (cop === 'setFolder' || cop === 'set') {
-        const one = setArtifactFolder(store, sessionId, String(cmd.artifactId || ''), cmd.folder || cmd.shelf || cmd.label);
+        const one = assignShelfFolder(cmd.artifactId, cmd.folder || cmd.shelf || cmd.label);
         if (!one.ok) return { ok: false, op: 'shelf', error: one.error, code: one.code, applied };
         applied.push({ op: 'setFolder', artifactId: one.artifact.artifactId, folder: one.artifact.folder });
       } else if (cop === 'renameFolder') {
@@ -242,17 +250,6 @@ export function createSessionTools(env) {
     };
   }
 
-  const hostSheet = typeof env.hostSheet === 'function' ? env.hostSheet : null;
-  async function callSheetHost(payload) {
-    if (!hostSheet) return null;
-    try {
-      const promptId = String(env.promptId || execution?.executionId || '');
-      return await hostSheet({ ...payload, promptId });
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-
   function loadWorkbookFromArtifact(artifactId) {
     const gate = assertArtifactOwned(store, sessionId, artifactId);
     if (!gate.ok) return { ok: false, error: gate.error, code: gate.code };
@@ -262,27 +259,16 @@ export function createSessionTools(env) {
         ok: false,
         error: 'artifact is not a spreadsheet',
         code: 'NOT_SHEET',
-        hint: 'pass a sheet artifactId, or register one with run createWorkbook'
+        hint: 'pass a csv or tsv artifact id'
       };
     }
     const bytes = fs.readFileBytes(rec.primaryPath);
     const kind = sheetKindFromArtifact(rec);
     if (kind === 'xlsx') {
-      const snap = extractWorkbookSnapshot(bytes);
-      if (snap) {
-        return {
-          ok: true,
-          rec,
-          kind,
-          sheets: workbookDataToSheets(snap),
-          data: snap
-        };
-      }
       return {
         ok: false,
-        error: 'xlsx inspect needs the live sheet tab',
-        code: 'NEED_TAB',
-        hint: 'open the live sheet tab and retry inspect',
+        error: 'xlsx is not parsed here',
+        code: 'BAD_INPUT',
         rec
       };
     }
@@ -402,26 +388,11 @@ export function createSessionTools(env) {
         const sess = store.get('sessions', sessionId) || {};
         const artifactId =
           String(input.artifactId || sess.activeWorkbook?.artifactId || '').trim();
-        if (hostSheet && artifactId) {
-          const res = await callSheetHost({
-            method: view === 'range' ? 'range' : 'overview',
-            artifactId,
-            a1: input.a1 || 'A1:Z20',
-            sheet: input.sheet
-          });
-          const body = res?.result || res;
-          if (body && body.ok !== false) {
-            // Host already capRangeRead'd the live book at the requested A1.
-            // Do not wrap values as a new sheet at A1 — that recaps H58 as A1.
-            return { ok: true, view, artifactId, ...body };
-          }
-        }
         if (!artifactId) {
           return {
             ok: true,
             view,
-            overview: sess.activeWorkbook?.overview || null,
-            note: 'no live workbook yet; run op=sheet createWorkbook to create one'
+            overview: sess.activeWorkbook?.overview || null
           };
         }
         const loaded = loadWorkbookFromArtifact(artifactId);
@@ -460,17 +431,6 @@ export function createSessionTools(env) {
           return { ok: false, view, error: e instanceof Error ? e.message : String(e) };
         }
         const selected = pinnedSiteIds(sess.activeHtml?.selections);
-        if (isRemovedCanvasDoc(html)) {
-          return {
-            ok: true,
-            view,
-            artifactId,
-            kind: 'json-canvas',
-            engine: 'removed',
-            hint: 'Design/Slides is gone. This leftover JSON opens as generic preview.',
-            selected
-          };
-        }
         if (/data-browserbot-kind\s*=\s*["']site["']/i.test(html)) {
           const nodes = listSiteNodes(html);
           return {
@@ -903,7 +863,7 @@ export function createSessionTools(env) {
           type: 'string',
           enum: RUN_OPS,
           description:
-            'Registration ABI. The enum is the name list; aliases normalize at runtime (createWorkbook→sheet, createDocument→doc). Omit and pass code: execute on the guest machine. Categories: persist (write_artifact, update_artifact, write_package_file); scratch (write_scratch, read); register workbook (sheet, createWorkbook); register document (doc, createDocument); register html/site (write_artifact + data-browserbot-kind=site); register pdf-derived (ingestPdf); shelf; skill. Daily edits of an open canvas use sheet / doc / web, not these ops.'
+            'Registration ABI. Aliases normalize at runtime (createDocument→doc). Omit and pass code: execute on the guest machine. Categories: persist (write_artifact, update_artifact, write_package_file); scratch (write_scratch, read); register document (doc, createDocument); register site (write_artifact + data-browserbot-kind=site); register pdf-derived (ingestPdf); shelf; skill. Daily edits use doc or web, not these ops.'
         },
         name: { type: 'string' },
         artifactId: { type: 'string' },
@@ -936,13 +896,7 @@ export function createSessionTools(env) {
         return executeShelfOp(input);
       }
       const sceneFirst = isSceneRunInput(input, opEarly);
-      const sheetFirst =
-        !sceneFirst &&
-        (opEarly === 'sheet' ||
-          opEarly === 'createWorkbook' ||
-          (Array.isArray(input.commands) &&
-            input.commands.length > 0 &&
-            !['write_scratch', 'html', 'doc', 'ingestPdf', 'skill'].includes(opEarly)));
+      const sheetFirst = false;
 
       // ── Code execution path (product coding runtime) ──
       if (!sheetFirst && input.code != null && String(input.code).trim() !== '') {
@@ -1030,204 +984,13 @@ export function createSessionTools(env) {
 
       let op = String(input.op || '') || (sheetFirst ? 'sheet' : sceneFirst ? 'html' : '');
       if (REMOVED_SCENE_OPS.has(op)) op = 'html';
-      if (op === 'createWorkbook') op = 'sheet';
-      if (op === 'createDocument') op = 'doc';
-      if (op === 'sheet') {
-        if (signal?.aborted) return { ok: false, op, error: 'aborted' };
-        const emitSheetThought = (body, creating) => {
-          if (!onEvent) return;
-          const mark = body?.readback;
-          const text =
-            mark?.sheet && mark?.a1
-              ? `已写入 ${mark.sheet}!${mark.a1}`
-              : creating
-                ? '正在创建表格…'
-                : '正在写入草稿…';
-          try {
-            onEvent({ type: 'thought', text });
-          } catch {
-            /* ignore */
-          }
-        };
-        const rawSheetCmds = Array.isArray(input.commands || input.ops) ? input.commands || input.ops : [];
-        const hydratedGrids = hydrateSheetGridCommands(fs, rawSheetCmds);
-        if (!hydratedGrids.ok) {
-          return {
-            ok: false,
-            op,
-            code: hydratedGrids.code,
-            error: hydratedGrids.error,
-            hint: hydratedGrids.hint
-          };
-        }
-        let commands = await hydrateSheetImageCommands(
-          store,
-          sessionId,
-          normalizeCommands(hydratedGrids.commands),
-          { fetchImpl, onEvent }
-        );
-        if (!commands.length && (opEarly === 'createWorkbook' || Array.isArray(input.sheets))) {
-          commands = [
-            {
-              op: 'createWorkbook',
-              name: input.name,
-              sheets: input.sheets,
-              kind: input.kind
-            }
-          ];
-        }
-        if (!commands.length) {
-          return { ok: false, op, error: 'sheet requires commands[]' };
-        }
-        const sess = store.get('sessions', sessionId) || {};
-        const creating = commands.some((c) => c.op === 'createWorkbook');
-        if (!creating) {
-          return {
-            ok: false,
-            op,
-            code: 'USE_OFFICE_TOOL',
-            error:
-              'Daily sheet edits use the sheet tool after a workbook artifact exists. run op=sheet is createWorkbook only.'
-          };
-        }
-        const seed = commands.find((c) => c.op === 'createWorkbook') || {};
-        const rest = commands.filter((c) => c.op !== 'createWorkbook');
-        const artifactMode = readArtifactMode(input, seed, commands);
-        const resolved = resolveWorkbookCreateTarget(store, fs, sessionId, execution, {
-          explicitId: String(input.artifactId || seed.artifactId || '').trim(),
-          focusedId: String(sess.activeWorkbook?.artifactId || '').trim(),
-          artifactMode
-        });
-        if (!resolved.ok) {
-          return {
-            ok: false,
-            op,
-            code: resolved.code,
-            error: resolved.error,
-            ...(resolved.candidates ? { candidates: resolved.candidates } : {})
-          };
-        }
-        const applyWorkbook = async (artifactId, cmds, extra = {}) => {
-          const rec =
-            extra.artifact ||
-            (listArtifacts(store, sessionId) || []).find((a) => a.artifactId === artifactId) ||
-            null;
-          if (hostSheet) {
-            if (cmds.length) {
-              const applied = await callSheetHost({
-                method: 'apply',
-                artifactId,
-                commands: cmds,
-                statusText: '正在写入草稿…'
-              });
-              const appliedBody = applied?.result || applied;
-              emitSheetThought(appliedBody, false);
-              return {
-                ok: applied?.ok !== false && appliedBody?.ok !== false,
-                op,
-                artifact: rec,
-                artifactId,
-                ...(appliedBody || {}),
-                error: applied?.error || appliedBody?.error,
-                ...extra
-              };
-            }
-            // Open the silent work tab so the user can watch; apply path does this too.
-            await callSheetHost({
-              method: 'overview',
-              artifactId,
-              statusText: extra.reused ? '正在打开表格…' : '正在创建表格…'
-            });
-            return { ok: true, op, artifact: rec, artifactId, ...extra };
-          }
-          if (!cmds.length) {
-            return { ok: true, op, artifact: rec, artifactId, ...extra };
-          }
-          const loaded = loadWorkbookFromArtifact(artifactId);
-          if (!loaded.ok) return { ok: false, op, ...loaded };
-          const applied = applyCommandsToWorkbookData(loaded.data, cmds, {
-            selections: sess.activeWorkbook?.overview?.selections,
-            fs
-          });
-          if (applied.ok === false) return { ok: false, op, error: applied.error, code: applied.code };
-          const delim = loaded.kind === 'tsv' ? '\t' : ',';
-          updateArtifactContent(store, fs, sessionId, artifactId, aoaToCsv(applied.sheets[0].rows, delim), {
-            mimeType: loaded.rec.mimeType
-          });
-          emitSheetThought(applied, false);
-          return {
-            ok: true,
-            op,
-            artifact: loaded.rec,
-            artifactId,
-            applied: applied.applied,
-            readback: applied.readback,
-            overview: overviewFromWorkbookData(applied.data),
-            ...extra
-          };
-        };
-        if (resolved.applyId && !resolved.create) {
-          rememberVisualCreation(execution, 'workbook', resolved.applyId, {
-            explicitNew: resolved.markExplicitNew === true
-          });
-          if (!rest.length) {
-            emitSheetThought({ readback: { sheet: seed.sheets?.[0]?.name, a1: 'A1' } }, true);
-          }
-          return applyWorkbook(resolved.applyId, rest, { reused: true });
-        }
-        if (hostSheet) {
-          const res = await callSheetHost({
-            method: 'create',
-            name: seed.name || input.name,
-            sheets: seed.sheets,
-            kind: seed.kind || 'csv',
-            statusText: '正在创建表格…'
-          });
-          const body = res?.result || res;
-          if (res?.ok === false && !body?.artifact) {
-            return { ok: false, op, error: res.error || body?.error || 'create failed' };
-          }
-          const artifact = body?.artifact || body?.result?.artifact;
-          const createdId = String(artifact?.artifactId || '');
-          if (createdId) {
-            rememberVisualCreation(execution, 'workbook', createdId, {
-              explicitNew: resolved.markExplicitNew === true
-            });
-          }
-          if (rest.length && createdId) {
-            return applyWorkbook(createdId, rest, { artifact });
-          }
-          emitSheetThought({ readback: { sheet: seed.sheets?.[0]?.name, a1: 'A1' } }, true);
-          return { ok: true, op, artifact, artifactId: createdId, readback: seed.sheets?.[0] || null };
-        }
-        const sheets =
-          Array.isArray(seed.sheets) && seed.sheets.length
-            ? seed.sheets
-            : [{ name: 'Sheet1', rows: [['列1']] }];
-        let fileName = String(seed.name || input.name || 'workbook.csv').replace(/[^\w.\u4e00-\u9fff-]+/g, '_');
-        if (!/\.(csv|tsv)$/i.test(fileName)) fileName += '.csv';
-        const rec = createArtifact(store, fs, {
-          sessionId,
-          name: fileName,
-          content: aoaToCsv(sheets[0].rows || []),
-          mimeType: 'text/csv'
-        });
-        rememberVisualCreation(execution, 'workbook', rec.artifactId, {
-          explicitNew: resolved.markExplicitNew === true
-        });
-        if (!rest.length) {
-          emitSheetThought({ readback: { sheet: sheets[0]?.name, a1: 'A1' } }, true);
-          return { ok: true, op, artifact: rec, artifactId: rec.artifactId, readback: { values: sheets[0].rows } };
-        }
-        return applyWorkbook(rec.artifactId, rest, { artifact: rec });
-      }
       if (op === 'html') {
         return {
           ok: false,
           op,
-          code: 'NO_CANVAS',
-          error: 'Design/Slides (tldraw canvas) is removed.',
-          hint: 'Deliver HTML as a site (data-browserbot-kind=site + web) or a document (run op=doc / data-browserbot-kind=document).'
+          code: 'OP_REMOVED',
+          error: 'There is no canvas HTML op. HTML files are a website or a document.',
+          hint: 'Use run op=doc for a document, or write_artifact with data-browserbot-kind=site for a website.'
         };
       }
       if (op === 'doc') {
@@ -1304,7 +1067,7 @@ export function createSessionTools(env) {
           let content = input.content || '';
           const policy = htmlWritePolicy(content, name);
           if (policy.allow === false) {
-            return { ok: false, op, code: policy.code, error: policy.error };
+            return { ok: false, op, code: policy.code, error: policy.error, hint: policy.hint };
           }
           if (policy.kind === 'site') content = stampSiteHtml(content);
           const sess = store.get('sessions', sessionId) || {};
@@ -1342,7 +1105,7 @@ export function createSessionTools(env) {
           const content = input.content || '';
           const policy = htmlWritePolicy(content, input.name || '');
           if (policy.allow === false) {
-            return { ok: false, op, code: policy.code, error: policy.error };
+            return { ok: false, op, code: policy.code, error: policy.error, hint: policy.hint };
           }
           const rec = updateArtifactContent(
             store,
@@ -1916,8 +1679,8 @@ export function createCodeFsBridge(guestFs) {
       if (g.startsWith('/artifacts/')) {
         const policy = htmlWritePolicy(payload, g.split('/').pop() || '');
         if (policy.allow === false) {
-          const err = new Error(policy.error || policy.code || 'USE_CANVAS');
-          err.code = policy.code || 'USE_CANVAS';
+          const err = new Error(policy.error || policy.code || 'NEED_HTML_KIND');
+          err.code = policy.code || 'NEED_HTML_KIND';
           throw err;
         }
       }
@@ -1968,12 +1731,10 @@ const RUN_OPS = [
   'write_scratch',
   'read',
   'write_package_file',
-  'sheet',
   'doc',
   'ingestPdf',
   'skill',
   'shelf',
-  'createWorkbook',
   'createDocument'
 ];
 

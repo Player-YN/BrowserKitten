@@ -126,6 +126,7 @@ import { approvalBelongsToSession } from './sidepanel/sessionIsolation.js';
 import { buildZipStore } from './agent/vnext/sessionWorkspace/pptxExport.js';
 import {
   artifactAccessBadgeKeys,
+  buildArtifactPathTree,
   buildShelfView,
   foldLegacyShelfFolders,
   folderCollapsedByDefault,
@@ -8510,9 +8511,9 @@ const artifactRailCollapsed = new Map();
 /** @type {Set<string>} */
 const selectedArtifactIds = new Set();
 
-/** Live Univer ranges or HTML canvas slots above the composer. Hint only — not a bind gate. */
+/** Range or HTML slots above the composer. Hint only — not a bind gate. */
 let sheetSelState = emptySheetSel('');
-/** Last painted chip fingerprint — skip rebuild when Univer rebroadcasts the same ranges. */
+/** Last painted chip fingerprint — skip rebuild when the same ranges are broadcast again. */
 let lastSheetSelFp = '';
 /** sheet name → expanded (default true) */
 const sheetSelOpen = new Map();
@@ -9001,7 +9002,8 @@ function artifactFolderUiLabel(folderId, shelf) {
     slides: 'artifactFolderLegacy',
     sheets: 'artifactFolderData',
     sites: 'artifactFolderWeb',
-    legacy: 'artifactFolderLegacy'
+    legacy: 'artifactFolderLegacy',
+    trash: 'artifactFolderTrash'
   };
   return keys[folderId] ? t(keys[folderId]) : shelfFolderLabel(folderId, currentLang === 'en' ? 'en' : 'zh', shelf?.labels);
 }
@@ -9012,23 +9014,35 @@ function artifactFolderCollapsed(sessionId, folderId) {
   return folderCollapsedByDefault(folderId);
 }
 
+function isWorkspaceContractRow(a) {
+  const path = String(a?.primaryPath || '');
+  const name = String(a?.name || '').toLowerCase();
+  return path === '/artifacts/AGENTS.md' || path === '/artifacts/Memory.md' || path === '/artifacts/STATUS.md'
+    || name === 'agents.md' || name === 'memory.md' || name === 'status.md';
+}
+
 function renderArtifactShelfRow(a) {
   const li = document.createElement('li');
   li.className = 'artifact-shelf-item';
   li.dataset.artifactId = a.artifactId;
   li.setAttribute('role', 'listitem');
+  const locked = isWorkspaceContractRow(a);
   const check = document.createElement('button');
   check.type = 'button';
   check.className = 'artifact-rail-check' + (selectedArtifactIds.has(a.artifactId) ? ' is-checked' : '');
   check.setAttribute('aria-pressed', selectedArtifactIds.has(a.artifactId) ? 'true' : 'false');
   check.setAttribute('aria-label', t('artifactSelectHint'));
   check.textContent = selectedArtifactIds.has(a.artifactId) ? '✓' : '';
+  if (!locked) {
   check.addEventListener('click', (e) => {
     e.stopPropagation();
     if (selectedArtifactIds.has(a.artifactId)) selectedArtifactIds.delete(a.artifactId);
     else selectedArtifactIds.add(a.artifactId);
     void refreshArtifactShelf();
   });
+  } else {
+    check.hidden = true;
+  }
   const name = document.createElement('button');
   name.type = 'button';
   name.className = 'artifact-shelf-name';
@@ -9055,10 +9069,20 @@ function renderArtifactShelfRow(a) {
   delBtn.className = 'artifact-shelf-btn artifact-shelf-btn-danger';
   delBtn.textContent = '×';
   delBtn.title = t('artifactDelete');
-  delBtn.addEventListener('click', () => void deleteSessionArtifact(a.artifactId));
-  actions.append(dlBtn, delBtn);
+  if (!locked) {
+    delBtn.addEventListener('click', () => void deleteSessionArtifact(a.artifactId));
+    actions.append(dlBtn, delBtn);
+  } else {
+    actions.append(dlBtn);
+  }
   li.append(check, name, actions);
   return li;
+}
+
+function artifactTreeCount(folder) {
+  const here = (folder.items || []).filter((a) => !isWorkspaceContractRow(a)).length;
+  const nested = (folder.children || []).reduce((n, child) => n + artifactTreeCount(child), 0);
+  return here + nested;
 }
 
 function renderArtifactShelfFolder(folder, sessionId, shelf) {
@@ -9073,15 +9097,18 @@ function renderArtifactShelfFolder(folder, sessionId, shelf) {
   const chevron = document.createElement('span');
   chevron.textContent = collapsed ? '▸' : '▾';
   const title = document.createElement('span');
-  title.textContent = artifactFolderUiLabel(folder.id, shelf);
+  title.textContent = folder.label && folder.id !== 'trash'
+    ? folder.label
+    : artifactFolderUiLabel(folder.id === 'trash' ? 'trash' : folder.label || folder.id, shelf);
   const count = document.createElement('span');
   count.className = 'artifact-shelf-folder-count';
-  count.textContent = String(folder.items.length);
+  count.textContent = String(artifactTreeCount(folder));
   toggle.append(chevron, title, count);
   const inner = document.createElement('ul');
   inner.className = 'artifact-shelf-folder-items';
   inner.hidden = collapsed;
-  for (const a of folder.items) inner.appendChild(renderArtifactShelfRow(a));
+  for (const child of folder.children || []) inner.appendChild(renderArtifactShelfFolder(child, sessionId, shelf));
+  for (const a of folder.items || []) inner.appendChild(renderArtifactShelfRow(a));
   toggle.addEventListener('click', () => {
     artifactRailCollapsed.set(`${sessionId}:${folder.id}`, !collapsed);
     void refreshArtifactShelf();
@@ -9113,7 +9140,8 @@ async function refreshArtifactShelf() {
     for (const id of [...selectedArtifactIds]) {
       if (!live.has(id)) selectedArtifactIds.delete(id);
     }
-    const n = sessionArtifacts.length;
+    const counted = sessionArtifacts.filter((a) => !isWorkspaceContractRow(a));
+    const n = counted.length;
     if (root) root.hidden = false;
     if (countEl) {
       countEl.textContent = String(n);
@@ -9130,43 +9158,14 @@ async function refreshArtifactShelf() {
     };
     applyWorkspaceStatsToHeaders();
     listEl.innerHTML = '';
-    const folders = foldLegacyShelfFolders(buildShelfView(sessionArtifacts, sess?.shelf || null));
     const shelfMeta = sess?.shelf || null;
     const nav = $('artifactRailNav');
     if (nav) {
+      nav.hidden = true;
       nav.innerHTML = '';
-      if (!folders.length) {
-        nav.hidden = true;
-      } else {
-        nav.hidden = false;
-        const chips = [{ id: 'all', label: t('artifactFolderAll'), n: 0 }, ...folders
-          .filter((f) => f.id !== 'design' && f.id !== 'slides')
-          .map((f) => ({
-          id: f.id,
-          label: artifactFolderUiLabel(f.id, shelfMeta),
-          n: f.items.length
-        }))];
-        if (artifactRailFilter !== 'all' && !folders.some((f) => f.id === artifactRailFilter)) {
-          artifactRailFilter = 'all';
-        }
-        for (const chip of chips) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'artifact-rail-nav-chip' + (artifactRailFilter === chip.id ? ' is-on' : '');
-          btn.textContent = chip.id === 'all' ? chip.label : `${chip.label} ${chip.n}`;
-          btn.addEventListener('click', () => {
-            artifactRailFilter = chip.id;
-            if (chip.id !== 'all') {
-              artifactRailCollapsed.set(`${sessionId}:${chip.id}`, false);
-            }
-            void refreshArtifactShelf();
-          });
-          nav.appendChild(btn);
-        }
-      }
     }
-    const shown = artifactRailFilter === 'all' ? folders : folders.filter((f) => f.id === artifactRailFilter);
-    for (const folder of shown) {
+    const tree = buildArtifactPathTree(sessionArtifacts);
+    for (const folder of tree) {
       listEl.appendChild(renderArtifactShelfFolder(folder, sessionId, shelfMeta));
     }
     const zipSel = $('artifactRailZipSelected');

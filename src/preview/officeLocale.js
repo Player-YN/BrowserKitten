@@ -1,5 +1,5 @@
 /**
- * Shared UI language for Univer Sheets / Docs (classic ribbon).
+ * Shared preview UI language.
  * Excel and Word stay on the same memory so switching one follows the other.
  */
 

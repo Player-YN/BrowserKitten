@@ -17,7 +17,7 @@ Service worker 会被 Chrome 杀掉。会话仓库、AI SDK、`run` 沙箱客户
 
 `icons/` 在仓库根，不在 `src/`。`web_accessible_resources` 目前只有 `src/agent/vnext/sessionWorkspace/pickContext.js`（content script 动态 `import`）。
 
-CSP：`extension_pages` 允许 `'wasm-unsafe-eval'`（QuickJS / Univer）；sandbox 另加 `'unsafe-eval'`。
+CSP：`extension_pages` 允许 `'wasm-unsafe-eval'`（QuickJS）；sandbox 另加 `'unsafe-eval'`。
 
 ## 消息总线
 
@@ -28,8 +28,8 @@ CSP：`extension_pages` 允许 `'wasm-unsafe-eval'`（QuickJS / Univer）；sand
   chrome.runtime.sendMessage { target: browserbot-background, action, … }
     workspace_rpc          → ensureBrowserBotOffscreen + 契约检查（仅只读调用最多重试 8 次；写入不重试）
     workspace_page_action  → handleWorkspacePageAction → 各 frame content_script
-    sheet_host             → 打开/复用 sheet.html，再 browserbot_sheet_rpc
-    canvas_host            → docs.html 同类 RPC（无 Design/Slides）
+    sheet_host             → 工作簿 RPC（文件，不另开表格引擎页）
+    canvas_host            → 无设计画布，返回 NO_CANVAS
     workspace_fetch / workspace_sys / workspace_capture_* / workspace_find_tab / …
     workspace_tab_lease_peek|release / workspace_task_resolve_page
     storage_local_get|set  → chrome.storage.local 代理

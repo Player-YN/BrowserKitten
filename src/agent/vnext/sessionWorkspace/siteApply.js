@@ -167,7 +167,7 @@ export function applySiteCommands(html, commands, opts = {}) {
       if (!policy.allow || policy.kind !== 'site') {
         return {
           ok: false,
-          code: policy.code || 'USE_CANVAS',
+          code: policy.code || 'NEED_HTML_KIND',
           error: policy.error || 'replaceHtml needs data-browserbot-kind=site',
           hint: 'in-place site replace stays on the same marked HTML file'
         };

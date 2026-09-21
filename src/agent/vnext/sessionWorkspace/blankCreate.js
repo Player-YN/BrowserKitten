@@ -6,7 +6,7 @@
 import { applyDocCommands, emptyDocSnapshot } from './docsApply.js';
 import { stampSiteHtml } from './siteApply.js';
 
-export const BLANK_KINDS = ['sheet', 'doc', 'site'];
+export const BLANK_KINDS = ['doc', 'site'];
 
 const BLANK_SITE_HTML = `<!DOCTYPE html>
 <html lang="zh-CN" data-browserbot-kind="site">
@@ -35,7 +35,6 @@ function stampDocumentKind(html) {
  */
 export function blankArtifactPayload(kind) {
   const k = String(kind || '').trim();
-  if (k === 'sheet') return { kind: 'sheet' };
   if (k === 'doc') {
     const applied = applyDocCommands(emptyDocSnapshot('Document'), [
       { op: 'createDocument', title: 'Document' }

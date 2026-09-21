@@ -1,7 +1,7 @@
 /**
  * Office-habit shortcuts for preview work surfaces.
  * Viewport zoom is ours (Chrome page zoom is blocked). Engine-owned
- * keys (tldraw / Univer Excel) are not rebound — handlers are opt-in.
+ * Spreadsheet shortcut handlers are opt-in.
  */
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
@@ -176,74 +176,3 @@ export function installOfficeShortcuts(opts) {
   };
 }
 
-/**
- * Univer sheet zoom. Ratio 1 = 100%. Percent values (>4) are normalized.
- * Falls back to CSS zoom on the grid canvas host if Facade is missing.
- */
-export function univerSheetZoom(univerAPI, dir, rootEl) {
-  const sh = univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.();
-  let cur = 1;
-  try {
-    if (typeof sh?.getZoomRatio === 'function') cur = Number(sh.getZoomRatio()) || 1;
-    else if (typeof sh?.getZoom === 'function') cur = Number(sh.getZoom()) || 1;
-  } catch {
-    cur = 1;
-  }
-  const next = stepZoom(cur, dir);
-  try {
-    if (typeof sh?.setZoomRatio === 'function') {
-      sh.setZoomRatio(next);
-      return next;
-    }
-    if (typeof sh?.zoom === 'function') {
-      sh.zoom(Math.round(next * 100));
-      return next;
-    }
-  } catch {
-    /* facade variance */
-  }
-  const exec = univerAPI?.executeCommand || univerAPI?._commandService?.executeCommand?.bind(univerAPI._commandService);
-  if (typeof exec === 'function') {
-    try {
-      exec('sheet.command.set-zoom-ratio', { zoomRatio: next });
-      return next;
-    } catch {
-      try {
-        exec('sheet.operation.set-zoom-ratio', { zoomRatio: next });
-        return next;
-      } catch {
-        /* */
-      }
-    }
-  }
-  return applyCssZoom(pickCanvasHost(rootEl), next);
-}
-
-export function univerDocsZoom(univerAPI, dir, rootEl) {
-  const doc = univerAPI?.getActiveDocument?.();
-  try {
-    if (typeof doc?.setZoomRatio === 'function') {
-      const cur = Number(doc.getZoomRatio?.()) || 1;
-      const next = stepZoom(cur, dir);
-      doc.setZoomRatio(next);
-      return next;
-    }
-  } catch {
-    /* */
-  }
-  const host = pickCanvasHost(rootEl);
-  const cur = Number(host?.style?.zoom) || 1;
-  return applyCssZoom(host, stepZoom(cur, dir));
-}
-
-function pickCanvasHost(rootEl) {
-  const root = rootEl || (typeof document !== 'undefined' ? document.getElementById('app') : null);
-  if (!root) return null;
-  const canvas = root.querySelector?.('canvas');
-  return canvas?.parentElement || root;
-}
-
-function applyCssZoom(el, next) {
-  if (el && el.style) el.style.zoom = String(next);
-  return next;
-}

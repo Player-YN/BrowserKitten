@@ -4,6 +4,7 @@
 
 import { createSessionId } from './ids.js';
 import { deleteSessionCascade } from './gc.js';
+import { ensureSessionWorkspaceFiles } from './sessionAgentsMd.js';
 
 /**
  * @param {import('./store.js').SessionWorkspaceStore} store
@@ -21,6 +22,11 @@ export function createSession(store, opts = {}) {
   };
   store.put('sessions', sessionId, session);
   store.put('sessionBindings', sessionId, []);
+  try {
+    ensureSessionWorkspaceFiles(store, sessionId, { title: session.title });
+  } catch {
+    /* workspace stubs must not fail session create */
+  }
   return session;
 }
 

@@ -88,17 +88,16 @@ test('unknown HTML is escaped text and not executable', () => {
   assert.equal(escapePreviewText('<b>'), '&lt;b&gt;');
 });
 
-test('Univer surfaces stay editable; zip stays download-only', () => {
+test('csv opens as text; zip stays download-only', () => {
   const sheet = capabilityForItem({
     name: 'book.csv',
     text: 'a,b\n1,2'
   });
-  assert.equal(sheet.family, 'data');
-  assert.equal(sheet.entry, 'sheet.html');
-  assert.equal(sheet.badges.editable, true);
+  assert.equal(sheet.family, 'files');
+  assert.equal(sheet.entry, 'artifactPreview.html');
+  assert.equal(sheet.badges.editable, false);
   assert.equal(sheet.badges.previewable, true);
   assert.deepEqual(artifactAccessBadgeKeys({ name: 'book.csv', text: 'a,b\n1,2' }), [
-    'artifactAccessEdit',
     'artifactAccessPreview'
   ]);
 
@@ -185,7 +184,7 @@ test('create/list persist a proveable capability hint', () => {
     contentKind: hint.contentKind,
     capability: hint
   });
-  assert.equal(listed.badges.editable, true);
+  assert.equal(listed.badges.editable, false);
   assert.equal(listed.uncertain, false);
 });
 

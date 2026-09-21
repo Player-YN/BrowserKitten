@@ -165,7 +165,7 @@ test('browserSys dispatch emits a short host event without guest code', async ()
 });
 
 test('SYSTEM_PROMPT_VERSION bumps when prefix tells truthful status', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v22-browser-kitten');
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v23-browser-kitten');
   const text = buildSessionAgentInstructions();
   assert.match(text, /你是"Browser Kitten"/);
   assert.match(text, /通用执行 Agent/);

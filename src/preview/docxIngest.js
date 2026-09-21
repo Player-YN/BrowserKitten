@@ -1,11 +1,9 @@
 /**
- * Open OOXML .docx as Univer doc blocks. Zip bytes are not UTF-8 text.
+ * Open OOXML .docx as document blocks. Zip bytes are not UTF-8 text.
  */
 
 import { unzipSync, strFromU8 } from './vendor/fflate.js';
-import { snapshotToUniverData } from '../agent/vnext/sessionWorkspace/docsApply.js';
 import { looksLikeZipBytes } from '../agent/vnext/sessionWorkspace/openClassify.js';
-import { normalizeUniverDoc } from './docExport.js';
 import { bytesToDataUrl } from './durableImage.js';
 
 export { looksLikeZipBytes };
@@ -90,7 +88,7 @@ function embedIds(inner) {
  * @param {Uint8Array} bytes
  * @param {{ title?: string, id?: string }} [opts]
  */
-export function docxBytesToUniverData(bytes, opts = {}) {
+export function docxBytesToSnapshot(bytes, opts = {}) {
   const buf = asBytes(bytes);
   if (!looksLikeZipBytes(buf)) throw new Error('not a docx zip');
   let files;
@@ -132,8 +130,5 @@ export function docxBytesToUniverData(bytes, opts = {}) {
     else blocks.push({ id: `b${i}`, type: 'p', text });
   }
   const title = String(opts.title || '').trim() || 'Document';
-  return normalizeUniverDoc(snapshotToUniverData({ title, blocks }, { id: opts.id }), {
-    id: opts.id,
-    title
-  });
+  return { title, blocks };
 }

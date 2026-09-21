@@ -81,25 +81,34 @@ test('OPFS replacement does not destroy committed bytes when metadata fails', as
   assert.deepEqual([...files.values()][0], new Uint8Array([2]));
 });
 
-test('docs drains edits made during a slow save and returns persistence failure', async () => {
+test('docs save writes marked HTML and returns persistence failure', async () => {
   const source = await readFile(new URL('../src/preview/docs.js', import.meta.url), 'utf8');
-  const code = source.slice(source.indexOf('async function saveNow('), source.indexOf('\nfunction scheduleSave()'));
-  let release; let version = 1; const writes = [];
-  const blocked = new Promise(r => release = r);
-  const context = vm.createContext({ saving:false, savePromise:null, saveRequested:false, editRevision:0, artifactRevision:0,
-    dirty:true, sessionId:'s', artifactId:'a', fileName:'doc', durableData:null, durableSnapshot:null,
-    unitId:()=> 'u', setSaveState(){}, setStatus(){}, durableLiveDocument:async()=>({version}),
-    normalizeUniverDoc:x=>x, univerDataToSnapshot:x=>x, serializeUniverDoc:JSON.stringify,
-    workspaceRpc:async(_,p)=> { writes.push(JSON.parse(p.content)); if(writes.length===1) await blocked; },
-    chrome:{runtime:{sendMessage(){}}}, window:{setTimeout(){}} });
+  const start = source.indexOf('async function saveNow(');
+  const end = source.indexOf('async function executeDocsRpc(');
+  const code = source.slice(start, end);
+  const writes = [];
+  const context = vm.createContext({
+    sessionId: 's',
+    artifactId: 'a',
+    fileName: 'doc',
+    artifactRevision: 1,
+    durableSnapshot: { title: 'Hi', blocks: [{ id: 'b1', type: 'p', text: 'Hello' }] },
+    serializeDocHtml: (snap) => `<html>${snap.title}</html>`,
+    workspaceRpc: async (_method, params) => {
+      writes.push(params);
+      return { artifact: { revision: 2 } };
+    },
+    chrome: { runtime: { sendMessage() {} } }
+  });
   vm.runInContext(code, context);
-  const first = context.saveNow(); await new Promise(r=>setImmediate(r));
-  version=2; context.editRevision++; context.dirty=true;
-  const second = context.saveNow(); release();
-  assert.equal((await first).ok, true); await second;
-  assert.deepEqual(writes.map(x=>x.version), [1,2]); assert.equal(context.dirty,false);
-  context.workspaceRpc=async()=>{throw new Error('disk failure')};
-  assert.equal((await context.saveNow()).ok,false); assert.equal(context.dirty,true);
+  assert.equal((await context.saveNow()).ok, true);
+  assert.equal(writes[0].mimeType, 'text/html');
+  assert.match(writes[0].content, /Hi/);
+  assert.equal(context.artifactRevision, 2);
+  context.workspaceRpc = async () => { throw new Error('disk failure'); };
+  const failed = await context.saveNow();
+  assert.equal(failed.ok, false);
+  assert.match(failed.error, /disk failure/);
 });
 
 globalThis.chrome = { debugger: {}, webNavigation: { getFrame: async ({tabId, frameId}) => ({
@@ -243,22 +252,6 @@ test('stale artifact edits are rejected, identical retries are safe, guest write
   fs.writeFile(updated.primaryPath,'guest update');
   assert.throws(()=>updateArtifactContent(store,fs,'s',artifact.artifactId,'stale',{expectedRevision:updated.revision}),{code:'ARTIFACT_CONFLICT'});
   assert.equal(fs.readFile(updated.primaryPath),'guest update');
-});
-
-test('sheet saves newer edits after slow persistence and reports write failures', async () => {
-  const source=await readFile(new URL('../src/preview/sheet.js',import.meta.url),'utf8');
-  const code=source.slice(source.indexOf('async function saveNow('),source.indexOf('\nfunction scheduleSave()'));
-  let release, version=1; const writes=[]; const blocked=new Promise(r=>release=r);
-  const context=vm.createContext({univerAPI:{},saving:false,savePromise:null,saveRequested:false,editRevision:0,artifactRevision:1,
-    dirty:true,sessionId:'s',artifactId:'a',mimeType:'text/csv',fileName:'sheet.csv',setSaveState(){},setStatus(){},
-    bytesForPersist:async()=>String(version),bytesToBase64:x=>x,
-    workspaceRpc:async(_,p)=>{writes.push(p);if(writes.length===1)await blocked;return {artifact:{revision:writes.length+1}};},
-    chrome:{runtime:{sendMessage(){}}},window:{setTimeout(){}}});
-  vm.runInContext(code,context);const first=context.saveNow();await new Promise(r=>setImmediate(r));
-  version=2;context.editRevision++;const second=context.saveNow();release();await Promise.all([first,second]);
-  assert.deepEqual(writes.map(p=>[p.base64,p.expectedRevision]),[['1',1],['2',2]]);
-  assert.equal(context.dirty,false);context.workspaceRpc=async()=>{throw new Error('disk failure')};
-  assert.equal((await context.saveNow()).ok,false);assert.equal(context.dirty,true);
 });
 
 test('plan/clarify chrome never matches another session', () => {

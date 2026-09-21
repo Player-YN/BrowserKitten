@@ -16,7 +16,6 @@
  */
 
 import { listArtifacts } from './artifacts.js';
-import { isRemovedCanvasDoc } from './openClassify.js';
 import { isSheetArtifact } from '../../../preview/sheetCodec.js';
 
 export const AMBIGUOUS_CANVAS = 'AMBIGUOUS_CANVAS';
@@ -94,20 +93,12 @@ export function ledgerArtifactId(execution, kind, opts = {}) {
   return keys.length === 1 ? String(ledger.byKind[keys[0]] || '').trim() : '';
 }
 
-export function isOwnedRemovedCanvas(store, fs, sessionId, artifactId) {
-  return !!readOwnedCanvasText(store, fs, sessionId, artifactId);
+export function isOwnedRemovedCanvas() {
+  return false;
 }
 
-export function readOwnedCanvasText(store, fs, sessionId, artifactId) {
-  const rec = (listArtifacts(store, sessionId) || []).find((a) => a.artifactId === artifactId);
-  if (!rec) return '';
-  try {
-    const raw = fs.readFileBytes(rec.primaryPath);
-    const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
-    return isRemovedCanvasDoc(text) ? text : '';
-  } catch {
-    return '';
-  }
+export function readOwnedCanvasText() {
+  return '';
 }
 
 export function kindFromOwnedCanvas(store, fs, sessionId, artifactId) {

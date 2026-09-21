@@ -8692,6 +8692,10 @@ button.group-select-item:hover{
   gap:4px;
 }
 .artifact-shelf-folder-items[hidden]{ display:none !important; }
+.artifact-shelf-folder-items > .artifact-shelf-folder{
+  margin-left:8px;
+  background:transparent;
+}
 .artifact-rail-empty{
   padding:16px 10px;
   font-size:11px;

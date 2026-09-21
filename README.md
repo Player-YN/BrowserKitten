@@ -10,7 +10,7 @@ Treat the already-logged-in Chrome as a programmable computer. Browser Kitten is
 
 </div>
 
-**Browser Kitten** is a Chrome MV3 **unpacked** extension. It runs a side-panel agent that can drive the current tab (`action`), execute guest JS against the browser (`sys` inside `run`), and keep sheet / Univer doc / site HTML artifacts in the session.
+**Browser Kitten** is a Chrome MV3 **unpacked** extension. It runs a side-panel agent that can drive the current tab (`action`), execute guest JS against the browser (`sys` inside `run`), and keep sheet, marked-HTML document, and site HTML artifacts in the session.
 
 Not on the Chrome Web Store. No hosted model — bring your own key.
 
