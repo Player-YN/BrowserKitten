@@ -5629,7 +5629,7 @@ function closeMoreSheet({ restoreFocus = true } = {}) {
   }
 }
 
-/** Esc closes more sheet (and restores focus to ⋯) */
+/** Esc closes the settings sheet and restores focus to its gear button. */
 function wireMoreSheetEscape() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -8167,7 +8167,7 @@ function setupCoreEventListeners() {
     currentTheme = getResolvedTheme();
   });
   $('gearBtn')?.addEventListener('click', () => openAgentSettingsModal());
-  // More sheet consolidates lang / theme / settings (topbar only keeps ⋯)
+  // Settings sheet consolidates language / theme / API controls behind the topbar gear.
   $('moreLangBtn')?.addEventListener('click', () => {
     setAppLanguage(currentLang === 'zh' ? 'en' : 'zh');
     const b = $('moreLangBtn');

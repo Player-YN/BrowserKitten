@@ -77,7 +77,7 @@
       </div>
     </aside>
 
-    <!-- Sticky chrome: brand + page listen dot + more -->
+    <!-- Sticky chrome: brand + page listen dot + settings -->
     <header class="topbar">
       <div class="brand">
         <span class="logo logo-mark" id="brandLogo" aria-hidden="true" title="Browser Kitten"></span>
@@ -103,7 +103,7 @@
           </svg>
           <span class="access-policy-label sr-only">守卫模式</span>
         </button>
-        <button type="button" class="icon-btn" id="moreBtn" title="更多" aria-label="更多" aria-expanded="false" aria-haspopup="dialog" aria-controls="moreSheet">⋯</button>
+        <button type="button" class="icon-btn" id="moreBtn" data-i18n-title="moreTitle" data-i18n-aria="moreTitle" title="设置" aria-label="设置" aria-expanded="false" aria-haspopup="dialog" aria-controls="moreSheet">⚙︎</button>
         <!-- Hidden legacy hooks (settings/lang/theme/status still driven by JS via more sheet) -->
         <button type="button" id="gearBtn" hidden aria-hidden="true" aria-haspopup="dialog" aria-controls="agentSettingsModal"></button>
         <button type="button" id="langToggle" hidden aria-hidden="true"></button>
@@ -506,9 +506,9 @@
 
     <!-- Advanced sheet -->
     <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
-    <div class="more-sheet" id="moreSheet" hidden role="dialog" aria-modal="true" aria-label="更多">
+    <div class="more-sheet" id="moreSheet" hidden role="dialog" aria-modal="true" data-i18n-aria="moreTitle" aria-label="设置">
       <div class="sheet-handle"></div>
-      <h3 data-i18n="moreTitle" data-i18n-title="moreNote" title="默认首页刻意隐藏这些项，降低新用户认知负担。">更多</h3>
+      <h3 data-i18n="moreTitle" data-i18n-title="moreNote" title="默认首页刻意隐藏这些项，降低新用户认知负担。">设置</h3>
 
       <div class="sheet-section">
         <div class="sheet-section-title">外观与语言</div>

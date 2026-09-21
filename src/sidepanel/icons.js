@@ -75,7 +75,7 @@ export function enhanceTopbarIcons() {
   }
   const more = document.getElementById('moreBtn');
   if (more && !more.querySelector('svg')) {
-    more.innerHTML = ICONS.more;
+    more.innerHTML = ICONS.gear;
   }
   const logo = document.querySelector('.brand .logo, #brandLogo');
   if (logo) {
