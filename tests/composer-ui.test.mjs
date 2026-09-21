@@ -40,7 +40,7 @@ test('attachments belong to the composer shell and travel with either composer d
   for (const match of html.matchAll(/<(\/?)([a-z][\w-]*)([^>]*?)>/gi)) {
     const [, close, name, attrs] = match;
     if (close) { stack.pop(); continue; }
-    if (/\bid="attachmentPreviewBar"/.test(attrs)) {
+    if (/\bid="attachmentPreviewBar"/.test(attrs) || /\bid="screenshotActionRow"/.test(attrs)) {
       found++;
       assert.ok(stack.some(n => n.name === 'footer' && /class="composer"/.test(n.attrs)));
       assert.match(stack.at(-1).attrs, /class="composer-inner"/);
@@ -49,7 +49,7 @@ test('attachments belong to the composer shell and travel with either composer d
       stack.push({ name, attrs });
     }
   }
-  assert.equal(found, 1);
+  assert.equal(found, 2);
 });
 
 test('uploaded images have thumbnails; removal preserves the other outgoing attachments', () => {
@@ -69,6 +69,7 @@ test('uploaded images have thumbnails; removal preserves the other outgoing atta
 
 test('pasted screenshot renders once inline; capture-button screenshots remain in the shell preview', async () => {
   const { bar, inline, attachments, ctx } = attachmentUi();
+  const offered = [];
   Object.assign(ctx, {
     screenshotAttachInflight: new Set(), lastCaptureAttachKey: '', lastCaptureAttachAt: 0,
     screenshotAttachKey: value => value,
@@ -77,6 +78,7 @@ test('pasted screenshot renders once inline; capture-button screenshots remain i
     nextStickyLabel: async () => ({ n: attachments.length + 1 }),
     clipboardGroupFromState: () => null,
     insertPastedScreenshotChip: att => inline.add(att.name),
+    offerScreenshotActions: payload => offered.push(payload.source),
     showCustomModal: () => assert.fail('attachment failed'), console,
   });
   vm.runInContext(section('async function attachScreenshotToChat(payload)', 'async function requestUserScreenshot('), ctx);
@@ -84,10 +86,12 @@ test('pasted screenshot renders once inline; capture-button screenshots remain i
   assert.equal(attachments.length, 1);
   assert.deepEqual([...inline], ['screenshot1']);
   assert.equal(bar.hidden, true);
+  assert.deepEqual(offered, []);
   await ctx.attachScreenshotToChat({ source: 'button', dataUrl: 'data:image/png;base64,BB==', clipboardOk: true });
   assert.equal(attachments.length, 2);
   assert.equal(bar.children.length, 1);
   assert.equal(bar.children[0].children[0].src, attachments[1].dataUrl);
+  assert.deepEqual(offered, ['button']);
   // The index is from the outgoing list, not the filtered preview list.
   bar.children[0].children.at(-1).listeners.click();
   assert.equal(attachments.length, 1);

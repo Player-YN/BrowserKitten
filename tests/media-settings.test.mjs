@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createChatMediaSettings, matchesChatMediaConfig, mediaStatusLabel, mediaCheckErrorLabel } from '../src/sidepanel/chatMediaSettings.js';
+import { createChatMediaSettings, matchesChatMediaConfig, mediaStatusLabel, mediaCheckErrorLabel, mediaIconState } from '../src/sidepanel/chatMediaSettings.js';
 import { mediaModelKey } from '../src/agent/chatMedia.js';
 
 const provider = { id: 'current', baseURL: 'https://gateway.test/v1', model: 'model-a', apiKey: 'saved-secret' };
@@ -21,6 +21,10 @@ test('media status distinguishes verification, declarations and rejected formats
   assert.equal(mediaStatusLabel({ state: 'supported', rejectedFormats: ['video/webm'] }, null, 'video'), 'chatMediaRejected');
   assert.equal(mediaStatusLabel({}, 'audio', 'audio'), 'chatMediaChecking');
   assert.equal(mediaStatusLabel({}, 'audio', 'video'), 'chatMediaUnknown');
+  assert.equal(mediaIconState('chatMediaDeclared'), 'supported');
+  assert.equal(mediaIconState('chatMediaNo'), 'unsupported');
+  assert.equal(mediaIconState('chatMediaUnknown'), 'unknown');
+  assert.equal(mediaIconState('chatMediaChecking'), 'checking');
 });
 
 test('last check error copy never exposes raw upstream errors', () => {
@@ -30,7 +34,7 @@ test('last check error copy never exposes raw upstream errors', () => {
   assert.equal(mediaCheckErrorLabel('an upstream error with a secret'), 'chatMediaCheckUnavailable');
 });
 
-function fixture(rpc, loadProvidersState = async () => ({ activeProviderId: provider.id, providers: [provider] })) {
+function fixture(rpc, loadProvidersState = async () => ({ activeProviderId: provider.id, providers: [provider] }), NodeImpl) {
   const nodes = new Map();
   class Node {
     constructor(id) { this.id = id; this.value = ''; this.hidden = false; this.handlers = {}; }
@@ -39,10 +43,11 @@ function fixture(rpc, loadProvidersState = async () => ({ activeProviderId: prov
     setAttribute() {}
     addEventListener(name, cb) { this.handlers[name] = cb; }
   }
-  for (const id of ['agentSettingsModal', 'inferenceEditor', 'chatMediaSettings', 'chatMediaStatusPanel', 'apiBaseInput', 'providerModelInput', 'apiKeyInput']) nodes.set(id, new Node(id));
+  const Ctor = NodeImpl || Node;
+  for (const id of ['agentSettingsModal', 'inferenceEditor', 'chatMediaSettings', 'chatMediaStatusPanel', 'apiBaseInput', 'providerModelInput', 'apiKeyInput']) nodes.set(id, new Ctor(id));
   nodes.get('apiBaseInput').value = provider.baseURL;
   nodes.get('providerModelInput').value = provider.model;
-  const root = { visibilityState: 'visible', getElementById: id => nodes.get(id), createElement: () => new Node(), addEventListener() {} };
+  const root = { visibilityState: 'visible', getElementById: id => nodes.get(id), createElement: () => new Ctor(), addEventListener() {} };
   const ui = createChatMediaSettings({ root, t: key => key, workspaceRpc: rpc,
     loadProvidersState, getProviderId: () => provider.id,
     storage: { local: { get: (_keys, cb) => cb({}) } } });
@@ -64,7 +69,7 @@ test('opening settings checks in background; unsaved draft never requests a chec
   f.nodes.get('apiKeyInput').value = 'unsaved-key';
   f.ui.open(); await tick();
   assert.equal(calls.length, 0);
-  assert.equal(f.nodes.get('chatMediaStatus').textContent, 'chatMediaSaveFirst');
+  assert.equal(f.nodes.get('chatMediaStatus').title, 'chatMediaSaveFirst');
 });
 
 test('late status does not overwrite closed settings or a changed draft', async () => {
@@ -76,7 +81,7 @@ test('late status does not overwrite closed settings or a changed draft', async 
   f.nodes.get('agentSettingsModal').handlers.close();
   finish({ providerId: provider.id, base: provider.baseURL, model: provider.model, capabilities: { inputs: { video: { state: 'supported', source: 'verified' } } } });
   await tick();
-  assert.equal(f.nodes.get('chatMediaStatus').textContent, 'chatMediaUnknown');
+  assert.equal(f.nodes.get('chatMediaStatus').title, 'chatMediaUnknown');
 });
 
 test('verified video soundtrack does not show the unverified audio warning', async () => {
@@ -84,8 +89,8 @@ test('verified video soundtrack does not show the unverified audio warning', asy
     capabilities: { inputs: { video: { state: 'supported', source: 'verified' } }, videoAudio: 'verified' } }));
   f.nodes.get('agentSettingsModal').open = true;
   f.ui.open(); await tick();
-  assert.match(f.nodes.get('chatMediaStatus').textContent, /chatMediaVerified/);
-  assert.doesNotMatch(f.nodes.get('chatMediaStatus').textContent, /chatMediaVideoAudioUnknown/);
+  assert.match(f.nodes.get('chatMediaStatus').title, /chatMediaVerified/);
+  assert.doesNotMatch(f.nodes.get('chatMediaStatus').title, /chatMediaVideoAudioUnknown/);
 });
 
 test('a key saved during a status request prevents showing the old key evidence', async () => {
@@ -103,5 +108,34 @@ test('a key saved during a status request prevents showing the old key evidence'
     capabilities: { inputs: { audio: { state: 'supported', source: 'verified' } } } });
   await tick();
   assert.equal(reads, 2);
-  assert.doesNotMatch(f.nodes.get('chatMediaStatus').textContent, /chatMediaVerified/);
+  assert.doesNotMatch(f.nodes.get('chatMediaStatus').title, /chatMediaVerified/);
+});
+
+test('capability paint does not assign the read-only HTMLElement.dataset getter', () => {
+  class GetterOnlyDatasetNode {
+    constructor(id) {
+      this.id = id;
+      this.value = '';
+      this.hidden = false;
+      this.handlers = {};
+      this._data = {};
+    }
+    get dataset() { return this._data; }
+    append() {}
+    replaceChildren() {}
+    setAttribute() {}
+    addEventListener(name, cb) { this.handlers[name] = cb; }
+  }
+  assert.throws(() => {
+    const n = new GetterOnlyDatasetNode('x');
+    n.dataset = n.dataset || {};
+  }, { name: 'TypeError' });
+  assert.doesNotThrow(() => {
+    fixture(async () => ({
+      providerId: provider.id,
+      model: provider.model,
+      base: provider.baseURL,
+      capabilities: { inputs: {} }
+    }), undefined, GetterOnlyDatasetNode);
+  });
 });

@@ -6,9 +6,17 @@ import { createMediaCheckSample, scoreMediaCheck } from './mediaCheckSamples.js'
 import { classifyMediaRejection } from './mediaRejection.js';
 
 const FORMATS = { image: 'image/jpeg', audio: 'audio/wav', video: 'video/webm' };
+const OFFICIAL_IMAGE_HOSTS = ['api.openai.com', 'api.deepseek.com', 'generativelanguage.googleapis.com'];
+
 export function checkTransport(caps, kind) {
   // Automatic calibration requires an identified profile, including for image samples.
-  return (['image', 'audio'].includes(kind) && ['openai-audio', 'openrouter'].includes(caps.transport)) ||
+  // Official Chat Completions hosts accept standard image_url without a media-wire profile.
+  if (kind === 'image') {
+    if (['openai-audio', 'openrouter'].includes(caps.transport)) return true;
+    try { return OFFICIAL_IMAGE_HOSTS.includes(new URL(caps.base).hostname); }
+    catch { return false; }
+  }
+  return (kind === 'audio' && ['openai-audio', 'openrouter'].includes(caps.transport)) ||
     (kind === 'video' && caps.transport === 'openrouter');
 }
 

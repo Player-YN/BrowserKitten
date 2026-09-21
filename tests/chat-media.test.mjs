@@ -60,6 +60,28 @@ test('exact current model, tri-state, scoped overrides and transport are indepen
   assert.equal(canSendChatMedia(resolveChatMediaCapabilities({ apiBase: 'https://api.openai.com/v1', model: 'gpt-4o-audio-preview' }), 'audio/wav'), true);
 });
 
+test('official DeepSeek flash is declared image-capable; Pro and audio/video stay closed', () => {
+  for (const id of ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-chat']) {
+    const caps = resolveChatMediaCapabilities({ apiBase: 'https://api.deepseek.com/v1', model: id });
+    assert.equal(caps.inputs.image.state, 'supported', id);
+    assert.equal(caps.inputs.image.source, 'builtin', id);
+    assert.equal(caps.inputs.audio.state, 'unsupported', id);
+    assert.equal(caps.inputs.video.state, 'unsupported', id);
+    assert.equal(canSendChatMedia(caps, 'image/jpeg'), true, id);
+    assert.equal(canSendChatMedia(caps, 'audio/wav'), false, id);
+  }
+  const pro = resolveChatMediaCapabilities({ apiBase: 'https://api.deepseek.com/v1', model: 'deepseek-v4-pro' });
+  assert.equal(pro.inputs.image.state, 'unsupported');
+  assert.equal(pro.inputs.image.source, 'builtin');
+  const cataloged = resolveChatMediaCapabilities(
+    { apiBase: 'https://api.deepseek.com/v1', model: 'deepseek-flash' },
+    [{ id: 'deepseek-flash', inputModalities: ['text', 'image'] }]
+  );
+  assert.equal(cataloged.inputs.image.source, 'catalog');
+  assert.equal(cataloged.inputs.image.state, 'supported');
+  assert.equal(cataloged.inputs.audio.state, 'unsupported');
+});
+
 test('override normalization and partial provider updates preserve model scoping and STT independence', async () => {
   const key = mediaModelKey(base, model);
   const p = normalizeProvider({ id: 'chat', baseURL: base, model, apiKey: 'chat-key', chatMediaOverrides: { [key]: { audio: true, transport: 'openrouter', extra: 'drop' } } });
@@ -186,7 +208,7 @@ test('product send freezes settings for the turn and re-resolves a changed model
     const turns = [];
     service.resolveLanguageModel = async (opts) => {
       // Simulate the settings changing after the send's snapshot was taken.
-      bag.browserbot_providers[0] = { ...bag.browserbot_providers[0], model: 'deepseek-chat' };
+      bag.browserbot_providers[0] = { ...bag.browserbot_providers[0], model: 'deepseek-v4-pro' };
       return { modelId: opts.settings.model };
     };
     service.runtime.sendMessage = async (input) => { turns.push(input); return { finalText: 'ok' }; };
@@ -195,7 +217,7 @@ test('product send freezes settings for the turn and re-resolves a changed model
     assert.equal(turns[0].model.modelId, model);
     assert.equal(turns[0].settings.model, model);
     assert.equal(turns[0].mediaCapabilities.inputs.video.state, 'supported');
-    assert.equal(turns[1].model.modelId, 'deepseek-chat');
+    assert.equal(turns[1].model.modelId, 'deepseek-v4-pro');
     assert.equal(turns[1].mediaCapabilities.inputs.video.state, 'unsupported');
   } finally { globalThis.chrome = previous; }
 });

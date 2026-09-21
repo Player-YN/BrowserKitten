@@ -23,6 +23,7 @@ import { SessionWorkspaceService } from '../src/agent/vnext/service/sessionWorks
 import { SessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspace/store.js';
 import {
   contextWindowCheckErrorLabel,
+  contextWindowDisplay,
   contextWindowStatusLabel
 } from '../src/sidepanel/contextWindowSettings.js';
 
@@ -232,4 +233,30 @@ test('settings copy maps sources and never leaks upstream errors', () => {
   assert.equal(contextWindowStatusLabel({ checking: true }), 'contextWindowChecking');
   assert.equal(contextWindowCheckErrorLabel('HTTP_401'), 'contextWindowCheckAuth');
   assert.equal(contextWindowCheckErrorLabel('an upstream secret'), 'contextWindowCheckUnavailable');
+});
+
+test('DeepSeek status stays unknown when catalog and probe have no window', async () => {
+  const setup = manager({
+    settings: { ...settings, model: 'deepseek-flash', apiBase: 'https://api.deepseek.com/v1' },
+    models: [{ id: 'deepseek-flash' }]
+  });
+  const status = await setup.checks.status();
+  assert.equal(status.source, 'unknown');
+  assert.equal(status.window, null);
+  assert.equal(status.catalogWindow, null);
+  const view = contextWindowDisplay(status);
+  assert.equal(view.state, 'unknown');
+  assert.equal(view.window, null);
+});
+
+test('family 128k is not presented as a measured window', () => {
+  const family = contextWindowDisplay({ source: 'family', window: 128000, catalogWindow: null });
+  assert.equal(family.state, 'unknown');
+  assert.equal(family.window, null);
+  assert.equal(family.label, 'contextWindowUnknown');
+  assert.notEqual(contextWindowStatusLabel({ source: 'family' }), 'contextWindowMeasured');
+  const measured = contextWindowDisplay({ source: 'measured', window: 128000 });
+  assert.equal(measured.state, 'measured');
+  assert.equal(measured.window, 128000);
+  assert.equal(contextWindowDisplay({ source: 'catalog', catalogWindow: 200000 }).window, 200000);
 });

@@ -114,6 +114,22 @@ test('a context refresh observes same-connection evidence and storage contains n
   assert.match(JSON.stringify(storage.bag), /FORMAT_REJECTED|supported|CHECK_UNAVAILABLE/);
 });
 
+test('declared official DeepSeek flash image is not auto-checked', async () => {
+  const calls = [];
+  const setup = manager({
+    settings: { providerId: 'ds', apiBase: 'https://api.deepseek.com/v1', model: 'deepseek-flash', apiKey: 'secret-key' },
+    run: async ({ kind }) => { calls.push(kind); return { state: 'supported' }; }
+  });
+  await setup.checks.request();
+  await setup.checks.job.promise;
+  assert.deepEqual(calls, []);
+  const status = await setup.checks.status();
+  assert.equal(status.capabilities.inputs.image.state, 'supported');
+  assert.equal(status.capabilities.inputs.image.source, 'builtin');
+  assert.equal(status.capabilities.inputs.audio.state, 'unsupported');
+  assert.equal(status.capabilities.inputs.video.state, 'unsupported');
+});
+
 test('a user override wins over cache evidence and suppresses that modality check', async () => {
   const overrideKey = mediaModelKey(base, 'test/media');
   const settings = { ...baseSettings, chatMediaOverrides: { [overrideKey]: { audio: false, transport: 'openrouter' } } };

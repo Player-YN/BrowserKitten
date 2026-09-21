@@ -74,6 +74,11 @@ import {
   mergeSessionTranscriptMessages,
   pendingThreadMessages
 } from './sidepanel/sessionIsolation.js';
+import {
+  buildSessionRecordMarkdown,
+  sessionRecordFilename,
+  sessionRecordTurns
+} from './sidepanel/sessionRecordExport.js';
 import { readActiveExecution, isExecutionLive } from './sidepanel/executionSync.js';
 import {
   applyThinkExpanded,
@@ -138,6 +143,14 @@ import {
   loadCaptureShortcut,
   saveCaptureShortcut
 } from './screenshot.js';
+import {
+  shouldOfferScreenshotActions,
+  detectBarcodesFromDataUrl,
+  detectLocalTextFromDataUrl,
+  buildVisionOcrBody,
+  chatCompletionsUrl,
+  textFromChatCompletion
+} from './sidepanel/screenshotRecognize.js';
 import { createSmoothStreamRenderer } from './smoothStream.js';
 import {
   DEV_TRAJECTORY_STORAGE_KEY,
@@ -1014,6 +1027,7 @@ function applyI18n() {
   taskStatusUi.render();
   refreshBotChrome();
   applyContextUsage(sessions.find((s) => s.id === activeSessionId)?.contextUsage || {});
+  syncMoreSheetChrome();
 }
 
 let composerTypewriterTimer = 0;
@@ -4148,7 +4162,6 @@ function showWelcome() {
     <div class="home-center" id="homeCenter">
       <div class="home-mark home-mark-hero" aria-hidden="true"></div>
       <div class="home-composer-slot" id="homeComposerSlot"></div>
-      <p class="suggestion-note" data-i18n="suggestionSendHint">${escapeHtml(t('suggestionSendHint'))}</p>
       <div class="hint-chips" id="hintChips"></div>
     </div>
   `;
@@ -4290,8 +4303,7 @@ function renderHintChips(items) {
     btn.type = 'button';
     btn.className = 'hint-chip';
     btn.textContent = item.label;
-    btn.title = t('suggestionSendHint');
-    btn.setAttribute('aria-label', `${item.label} · ${t('suggestionSendHint')}`);
+    btn.setAttribute('aria-label', item.label);
     btn.setAttribute('data-prompt', item.prompt);
     btn.addEventListener('click', () => {
       if (isCurrentSessionRunning()) return;
@@ -5585,10 +5597,34 @@ function switchSession(sessionId) {
   return hydration;
 }
 
+function syncMoreSheetChrome() {
+  const langBtn = $('moreLangBtn');
+  if (langBtn) {
+    langBtn.textContent = currentLang === 'zh' ? '语言 · 中文' : 'Language · EN';
+  }
+  const themeBtn = $('moreThemeBtn');
+  if (themeBtn) {
+    const light = getResolvedTheme() === 'light';
+    themeBtn.textContent =
+      currentLang === 'en'
+        ? light
+          ? 'Theme · Light'
+          : 'Theme · Dark'
+        : light
+          ? '主题 · 浅色'
+          : '主题 · 深色';
+  }
+  const settingsBtn = $('moreSettingsBtn');
+  if (settingsBtn) {
+    settingsBtn.textContent = currentLang === 'en' ? 'Settings · API' : '设置 · API';
+  }
+}
+
 function openMoreSheet() {
   const sheet = $('moreSheet');
   const backdrop = $('sheetBackdrop');
   const moreBtn = $('moreBtn');
+  syncMoreSheetChrome();
   if (sheet) sheet.hidden = false;
   if (backdrop) backdrop.hidden = false;
   if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
@@ -5993,6 +6029,7 @@ function renderAttachmentPreviews() {
   if (!visible.length) {
     bar.hidden = true;
     bar.innerHTML = '';
+    if (typeof syncScreenshotActionRow === 'function') syncScreenshotActionRow();
     return;
   }
   bar.hidden = false;
@@ -6028,6 +6065,7 @@ function renderAttachmentPreviews() {
     chip.appendChild(remove);
     bar.appendChild(chip);
   });
+  if (typeof syncScreenshotActionRow === 'function') syncScreenshotActionRow();
 }
 
 // ── Submit + Agent run ──
@@ -8170,23 +8208,11 @@ function setupCoreEventListeners() {
   // Settings sheet consolidates language / theme / API controls behind the topbar gear.
   $('moreLangBtn')?.addEventListener('click', () => {
     setAppLanguage(currentLang === 'zh' ? 'en' : 'zh');
-    const b = $('moreLangBtn');
-    if (b) b.textContent = currentLang === 'zh' ? '语言 · 中文' : 'Language · EN';
   });
   $('moreThemeBtn')?.addEventListener('click', () => {
     cycleThemeMode();
     currentTheme = getResolvedTheme();
-    const b = $('moreThemeBtn');
-    if (b) {
-      b.textContent =
-        currentTheme === 'light'
-          ? currentLang === 'en'
-            ? 'Theme · Light'
-            : '主题 · 浅色'
-          : currentLang === 'en'
-            ? 'Theme · Dark'
-            : '主题 · 深色';
-    }
+    syncMoreSheetChrome();
   });
   $('moreSettingsBtn')?.addEventListener('click', () => {
     closeMoreSheet();
@@ -8206,7 +8232,11 @@ function setupCoreEventListeners() {
   $('listenGrantDismiss')?.addEventListener('click', () => {
     hideListenGrantBar();
   });
-  $('moreBtn')?.addEventListener('click', () => openMoreSheet());
+  $('moreBtn')?.addEventListener('click', () => {
+    const sheet = $('moreSheet');
+    if (sheet && !sheet.hidden) closeMoreSheet();
+    else openMoreSheet();
+  });
   $('sheetClose')?.addEventListener('click', () => closeMoreSheet());
   $('sheetBackdrop')?.addEventListener('click', () => closeMoreSheet());
   $('clearHistoryBtn')?.addEventListener('click', () => clearAllHistory());
@@ -8331,7 +8361,10 @@ function setupCoreEventListeners() {
   $('deleteSessionBtn')?.addEventListener('click', () => void deleteActiveSession());
   $('sessionSelect')?.addEventListener('change', (e) => switchSession(e.target.value));
   wireArtifactMenu();
-  $('exportMdBtn')?.addEventListener('click', () => exportCurrentSessionMarkdown());
+  $('exportMdBtn')?.addEventListener('click', () => {
+    closeMoreSheet();
+    exportCurrentSessionMarkdown();
+  });
   $('thinkEffortPop')?.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
   });
@@ -11730,25 +11763,25 @@ async function downloadCurrentConversationTrajectory({
   }
 }
 
-/* Export Current Session Transcript to Markdown File */
+/* Export current session conversation — not agent trajectory / tool path. */
 function exportCurrentSessionMarkdown() {
-  const activeSess = sessions.find(s => s.id === activeSessionId);
-  if (!activeSess || !activeSess.messages || activeSess.messages.length === 0) {
-    showCustomModal({ title: '提示', placeholder: '', initialValue: '⚠️ 当前任务暂无可导出的聊天记录', onConfirm: () => {} });
+  const activeSess = sessions.find((s) => s.id === activeSessionId);
+  const messages = Array.isArray(activeSess?.messages) ? activeSess.messages : [];
+  if (!activeSess || sessionRecordTurns(messages) === 0) {
+    showSidepanelToast(t('exportSessionEmpty'), { error: true });
     return;
   }
 
-  let mdContent = `# Browser Kitten 任务记录: ${activeSess.name}\n\n`;
-  mdContent += `> 导出时间: ${new Date().toLocaleString()}\n\n`;
-
-  activeSess.messages.forEach((msg, idx) => {
-    if (msg.role === 'user') {
-      mdContent += `### 👤 用户:\n${msg.content}\n\n`;
-    } else {
-      if (msg.thought) {
-        mdContent += `<details><summary>🧠 Agent 思考流</summary>\n\n\`\`\`\n${msg.thought}\n\`\`\`\n</details>\n\n`;
-      }
-      mdContent += `### Browser Kitten:\n${msg.content}\n\n`;
+  const mdContent = buildSessionRecordMarkdown({
+    title: activeSess.name || '',
+    messages,
+    exportedAt: new Date().toLocaleString(),
+    labels: {
+      heading: t('moreSession'),
+      exportedAt: currentLang === 'en' ? 'Exported' : '导出时间',
+      user: currentLang === 'en' ? 'User' : '用户',
+      assistant: 'Browser Kitten',
+      untitled: currentLang === 'en' ? 'Untitled' : '未命名'
     }
   });
 
@@ -11756,11 +11789,12 @@ function exportCurrentSessionMarkdown() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `BrowserKitten_Session_${activeSess.name.replace(/[^\w\u4e00-\u9fa5]/g, '_')}_${Date.now()}.md`;
+  a.download = sessionRecordFilename(activeSess.name, currentLang);
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  showSidepanelToast(t('exportSessionDone'));
 }
 
 
@@ -14643,6 +14677,171 @@ async function nextStickyLabel(kind, groupId) {
   return { kind, n, handle: `${kind}${n}` };
 }
 
+/** @type {{ dataUrl: string, source?: string } | null} */
+let screenshotActionPayload = null;
+let screenshotActionBusy = false;
+
+function screenshotActionRowEl() {
+  return document.getElementById('screenshotActionRow');
+}
+
+function hideScreenshotActionRow() {
+  screenshotActionPayload = null;
+  screenshotActionBusy = false;
+  const row = screenshotActionRowEl();
+  if (!row) return;
+  row.hidden = true;
+  row.querySelectorAll('[data-shot-action]').forEach((btn) => {
+    btn.disabled = false;
+    btn.classList.remove('is-busy');
+    const key = btn.getAttribute('data-shot-action') === 'ocr'
+      ? 'shotOcr'
+      : btn.getAttribute('data-shot-action') === 'qr'
+        ? 'shotQr'
+        : 'shotCopy';
+    btn.textContent = t(key);
+  });
+}
+
+function syncScreenshotActionRow() {
+  const row = screenshotActionRowEl();
+  if (!row) return;
+  const dataUrl = screenshotActionPayload?.dataUrl;
+  const still = dataUrl && pendingAttachments.some((a) => a.dataUrl === dataUrl);
+  if (!still) hideScreenshotActionRow();
+}
+
+function offerScreenshotActions(payload) {
+  if (!payload?.dataUrl || !shouldOfferScreenshotActions(payload.source)) return;
+  const row = screenshotActionRowEl();
+  if (!row) return;
+  screenshotActionPayload = { dataUrl: payload.dataUrl, source: payload.source };
+  screenshotActionBusy = false;
+  row.hidden = false;
+  row.querySelectorAll('[data-shot-action]').forEach((btn) => {
+    btn.disabled = false;
+    btn.classList.remove('is-busy');
+    const action = btn.getAttribute('data-shot-action');
+    btn.textContent = t(action === 'ocr' ? 'shotOcr' : action === 'qr' ? 'shotQr' : 'shotCopy');
+  });
+}
+
+function setScreenshotActionBusy(action, busy) {
+  screenshotActionBusy = busy;
+  const row = screenshotActionRowEl();
+  if (!row) return;
+  row.querySelectorAll('[data-shot-action]').forEach((btn) => {
+    const isActive = btn.getAttribute('data-shot-action') === action;
+    btn.disabled = busy;
+    btn.classList.toggle('is-busy', busy && isActive);
+    if (isActive) {
+      btn.textContent = busy
+        ? t(action === 'ocr' ? 'shotOcrBusy' : 'shotQrBusy')
+        : t(action === 'ocr' ? 'shotOcr' : action === 'qr' ? 'shotQr' : 'shotCopy');
+    }
+  });
+}
+
+function applyRecognizedScreenshotText(text, toastKey) {
+  const body = String(text || '').trim();
+  if (!body) return false;
+  const existing = composerPlainText();
+  setComposerPlainText(existing ? `${existing.replace(/\s+$/, '')}\n${body}` : body);
+  void copyTextToSystem(body).catch(() => {});
+  pinTextsToClipboard([{ text: body, kind: 'text', source: { clipboard: true, screenshot: true } }], {
+    openDrawer: false,
+    toast: false
+  });
+  showQuickToast(t(toastKey));
+  return true;
+}
+
+async function runScreenshotOcr(dataUrl) {
+  const local = await detectLocalTextFromDataUrl(dataUrl);
+  if (local.ok && local.text) return local;
+  const settings = await loadLlmSettings();
+  if (!String(settings?.apiKey || '').trim()) {
+    return { ok: false, code: 'NEED_KEY', text: '' };
+  }
+  const url = chatCompletionsUrl(settings.apiBase);
+  if (!url) return { ok: false, code: 'VISION_FAILED', text: '' };
+  const res = await proxyJsonRequest({
+    url,
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${settings.apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: buildVisionOcrBody({
+      model: settings.model,
+      dataUrl,
+      lang: currentLang
+    })
+  });
+  if (!res?.ok) {
+    return {
+      ok: false,
+      code: 'VISION_FAILED',
+      text: '',
+      error: res?.json?.error?.message || res?.error || `HTTP ${res?.status || ''}`
+    };
+  }
+  const text = textFromChatCompletion(res.json);
+  return text ? { ok: true, source: 'vision', text } : { ok: false, code: 'EMPTY', text: '' };
+}
+
+async function handleScreenshotAction(action) {
+  const payload = screenshotActionPayload;
+  if (!payload?.dataUrl || screenshotActionBusy) return;
+  if (action === 'copy') {
+    try {
+      await copyDataUrlToClipboard(payload.dataUrl);
+    } catch (_) {}
+    hideScreenshotActionRow();
+    showQuickToast(t('shotCopied'));
+    return;
+  }
+  if (action === 'qr') {
+    setScreenshotActionBusy('qr', true);
+    try {
+      const found = await detectBarcodesFromDataUrl(payload.dataUrl);
+      if (found.code === 'NO_BARCODE_DETECTOR') {
+        showQuickToast(t('shotQrNeedApi'));
+        return;
+      }
+      if (!found.ok || !found.text) {
+        showQuickToast(t('shotQrEmpty'));
+        return;
+      }
+      applyRecognizedScreenshotText(found.text, 'shotQrDone');
+      hideScreenshotActionRow();
+    } finally {
+      if (screenshotActionPayload) setScreenshotActionBusy('qr', false);
+    }
+    return;
+  }
+  if (action !== 'ocr') return;
+  setScreenshotActionBusy('ocr', true);
+  try {
+    const found = await runScreenshotOcr(payload.dataUrl);
+    if (found.code === 'NEED_KEY') {
+      showQuickToast(t('shotOcrNeedKey'));
+      return;
+    }
+    if (!found.ok || !found.text) {
+      showQuickToast(found.code === 'EMPTY' ? t('shotOcrEmpty') : t('shotOcrFail'));
+      return;
+    }
+    applyRecognizedScreenshotText(found.text, 'shotOcrDone');
+    hideScreenshotActionRow();
+  } catch (err) {
+    console.warn('[CAPTURE_WP] ocr failed', err);
+    showQuickToast(t('shotOcrFail'));
+  } finally {
+    if (screenshotActionPayload) setScreenshotActionBusy('ocr', false);
+  }
+}
+
 async function attachScreenshotToChat(payload) {
   if (!payload?.dataUrl) return;
   const attachKey = screenshotAttachKey(payload.dataUrl);
@@ -14656,6 +14855,9 @@ async function attachScreenshotToChat(payload) {
   }
   if (pendingAttachments.some((a) => a.isImage && a.dataUrl === payload.dataUrl)) {
     chrome.storage.local.remove(STORAGE_PENDING_SCREENSHOT);
+    if (payload.source !== 'paste' && typeof offerScreenshotActions === 'function') {
+      offerScreenshotActions(payload);
+    }
     return;
   }
   screenshotAttachInflight.add(attachKey);
@@ -14676,6 +14878,9 @@ async function attachScreenshotToChat(payload) {
     pendingAttachments.push(att);
     if (payload.source === 'paste') insertPastedScreenshotChip(att);
     renderAttachmentPreviews();
+    if (payload.source !== 'paste' && typeof offerScreenshotActions === 'function') {
+      offerScreenshotActions(payload);
+    }
     // If SW clipboard inject failed, retry from Side Panel document
     if (!payload.clipboardOk) {
       try {
@@ -14750,6 +14955,21 @@ function setupScreenshotCapture() {
   const captureBtn = document.getElementById('captureScreenshotBtn');
   if (captureBtn) {
     captureBtn.addEventListener('click', () => requestUserScreenshot('button'));
+  }
+
+  const row = screenshotActionRowEl();
+  if (row && !row.dataset.wired) {
+    row.dataset.wired = '1';
+    row.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-shot-action]');
+      if (!btn) return;
+      void handleScreenshotAction(btn.getAttribute('data-shot-action'));
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' && e.key !== 'Esc') return;
+      if (!screenshotActionPayload || row.hidden) return;
+      hideScreenshotActionRow();
+    });
   }
 
   // Live broadcast from background (hotkey while sidepanel open)

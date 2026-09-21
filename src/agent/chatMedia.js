@@ -53,7 +53,12 @@ export function resolveChatMediaCapabilities(settings = {}, models = [], evidenc
     if (kind === 'audio' || kind === 'video') {
       if (knownAV || (kind === 'audio' && ['api.openai.com', 'openrouter.ai'].includes(hostname) && OPENAI_AUDIO.test(model))) {
         state = 'supported'; source = 'builtin';
-      } else if (vision === 'text-only' || (official && /^(?:openai\/)?gpt-4o(?:-mini)?$/.test(model))) {
+      } else if (
+        vision === 'text-only' ||
+        hostname === 'api.deepseek.com' ||
+        (official && /^(?:openai\/)?gpt-4o(?:-mini)?$/.test(model))
+      ) {
+        // Official DeepSeek documents image input on Flash; it has no audio/video SKU.
         state = 'unsupported'; source = 'builtin';
       }
     }

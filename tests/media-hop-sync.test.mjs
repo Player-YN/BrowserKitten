@@ -102,6 +102,9 @@ test('offscreen storage bridge uses the worker result/values contract', async ()
 
 test('unknown gateway protocols never receive calibration samples, including images', async () => {
   for (const kind of ['image', 'audio', 'video']) assert.equal(checkTransport({ transport: 'none' }, kind), false);
+  assert.equal(checkTransport({ transport: 'none', base: 'https://api.deepseek.com/v1' }, 'image'), true);
+  assert.equal(checkTransport({ transport: 'none', base: 'https://api.deepseek.com/v1' }, 'audio'), false);
+  assert.equal(checkTransport({ transport: 'none', base: 'https://api.deepseek.com/v1' }, 'video'), false);
 });
 
 test('catalog arriving during an image check prevents unnecessary audio/video checks', async () => {

@@ -14,8 +14,29 @@ export function contextWindowStatusLabel(status) {
   if (status?.source === 'user') return 'contextWindowUser';
   if (status?.source === 'measured') return 'contextWindowMeasured';
   if (status?.source === 'catalog') return 'contextWindowCatalog';
-  if (status?.source === 'family') return 'contextWindowFamily';
   return 'contextWindowUnknown';
+}
+
+/** Family guesses are compacting fallbacks, never a displayed measurement. */
+export function contextWindowPresentable(status) {
+  return !status?.checking && ['user', 'measured', 'catalog'].includes(status?.source);
+}
+
+export function contextWindowIconState(status) {
+  if (status?.checking) return 'checking';
+  if (status?.source === 'measured') return 'measured';
+  if (status?.source === 'user' || status?.source === 'catalog') return 'supported';
+  return 'unknown';
+}
+
+export function contextWindowDisplay(status) {
+  const presentable = contextWindowPresentable(status);
+  const raw = presentable ? Number(status.window || status.catalogWindow) : NaN;
+  return {
+    state: contextWindowIconState(status),
+    label: contextWindowStatusLabel(status),
+    window: Number.isFinite(raw) && raw >= 2048 ? Math.round(raw) : null
+  };
 }
 
 export function contextWindowCheckErrorLabel(kind) {
@@ -67,9 +88,30 @@ export function createContextWindowSettings({
     }) ? provider : null;
   }
 
-  function message(key, extra = '') {
+  function setData(node, key, value) {
+    if (!node) return;
+    // HTMLElement.dataset is a getter-only DOMStringMap — never assign the object.
+    if (node.dataset) node.dataset[key] = value;
+    else node.setAttribute?.(`data-${key}`, value);
+  }
+  function paint(title, state = 'unknown') {
     const status = el('contextWindowStatus');
-    if (status) status.textContent = extra ? `${t(key)} · ${extra}` : t(key);
+    if (!status) return;
+    status.replaceChildren();
+    status.className = 'capability-status';
+    status.title = title || '';
+    setData(status, 'state', state);
+    status.setAttribute('aria-label', title || '');
+    const icon = root.createElement('span');
+    icon.className = `capability-icon capability-window is-${state}`;
+    setData(icon, 'kind', 'window');
+    setData(icon, 'state', state);
+    icon.title = title || '';
+    icon.setAttribute('aria-label', title || '');
+    status.append(icon);
+  }
+  function message(key, extra = '') {
+    paint(extra ? `${t(key)} · ${extra}` : t(key));
     if (el('contextWindowRecheck')) el('contextWindowRecheck').disabled = true;
   }
 
@@ -99,14 +141,13 @@ export function createContextWindowSettings({
       }
       automatic = status.autoCheck !== false;
       if (el('contextWindowAutoCheck')) el('contextWindowAutoCheck').checked = automatic;
-      const shown = formatWindow(status.window || status.catalogWindow);
-      const label = t(contextWindowStatusLabel(status)).replace('{n}', shown || '—');
-      let line = `${provider.model} · ${label}`;
-      const err = !status.checking && !status.window && status.evidence?.kind
+      const view = contextWindowDisplay(status);
+      const shown = formatWindow(view.window);
+      const label = t(view.label).replace('{n}', shown || '—');
+      const err = !status.checking && !view.window && status.evidence?.kind
         ? t(contextWindowCheckErrorLabel(status.evidence.kind))
         : '';
-      if (err) line += `（${err}）`;
-      if (el('contextWindowStatus')) el('contextWindowStatus').textContent = line;
+      paint(err ? `${label} · ${err}` : label, view.state);
       if (el('contextWindowRecheck')) {
         el('contextWindowRecheck').disabled = !!status.checking || status.source === 'catalog' || status.source === 'user';
       }
@@ -127,9 +168,9 @@ export function createContextWindowSettings({
     title.className = 'settings-label';
     title.textContent = t('contextWindowTitle');
     title.title = t('contextWindowCost');
-    const status = root.createElement('p');
+    const status = root.createElement('div');
     status.id = 'contextWindowStatus';
-    status.className = 'settings-hint';
+    status.className = 'capability-status';
     status.setAttribute('aria-live', 'polite');
     const recheck = root.createElement('button');
     recheck.type = 'button';

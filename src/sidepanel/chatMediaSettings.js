@@ -21,6 +21,13 @@ export function mediaStatusLabel(input, checking, kind) {
   return 'chatMediaUnknown';
 }
 
+export function mediaIconState(label) {
+  if (label === 'chatMediaChecking') return 'checking';
+  if (label === 'chatMediaUnknown') return 'unknown';
+  if (label === 'chatMediaNo' || label === 'chatMediaRejected') return 'unsupported';
+  return 'supported';
+}
+
 export function mediaCheckErrorLabel(error) {
   if (error === 'ANSWER_MISMATCH') return 'chatMediaCheckAnswerMismatch';
   if (error === 'HTTP_401' || error === 'HTTP_403') return 'chatMediaCheckAuth';
@@ -50,9 +57,32 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
       base: el('apiBaseInput')?.value, model: el('providerModelInput')?.value,
       apiKey: el('apiKeyInput')?.value?.trim(), overrides }) ? provider : null;
   }
-  function message(key) {
+  function setData(node, key, value) {
+    if (!node) return;
+    // HTMLElement.dataset is a getter-only DOMStringMap — never assign the object.
+    if (node.dataset) node.dataset[key] = value;
+    else node.setAttribute?.(`data-${key}`, value);
+  }
+  function paint(title, icons = [], state = 'unknown') {
     const status = el('chatMediaStatus');
-    if (status) status.textContent = t(key);
+    if (!status) return;
+    status.replaceChildren();
+    status.className = 'capability-status';
+    status.title = title || '';
+    setData(status, 'state', state);
+    status.setAttribute('aria-label', title || '');
+    for (const icon of icons) {
+      const node = root.createElement('span');
+      node.className = `capability-icon is-${icon.state}`;
+      setData(node, 'kind', icon.kind);
+      setData(node, 'state', icon.state);
+      node.title = icon.title;
+      node.setAttribute('aria-label', icon.title);
+      status.append(node);
+    }
+  }
+  function message(key) {
+    paint(t(key));
     if (el('chatMediaRecheck')) el('chatMediaRecheck').disabled = true;
   }
   async function refresh({ start = false, force = false } = {}) {
@@ -80,15 +110,20 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
       automatic = status.autoCheck !== false;
       if (el('chatMediaAutoCheck')) el('chatMediaAutoCheck').checked = automatic;
       const caps = status.capabilities || {};
-      const lines = ['image', 'audio', 'video'].map(kind => {
+      const icons = ['image', 'audio', 'video'].map((kind) => {
         const input = caps.inputs?.[kind];
-        let line = `${t(`chatMedia_${kind}`)}：${t(mediaStatusLabel(input, status.checking, kind))}`;
-        if (!status.checking && input?.lastCheck?.state === 'unknown' && input.lastCheck.error) line += `（${t(mediaCheckErrorLabel(input.lastCheck.error))}）`;
-        return line;
+        const label = mediaStatusLabel(input, status.checking, kind);
+        const parts = [t(`chatMedia_${kind}`), t(label)];
+        if (!status.checking && input?.lastCheck?.state === 'unknown' && input.lastCheck.error) {
+          parts.push(t(mediaCheckErrorLabel(input.lastCheck.error)));
+        }
+        if ((kind === 'audio' || kind === 'video') && caps.transport === 'none') parts.push(t('chatMediaNeedProtocol'));
+        if (kind === 'video' && input?.state === 'supported' && caps.videoAudio !== 'verified') {
+          parts.push(t('chatMediaVideoAudioUnknown'));
+        }
+        return { kind, state: mediaIconState(label), title: parts.join(' · ') };
       });
-      if (caps.transport === 'none') lines.push(t('chatMediaNeedProtocol'));
-      if (caps.inputs?.video?.state === 'supported' && caps.videoAudio !== 'verified') lines.push(t('chatMediaVideoAudioUnknown'));
-      if (el('chatMediaStatus')) el('chatMediaStatus').textContent = `${provider.model} · ${lines.join(' · ')}`;
+      paint(icons.map((icon) => icon.title).join('\n'), icons, status.checking ? 'checking' : icons[0]?.state || 'unknown');
       if (el('chatMediaRecheck')) el('chatMediaRecheck').disabled = !!status.checking;
       if (status.checking) poll();
     } catch {
@@ -115,7 +150,10 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
       panel.replaceChildren();
       const title = root.createElement('p'); title.className = 'settings-label'; title.textContent = t('chatMediaTitle');
       title.title = t('chatMediaHint');
-      const status = root.createElement('p'); status.id = 'chatMediaStatus'; status.className = 'settings-hint'; status.setAttribute('aria-live', 'polite');
+      const status = root.createElement('div');
+      status.id = 'chatMediaStatus';
+      status.className = 'capability-status';
+      status.setAttribute('aria-live', 'polite');
       const recheck = root.createElement('button'); recheck.type = 'button'; recheck.id = 'chatMediaRecheck';
       recheck.className = 'btn btn-secondary settings-mini-btn'; recheck.textContent = t('chatMediaRecheck'); recheck.disabled = true;
       recheck.title = t('chatMediaHint');

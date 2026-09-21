@@ -274,12 +274,13 @@ body {
 }
 
 .panel.is-home-empty .composer {
-  /* In-slot: no sticky footer chrome */
+  /* In-slot: no sticky footer chrome. Visible overflow so chip rings are not clipped. */
   border-top: none;
   background: transparent;
   backdrop-filter: none;
   padding: 0;
   width: 100%;
+  overflow: visible;
 }
 
 .panel.is-home-empty .composer-meta {

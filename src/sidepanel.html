@@ -311,7 +311,6 @@
           <div class="home-center" id="homeCenter">
             <div class="home-mark home-mark-hero" aria-hidden="true"></div>
             <div class="home-composer-slot" id="homeComposerSlot"></div>
-            <p class="suggestion-note" data-i18n="suggestionSendHint">点击建议会发送给 Bot</p>
             <div class="hint-chips" id="hintChips">
               <button type="button" class="hint-chip" data-prompt-key="userGuide" data-i18n="guideChipLabel" data-prompt="Browser Kitten 能做什么？简短介绍直接发起任务、点选后的下载复制与导出，以及用 @ 和对话参考引用资料。">怎么用 Browser Kitten？</button>
             </div>
@@ -430,6 +429,11 @@
       </div>
       <div class="composer-inner">
         <div class="attachment-preview-bar" id="attachmentPreviewBar" hidden></div>
+        <div class="shot-action-row" id="screenshotActionRow" hidden role="group" data-i18n-aria="shotActions" aria-label="截图之后">
+          <button type="button" class="shot-action-chip" data-shot-action="ocr" data-i18n="shotOcr">OCR</button>
+          <button type="button" class="shot-action-chip" data-shot-action="qr" data-i18n="shotQr">二维码</button>
+          <button type="button" class="shot-action-chip" data-shot-action="copy" data-i18n="shotCopy">复制</button>
+        </div>
         <div class="composer-input-row">
           <button type="button" class="attach-btn" id="attachFileBtn" title="上传图片或文本文件" aria-label="Attach">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -508,25 +512,29 @@
     <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
     <div class="more-sheet" id="moreSheet" hidden role="dialog" aria-modal="true" data-i18n-aria="moreTitle" aria-label="设置">
       <div class="sheet-handle"></div>
-      <h3 data-i18n="moreTitle" data-i18n-title="moreNote" title="默认首页刻意隐藏这些项，降低新用户认知负担。">设置</h3>
+      <header class="sheet-head">
+        <h3 data-i18n="moreTitle" data-i18n-title="moreNote" title="默认首页刻意隐藏这些项，降低新用户认知负担。">设置</h3>
+      </header>
 
-      <div class="sheet-section">
-        <div class="sheet-section-title">外观与语言</div>
-        <div class="sheet-tools-row">
-          <button type="button" class="sheet-mini-btn" id="moreLangBtn" title="语言">语言 · 中/EN</button>
-          <button type="button" class="sheet-mini-btn" id="moreThemeBtn" title="主题">主题</button>
-          <button type="button" class="sheet-mini-btn" id="moreSettingsBtn" title="设置">设置 · API</button>
-        </div>
-      </div>
+      <div class="sheet-body">
+        <section class="sheet-section" aria-labelledby="moreAppearanceTitle">
+          <div class="sheet-section-title" id="moreAppearanceTitle" data-i18n="moreAppearance">外观与语言</div>
+          <div class="sheet-tools-row">
+            <button type="button" class="sheet-mini-btn" id="moreLangBtn" data-i18n-title="moreLang" title="语言">语言 · 中文</button>
+            <button type="button" class="sheet-mini-btn" id="moreThemeBtn" data-i18n-title="moreTheme" title="主题">主题 · 深色</button>
+            <button type="button" class="sheet-mini-btn" id="moreSettingsBtn" data-i18n-title="moreSettings" title="设置 · API">设置 · API</button>
+          </div>
+        </section>
 
-      <div class="sheet-section">
-        <div class="sheet-section-title" data-i18n="moreSkills">Skills 技能</div>
-        <button type="button" class="sheet-action-btn" id="moreSkillsBtn" data-i18n="moreSkillsOpen" data-i18n-title="settingsSkillsHint" title="打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。">打开 Skills</button>
-      </div>
+        <section class="sheet-section" aria-labelledby="moreSkillsTitle">
+          <div class="sheet-section-title" id="moreSkillsTitle" data-i18n="moreSkills">技能</div>
+          <button type="button" class="sheet-action-btn" id="moreSkillsBtn" data-i18n="moreSkillsOpen" data-i18n-title="settingsSkillsHint" title="打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。">打开 Skills</button>
+        </section>
 
-      <div class="sheet-section">
-        <div class="sheet-section-title">🛤️ <span data-i18n="moreTrajectory">运行轨迹</span></div>
-        <button type="button" class="sheet-action-btn" id="exportMdBtn" data-i18n-title="trajectoryThoughtWarn" title="轨迹包含模型思考，可能含敏感信息。导出即表示你主动保存这段思考。">导出任务 Markdown</button>
+        <section class="sheet-section" aria-labelledby="moreSessionTitle">
+          <div class="sheet-section-title" id="moreSessionTitle" data-i18n="moreSession">会话记录</div>
+          <button type="button" class="sheet-action-btn" id="exportMdBtn" data-i18n="exportSessionMd" data-i18n-title="exportSessionMdHint" title="导出当前会话的对话记录，不含运行轨迹。">导出 Markdown</button>
+        </section>
       </div>
 
       <!-- Keep sessionSelect in DOM for JS that still refreshes sessions (hidden) -->

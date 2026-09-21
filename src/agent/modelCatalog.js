@@ -169,7 +169,9 @@ function familyContextWindow(modelId) {
   if (s.includes('claude')) return 200_000;
   if (s.includes('grok')) return 131_072;
   if (/gpt-4\.1|o3|o4-mini/.test(s)) return 1_000_000;
-  if (s.includes('deepseek')) return 128_000;
+  // DeepSeek /models does not advertise a window; V3-era 128k is not a
+  // measurement of current Flash (1M). Leave unknown so UI/probe do not
+  // present a family guess as a fact.
   if (s.includes('gpt-4o') || s.includes('gpt-4')) return 128_000;
   return null;
 }
@@ -249,9 +251,11 @@ function hasExplicitVisionHint(id) {
 /**
  * Known text-only chat families (leaf id). Vision exceptions (`vl` / `vision`) win.
  * Unknown ids are NOT listed — BYOK defaults permissive.
+ * Official DeepSeek Pro has no vision. Do not blanket-match `deepseek-*`:
+ * current Flash / chat aliases accept image_url on api.deepseek.com.
  */
 const TEXT_ONLY_CHAT_PATTERNS = [
-  /^deepseek(?:[-_.]|$)/,
+  /^deepseek-v4-pro(?:[-_.]|$)/,
   /^o1-mini(?:[-_.]|$)/,
   /^o3-mini(?:[-_.]|$)/,
   /^gpt-3\.5/,
@@ -264,6 +268,8 @@ const TEXT_ONLY_CHAT_PATTERNS = [
  * Known multimodal / vision chat families (leaf id). Informational — unknown is still capable.
  */
 const VISION_CHAT_PATTERNS = [
+  /^deepseek-(?:v\d+(?:\.\d+)?-)?flash(?:[-_.]|$)/,
+  /^deepseek-chat(?:[-_.]|$)/,
   /^grok-[34](?:[.\-]|$)/,
   /^grok-2-vision/,
   /^gpt-4o/,

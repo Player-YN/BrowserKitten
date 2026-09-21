@@ -8,6 +8,7 @@ import {
   parseCatalogInputModalities,
   parseModelsResponse,
   resolveContextWindow,
+  classifyChatVisionCapability,
   isMissingModelsCatalogError,
   refreshAndCacheModels,
   DEFAULT_CONTEXT_WINDOW
@@ -89,6 +90,20 @@ test('DeepSeek/OpenAI basic model rows remain unknown rather than being marked t
     object: 'list',
     data: [{ id: 'deepseek-chat', object: 'model', owned_by: 'deepseek' }]
   }), [{ id: 'deepseek-chat' }]);
+});
+
+test('current DeepSeek flash/chat SKUs are vision; Pro stays text-only', () => {
+  assert.equal(classifyChatVisionCapability('deepseek-flash'), 'vision');
+  assert.equal(classifyChatVisionCapability('deepseek-v4-flash'), 'vision');
+  assert.equal(classifyChatVisionCapability('deepseek-v4-flash-vision-exp'), 'vision');
+  assert.equal(classifyChatVisionCapability('deepseek-chat'), 'vision');
+  assert.equal(classifyChatVisionCapability('deepseek-v4-pro'), 'text-only');
+});
+
+test('DeepSeek without a catalog window is unknown, not a fake 128k family fact', () => {
+  assert.equal(resolveContextWindow('deepseek-flash', null, { allowDefault: false }), null);
+  assert.equal(resolveContextWindow('deepseek-v4-flash', null, { allowDefault: false }), null);
+  assert.equal(resolveContextWindow('deepseek-flash', { contextWindow: 1_000_000 }), 1_000_000);
 });
 
 test('runtime-only offscreen bridge reads and writes catalog cache, while bridge errors reject', async () => {

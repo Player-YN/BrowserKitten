@@ -172,7 +172,7 @@
 }
 
 /* Focus ring — interactive controls only (never textarea: composer has its own shell ring) */
-:focus-visible:not(textarea):not(input):not(select) {
+:focus-visible:not(textarea):not(input):not(select):not(.composer-bubble) {
   outline: 1px solid var(--signal);
   outline-offset: 2px;
   box-shadow: none;
