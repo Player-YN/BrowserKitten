@@ -1185,7 +1185,12 @@ body[data-theme='light'] .topbar {
 
 .sel-toolbar {
   display: grid;
-  grid-template-columns: auto auto minmax(48px, 1fr) minmax(84px, 1.25fr) auto;
+  grid-template-columns:
+    minmax(0, 0.9fr)
+    minmax(0, 0.9fr)
+    minmax(0, 0.75fr)
+    minmax(0, 1.2fr)
+    var(--density-pick-h, 34px);
   grid-template-areas: 'pick shot tools workflows library';
   align-items: center;
   gap: 6px 6px;
@@ -1315,7 +1320,7 @@ body[data-theme='light'] .topbar {
 }
 
 .pick-btn.is-active .pick-label {
-  min-width: 3.2em;
+  min-width: 0;
 }
 
 /* Secondary quick entrances share the screenshot button's visual contract. */
@@ -1365,6 +1370,20 @@ body[data-theme='light'] .topbar {
   min-width: 0;
   padding-inline: 8px;
 }
+.sel-toolbar .pick-btn,
+.sel-toolbar .shot-btn,
+.sel-toolbar .library-entry-btn {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.sel-toolbar .pick-label,
+.sel-toolbar .shot-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .shot-btn:focus-visible,
 .library-entry-btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -1372,18 +1391,18 @@ body[data-theme='light'] .topbar {
 }
 .sel-toolbar .sel-pin-btn { justify-self: end; }
 @container panel (max-width: 380px) {
-  .sel-toolbar { grid-template-columns: auto auto minmax(44px, 1fr) minmax(72px, 1.25fr) auto; gap: 4px; }
-  .sel-toolbar .pick-btn, .sel-toolbar .shot-btn { min-width: 60px; padding-inline: 7px; }
+  .sel-toolbar { gap: 4px; }
+  .sel-toolbar .pick-btn, .sel-toolbar .shot-btn { padding-inline: 5px; }
   .sel-toolbar .library-entry-btn { padding-inline: 5px; font-size: 12px; }
 }
 @container panel (max-width: 360px) {
-  .sel-toolbar, .selection-bar:not(.is-empty) .sel-toolbar {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-    grid-template-areas: 'pick shot .' 'tools workflows library';
+  .panel[data-density='compact'] .sel-toolbar .pick-btn,
+  .sel-toolbar .pick-btn,
+  .sel-toolbar .shot-btn {
+    min-width: 0;
+    padding-inline: 3px;
   }
-  .selection-bar:not(.is-empty) .sel-toolbar {
-    grid-template-areas: 'pick shot .' 'tools workflows library' 'summary pin actions';
-  }
+  .sel-toolbar .library-entry-btn { padding-inline: 3px; }
 }
 
 .sel-summary {

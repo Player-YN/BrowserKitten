@@ -8,7 +8,7 @@ Production UI entry remains **`src/sidepanel.html`** → **`src/sidepanel.js`** 
 
 顶部两个快捷位置默认打开「工具」与「Workflow」；固定后显示条目名称，点击先收集参数再运行。旁边的「⋯」始终打开个人库，可取消固定或替换常用项。Tool 是保存的本地脚本，运行走 runner RPC，不发模型请求；Workflow 区分「Agent 任务」和「自动化」：前者走普通模型对话；后者由 `workflowUi.js` 录制、编辑、审阅和监控，通过确定性运行 RPC 执行。自动化可在没有 Key 时直接制作。所有新库项都必须从 draft 经用户点击「添加／更新」发布；正式版本在 draft 修改、试运行或失败时继续可用。
 
-快捷入口统一使用 density 高度与圆角 token：点选为黑白反色主按钮，截图、工具、Workflow 和个人库为描边按钮；橙色用于焦点与运行提示。固定长名称省略显示，完整名称保留在 tooltip 和 accessible name。宽度不超过 360px 时常用项另起一行，选区摘要和固定／清空控制独立排布；入口网格由 `sidepanel.css` 统一维护。
+快捷入口统一使用 density 高度与圆角 token：点选为黑白反色主按钮，截图、工具、Workflow 和个人库为描边按钮；橙色用于焦点与运行提示。点选、截图、两个常用项和个人库在所有侧栏宽度下保持一行，窄栏通过减小 gap／横向 padding 和单行省略容纳；完整名称保留在 tooltip 和 accessible name。选区摘要和固定／清空控制独立排布；入口网格由 `sidepanel.css` 统一维护。
 
 `personalLibraryUi.js` 只渲染和收集参数，不保存定义、执行脚本或发布版本。它通过注入的 `getPins/setPins` 维护最多两个常用项 ID，并由注入的 `run/create/revert/remove/import/export` 回调进入 sidepanel 编排。`collectPersonalLibraryInput(entry, { document, t })` 是个人库正式条目的参数弹窗入口，支持 runtime 的 JSON Schema 子集（string/number/integer/boolean/enum），取消返回 `null`；service 仍是最终校验者。
 
@@ -31,7 +31,7 @@ Linked from `sidepanel.html` (do not reorder without reason):
 
 | Query / flag | Behavior |
 |--------------|----------|
-| `@container panel (max-width: 340px)` | Hide `.page-url` and `#turnJumpRail`, stack `.composer-meta` / `.sel-toolbar`, hide `.brand-sub`; disclosure drops page/access chips; live rows hide unless sticky |
+| `@container panel (max-width: 340px)` | Hide `.page-url` and `#turnJumpRail`, stack `.composer-meta`, hide `.brand-sub`; the quick toolbar stays one row; disclosure drops page/access chips; live rows hide unless sticky |
 | `@container panel (max-width: 280px)` | Visually hide status label, hide composer hint, live disclosure keeps one current line; fold line wraps |
 | `data-density="compact"` on `.panel` | JS mirror when panel width &lt; 320 (`density.js` ResizeObserver); same density tokens as mid-narrow |
 
