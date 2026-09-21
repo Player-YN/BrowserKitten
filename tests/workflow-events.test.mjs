@@ -24,7 +24,7 @@ function setup(rpc) {
   const text = () => walk(doc.body).map(n => n.textContent || '').join('\n');
   return { ui, doc, text, errors };
 }
-const workflow = { version: 1, tabs: [], steps: [{ id: 'manual', title: 'Review', op: 'manual' }] };
+const workflow = { version: 2, tabs: [], steps: [{ id: 'manual', title: 'Review', op: 'manual' }] };
 const entry = { entryId: 'entry', kind: 'workflow', name: 'Flow', workflow, parameters: {} };
 const run = (revision, status, id = 'run1') => ({ id, type: 'run', revision, status, definition: entry, sessionId: 'session', nextStep: 0, attempts: [], bindings: {} });
 const draft = { ...entry, draftId: 'draft', sessionId: 'maker', revision: 1 };

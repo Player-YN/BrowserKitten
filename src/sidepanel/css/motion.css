@@ -1,5 +1,6 @@
 /**
  * Motion kit — Quiet Black: no ambient wash, cubic-bezier only.
+ * Conversation chrome: starlight overlay on .task-body / .think-body-wrap.
  */
 
 .ambient-layer {
@@ -185,6 +186,120 @@ select:focus-visible {
   box-shadow: none;
 }
 
+/*
+ * Starlight overlay — shared by .task-body and .think-body-wrap.
+ * Only the thumb (::after) lights: glow + particles stay on that pill.
+ * No full-height rail / glowing column. Chat 6px, think 4px.
+ */
+@keyframes starlight-dust {
+  to {
+    background-position:
+      50% 28px,
+      40% -24px,
+      60% 32px,
+      45% -20px,
+      55% 26px,
+      center;
+  }
+}
+
+@keyframes starlight-mote-twinkle {
+  0%,
+  100% {
+    opacity: 0.82;
+  }
+  40% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 0.64;
+  }
+}
+
+@keyframes starlight-twinkle {
+  0%,
+  100% {
+    filter: brightness(1);
+    box-shadow:
+      0 0 3px 0 rgba(244, 243, 239, 0.45),
+      0 0 7px 1px color-mix(in srgb, var(--blue) 48%, transparent);
+  }
+  42% {
+    filter: brightness(1.28);
+    box-shadow:
+      0 0 4px 1px rgba(255, 255, 255, 0.6),
+      0 0 9px 2px color-mix(in srgb, var(--blue) 56%, transparent);
+  }
+}
+
+.panel.is-thread-open .session-thread,
+.panel.is-thread-open .task-card,
+.think-block {
+  position: relative;
+}
+
+.panel.is-thread-open .session-thread:has(> .task-body.is-scrolling)::after,
+.panel.is-thread-open .task-card:has(> .task-body.is-scrolling)::after,
+.think-block:has(> .think-body-wrap.is-scrolling)::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--starlight-track-top, 46px) + var(--starlight-thumb-top, 0px));
+  right: 3px;
+  width: var(--density-scroll-w, 6px);
+  height: var(--starlight-thumb-h, 48px);
+  overflow: hidden;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 8;
+  background-image:
+    radial-gradient(1.2px 1.2px at 50% 10%, #fff 55%, transparent 70%),
+    radial-gradient(1px 1px at 35% 28%, #e8e6ff 50%, transparent 70%),
+    radial-gradient(1.1px 1.1px at 70% 46%, color-mix(in srgb, var(--blue) 75%, #fff) 55%, transparent 72%),
+    radial-gradient(0.9px 0.9px at 40% 64%, #f4f3ef 48%, transparent 70%),
+    radial-gradient(1.2px 1.2px at 60% 82%, color-mix(in srgb, var(--blue) 65%, #fff) 50%, transparent 70%),
+    linear-gradient(
+      180deg,
+      #f4f3ef,
+      color-mix(in srgb, var(--blue) 52%, #fff) 28%,
+      color-mix(in srgb, var(--ink) 18%, #c4b5fd) 58%,
+      color-mix(in srgb, var(--signal) 22%, #e8e6ff) 80%,
+      #f4f3ef
+    );
+  background-size:
+    6px 28px,
+    6px 28px,
+    6px 32px,
+    6px 28px,
+    6px 32px,
+    100% 100%;
+  background-position:
+    50% 0,
+    40% 4px,
+    60% 8px,
+    45% 2px,
+    55% 6px,
+    center;
+  background-repeat: repeat-y, repeat-y, repeat-y, repeat-y, repeat-y, no-repeat;
+  box-shadow:
+    0 0 3px 0 rgba(244, 243, 239, 0.45),
+    0 0 7px 1px color-mix(in srgb, var(--blue) 48%, transparent);
+  animation:
+    starlight-dust 3.6s linear infinite,
+    starlight-mote-twinkle 2.4s var(--ease-in-out) infinite,
+    starlight-twinkle 1.7s var(--ease-in-out) infinite;
+}
+
+.think-block:has(> .think-body-wrap.is-scrolling)::after {
+  top: calc(var(--starlight-track-top, 0px) + var(--starlight-thumb-top, 0px));
+  right: 4px;
+  width: 4px;
+}
+
+.panel.has-turn-jump.is-thread-open .session-thread:has(> .task-body.is-scrolling)::after,
+.panel.has-turn-jump.is-thread-open .task-card:has(> .task-body.is-scrolling)::after {
+  right: 21px;
+}
+
 /* Popover enter (clipboard export menu etc.) */
 @keyframes pw-popover-in {
   from {
@@ -204,6 +319,7 @@ select:focus-visible {
   }
   .ambient-layer::before,
   .ambient-layer::after,
+  .session-bind-add-btn.composer-bubble:not(.has-bound)::before,
   .pick-btn.is-active,
   .pick-btn[aria-pressed='true'],
   .status-pill[data-state='running'] .status-dot,
@@ -221,6 +337,14 @@ select:focus-visible {
   .sheet-backdrop,
   .more-sheet {
     animation: none !important;
+  }
+
+  .panel.is-thread-open .session-thread:has(> .task-body.is-scrolling)::after,
+  .panel.is-thread-open .task-card:has(> .task-body.is-scrolling)::after,
+  .think-block:has(> .think-body-wrap.is-scrolling)::after {
+    animation: none !important;
+    filter: none;
+    opacity: 1;
   }
 
   .clip-export-item,

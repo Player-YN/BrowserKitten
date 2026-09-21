@@ -23,6 +23,7 @@ import { bindAccessPolicyChromeListener, readEffectiveAccessPolicy, writeAccessP
 import { configureTabLeasePersistence, readTabLease, removeTabLease } from './agent/vnext/host/tabLease.js';
 import { releaseBrowserExecution, reconcileBrowserExecutions } from './agent/vnext/host/browserExecution.js';
 import { createTaskScheduler, resolveTaskPage } from './agent/vnext/host/taskScheduler.js';
+import { createWorkflowScheduler } from './agent/vnext/host/workflowScheduler.js';
 import { createWorkflowHost } from './agent/vnext/host/workflowHost.js';
 import {
   isBrowserBotPageUrl,
@@ -36,6 +37,7 @@ import {
   tabCreateProps
 } from './agent/vnext/host/browserTabGroups.js';
 import { isMentionablePageUrl, normalizePageRef } from './agent/vnext/sessionWorkspace/pageContext.js';
+import { runScreenshotOcr } from './sidepanel/screenshotRecognize.js';
 
 configureTabLeasePersistence(chrome.storage.session);
 bindAccessPolicyChromeListener();
@@ -128,7 +130,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     }
     return;
   }
-  // CAPTURE_WP: user hotkey → region select (Win+Shift+S style) → crop → attach
+  // CAPTURE_WP: user hotkey → freeze viewport first → draw on that PNG (copy / OCR / QR)
   if (command === "capture-screenshot") {
     try {
       const result = await captureVisibleTabForUser("hotkey");
@@ -150,10 +152,10 @@ let lastCaptureAt = 0;
 const pendingRegionSelectByTab = new Map();
 
 /**
- * User-operated capture: show crosshair region picker on the page, then
- * captureVisibleTab + crop to the selected rectangle (not full-page dump).
+ * User-operated capture: freeze the live viewport first, then let the user
+ * draw a rectangle on that PNG. Never hide-and-recapture (that flashes).
  * @param {'hotkey'|'button'|'message'} source
- * @returns {Promise<{ok:boolean, dataUrl?:string, name?:string, clipboardOk?:boolean, error?:string, cancelled?:boolean, deduped?:boolean}>}
+ * @returns {Promise<{ok:boolean, dataUrl?:string, name?:string, reviewed?:boolean, error?:string, cancelled?:boolean, deduped?:boolean}>}
  */
 async function captureVisibleTabForUser(source = "message") {
   const now = Date.now();
@@ -179,22 +181,7 @@ async function captureVisibleTabForUser(source = "message") {
     throw new Error("Cannot capture browser internal pages (chrome:// / edge://)");
   }
 
-  // 1) Interactive region select on the page (crosshair + drag)
-  let region;
-  try {
-    region = await promptRegionSelect(tab.id);
-  } catch (e) {
-    lastCaptureAt = 0;
-    throw e;
-  }
-  if (!region) {
-    lastCaptureAt = 0;
-    return { ok: false, cancelled: true, error: "cancelled" };
-  }
-
-  // 2) Overlay is already removed; wait 2 frames so it is not in the bitmap
-  await delayMs(50);
-
+  // 1) Capture the live viewport BEFORE any overlay so the bitmap is clean.
   let fullDataUrl;
   try {
     fullDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
@@ -207,94 +194,39 @@ async function captureVisibleTabForUser(source = "message") {
     throw new Error("Empty capture result");
   }
 
-  // 3) Crop to CSS-pixel rect scaled to actual capture pixels
-  let dataUrl;
+  // 2) Paint that PNG as the freeze and start the picker on it. No second capture.
+  const name = `screenshot_${Date.now()}.png`;
+  let region;
+  try {
+    region = await promptRegionSelect(tab.id, { fullDataUrl, source });
+  } catch (e) {
+    lastCaptureAt = 0;
+    throw e;
+  }
+  if (!region) {
+    lastCaptureAt = 0;
+    return { ok: false, cancelled: true, error: "cancelled" };
+  }
+
+  let dataUrl = "";
   try {
     dataUrl = await cropDataUrlToRegion(fullDataUrl, region);
-  } catch (cropErr) {
-    lastCaptureAt = 0;
-    throw new Error(cropErr?.message || "Crop failed");
+  } catch (_) {
+    dataUrl = "";
   }
 
-  const name = `screenshot_${Date.now()}.png`;
-  let clipboardOk = false;
-
-  // Best-effort image clipboard write in the page (SW has no ClipboardItem UI focus)
-  try {
-    const injected = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: async (pngDataUrl) => {
-        try {
-          if (!navigator.clipboard || typeof ClipboardItem === "undefined") return false;
-          const res = await fetch(pngDataUrl);
-          const blob = await res.blob();
-          const type = blob.type || "image/png";
-          await navigator.clipboard.write([new ClipboardItem({ [type]: blob })]);
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      args: [dataUrl]
-    });
-    clipboardOk = !!(injected && injected[0] && injected[0].result === true);
-  } catch (clipErr) {
-    console.warn("[BrowserBot] clipboard inject failed:", clipErr);
-  }
-
-  const payload = {
-    action: "screenshot_captured",
-    dataUrl,
-    name,
-    type: "image/png",
-    clipboardOk,
-    source,
-    region: true,
-    tabId: tab.id,
-    tabTitle: tab.title || "",
-    ts: Date.now()
-  };
-
-  // Button/message: the requester attaches from the return value.
-  // Hotkey: no waiting caller — broadcast + stash so an open (or later) sidepanel can attach once.
-  if (source === "hotkey") {
-    try {
-      chrome.runtime.sendMessage(payload).catch(() => {});
-    } catch (_) {}
-    try {
-      await chrome.storage.local.set({
-        browserbot_pending_screenshot: {
-          dataUrl,
-          name,
-          type: "image/png",
-          clipboardOk,
-          source,
-          ts: Date.now()
-        }
-      });
-    } catch (storeErr) {
-      console.warn("[BrowserBot] pending screenshot store failed:", storeErr);
-    }
-  }
-
-  const toastMsg = clipboardOk
-    ? "📸 区域截图已复制到剪贴板，并附到对话（打开侧栏查看）"
-    : "📸 区域截图已捕获并附到对话（打开侧栏查看）";
-  await toastOnActiveTab(toastMsg, tab.id);
-
-  return { ok: true, dataUrl, name, clipboardOk, source };
-}
-
-function delayMs(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+  return { ok: true, dataUrl: dataUrl || fullDataUrl, name, reviewed: true, source };
 }
 
 /**
- * Ask content script to show snipping overlay; resolve with region or null if cancelled.
+ * Ask content script to paint the already-captured freeze and start the picker.
+ * Resolve with region or null if cancelled. Does not recapture.
  * @param {number} tabId
+ * @param {{ fullDataUrl: string, source?: string }} payload
  * @returns {Promise<object|null>}
  */
-function promptRegionSelect(tabId) {
+function promptRegionSelect(tabId, payload) {
+  const fullDataUrl = payload?.fullDataUrl || "";
   return new Promise(async (resolve, reject) => {
     // Cancel any prior waiter on this tab
     const prior = pendingRegionSelectByTab.get(tabId);
@@ -302,6 +234,11 @@ function promptRegionSelect(tabId) {
       clearTimeout(prior.timer);
       prior.resolve(null);
       pendingRegionSelectByTab.delete(tabId);
+    }
+
+    if (!fullDataUrl || typeof fullDataUrl !== "string") {
+      reject(new Error("截图冻结失败"));
+      return;
     }
 
     const timer = setTimeout(() => {
@@ -316,10 +253,20 @@ function promptRegionSelect(tabId) {
 
     try {
       await ensureRegionCaptureUi(tabId);
-      await chrome.tabs.sendMessage(tabId, { action: "browserbot_start_region_capture" });
+      const started = await chrome.tabs.sendMessage(tabId, {
+        action: "browserbot_start_region_capture",
+        fullDataUrl,
+        source: payload?.source || ""
+      });
+      if (started?.status === "error" || started?.status === "ignored") {
+        throw new Error(started?.message || "无法在页面上打开截图选择（请刷新页面后重试）");
+      }
     } catch (e) {
       clearTimeout(timer);
       pendingRegionSelectByTab.delete(tabId);
+      try {
+        chrome.tabs.sendMessage(tabId, { action: "browserbot_cancel_region_capture" }).catch(() => {});
+      } catch (_) {}
       reject(new Error(e?.message || "无法在页面上打开截图选择（请刷新页面后重试）"));
     }
   });
@@ -427,7 +374,8 @@ function handleRegionSelectMessage(request, sender) {
       height: Number(r.height) || 0,
       viewportWidth: Number(r.viewportWidth) || 0,
       viewportHeight: Number(r.viewportHeight) || 0,
-      dpr: Number(r.dpr) || 1
+      dpr: Number(r.dpr) || 1,
+      frameId: Number.isInteger(sender?.frameId) ? sender.frameId : 0
     });
     return true;
   }
@@ -438,6 +386,46 @@ function handleRegionSelectMessage(request, sender) {
     return true;
   }
   return false;
+}
+
+async function pinScreenshotOcrTextFallback(request, sender) {
+  const text = String(request?.text || '').trim();
+  if (!text) return;
+  try {
+    if (typeof chrome.runtime.getContexts === 'function') {
+      const contexts = await chrome.runtime.getContexts({ contextTypes: ['SIDE_PANEL'] });
+      if (contexts.length > 0) return;
+    }
+  } catch (_) {}
+  try {
+    const rec = await forwardWorkspaceRpc({ method: 'listSessions', params: {} });
+    const list = rec?.ok ? rec.result || [] : [];
+    const sessions = Array.isArray(list) ? list : [];
+    const latest = [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+    const sessionId = latest?.sessionId || 'session-1';
+    await forwardWorkspaceRpc({
+      method: 'pinClipboard',
+      params: {
+        sessionId,
+        items: [{
+          text,
+          textRaw: request.textRaw || text,
+          kind: 'text',
+          source: {
+            clipboard: true,
+            screenshotOcr: true,
+            tabId: sender?.tab?.id,
+            frameId: sender?.frameId,
+            documentId: sender?.documentId || '',
+            url: request.url || sender?.tab?.url || '',
+            pageTitle: request.pageTitle || ''
+          }
+        }]
+      }
+    });
+  } catch (_) {
+    /* overlay already dismissed */
+  }
 }
 
 async function toastOnActiveTab(msg, tabId) {
@@ -1498,6 +1486,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'browserbot_screenshot_ocr') {
+    runScreenshotOcr(request.dataUrl, {
+      loadSettings: loadLlmSettings,
+      lang: request.lang === 'en' ? 'en' : 'zh'
+    })
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ ok: false, code: 'VISION_FAILED', text: '', error: err?.message || String(err) }));
+    return true;
+  }
+
+  if (request.action === 'clipboard_text_picked' && request.sourceKind === 'screenshot-ocr') {
+    void pinScreenshotOcrTextFallback(request, sender);
+    return false;
+  }
+
   // Non-streaming LLM proxy (JSON body in / JSON out)
   if (request.action === 'llm_proxy_fetch') {
     handleLlmProxyFetch(request)
@@ -1968,7 +1971,17 @@ const taskScheduler = createTaskScheduler({
     return response.result;
   }
 });
-chrome.alarms?.onAlarm.addListener(alarm => { void taskScheduler.onAlarm(alarm); });
-chrome.runtime.onStartup?.addListener(() => { void taskScheduler.reconcile({ runDue: true }); });
-chrome.runtime.onInstalled.addListener(() => { void taskScheduler.reconcile({ runDue: true }); });
+const workflowScheduler = createWorkflowScheduler({
+  alarms: chrome.alarms,
+  rpc: async (method, params) => {
+    await ensureBrowserOwnership();
+    const response = await forwardWorkspaceRpc({ method, params });
+    if (!response?.ok) throw Object.assign(new Error(response?.error || 'Workflow RPC failed'), { code: response?.code });
+    return response.result;
+  }
+});
+chrome.alarms?.onAlarm.addListener(alarm => { void taskScheduler.onAlarm(alarm); void workflowScheduler.onAlarm(alarm); });
+chrome.runtime.onStartup?.addListener(() => { void taskScheduler.reconcile({ runDue: true }); void workflowScheduler.reconcile({ runDue: true }); });
+chrome.runtime.onInstalled.addListener(() => { void taskScheduler.reconcile({ runDue: true }); void workflowScheduler.reconcile({ runDue: true }); });
 void taskScheduler.reconcile({ runDue: true });
+void workflowScheduler.reconcile({ runDue: true });

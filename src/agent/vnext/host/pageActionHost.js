@@ -68,7 +68,7 @@ export function invalidatePageActionTarget(tabId) {
   forgetObservedForTab(tabId);
 }
 
-const MUTATIONS = new Set(['click', 'fill', 'fill_form', 'select', 'press', 'scroll', 'upload', 'pointer']);
+const MUTATIONS = new Set(['click', 'fill', 'fill_form', 'select', 'press', 'scroll', 'upload', 'pointer', 'hover', 'dblclick', 'contextmenu', 'toggle']);
 
 function rememberControls(tabId, controls) {
   lastControls.set(Number(tabId), Array.isArray(controls) ? controls : []);
@@ -984,6 +984,22 @@ async function executeWorkspacePageAction(request) {
       scope: String(request.observe || '').toLowerCase() === 'top' ? 'top' : 'all', workflowTarget: request.workflowTarget, workflowObserve: request.workflowObserve
     });
     return maybeAttachScreenshot(snap, request, tabId);
+  }
+
+  if (op === 'scrape') {
+    const frames = await snapshotPageActionFrames(tabId, {
+      scope: 'all', workflowTarget: request.target, workflowObserve: true
+    });
+    const items = [];
+    for (const frame of frames.frames || []) {
+      try {
+        const raw = await sendPageActionToFrame(tabId, frame.frameId, {
+          op: 'scrape', kind: request.kind, columns: request.columns, itemKey: request.itemKey, target: request.target
+        }, frame);
+        for (const item of raw?.items || []) items.push({ ...item, frameUrl: frame.url || item.frameUrl });
+      } catch { /* inaccessible frame */ }
+    }
+    return { ok: true, op: 'scrape', items, count: items.length, kind: request.kind || 'links', result: { items, count: items.length, kind: request.kind || 'links' } };
   }
 
   if (op === 'resolve_intent') {

@@ -85,6 +85,7 @@ body[data-theme='dark'] {
   --density-pick-min-w: 76px;
   --density-pick-fs: 13px;
   --density-pick-pad-x: 12px;
+  --density-scroll-w: 6px;
 }
 
 body[data-theme='light'] {

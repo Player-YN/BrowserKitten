@@ -1,5 +1,7 @@
 import { sanitizeRecordedUrl, validateTarget } from './definition.js';
 const clone = value => structuredClone(value);
+const PAGE_EVENTS = new Set(['click', 'fill', 'select', 'press', 'scroll', 'hover', 'dblclick', 'contextmenu', 'toggle']);
+
 /** Takes only SW-authenticated tab/frame identity and content-script data. */
 export function applyRecordingEvent(record, event) {
   const next = clone(record); const wf = next.definition.workflow;
@@ -18,7 +20,7 @@ export function applyRecordingEvent(record, event) {
       if (producer) { producer.check = { type: 'url', equals: url, tab: alias }; delete producer.unresolved; }
       return next;
     }
-    if (['click', 'press'].includes(last?.op) && next.lastEvent?.tab === alias && stamp - next.lastEvent.at < 5000) {
+    if (['click', 'press', 'dblclick'].includes(last?.op) && next.lastEvent?.tab === alias && stamp - next.lastEvent.at < 5000) {
       last.check = { type: 'url', equals: url }; delete last.unresolved;
     } else if (last?.op === 'navigate' && last.tab === alias && last.url === url) { /* duplicate commit/history callback */ }
     else add({ op: 'navigate', tab: alias, url, check: { type: 'url', equals: url }, title: 'Navigate' });
@@ -29,7 +31,6 @@ export function applyRecordingEvent(record, event) {
     if (last?.op === 'click' && last.tab === alias && stamp - (next.lastEvent?.at || 0) < 5000 && newAlias) {
       last.opensTab = newAlias;
       next.pendingChildren ||= {}; next.pendingChildren[newAlias] = { at: stamp, stepId: last.id };
-      // Opening the tab is verified by the runner; user still reviews page readiness.
       const url = sanitizeRecordedUrl(event.url);
       if (url) { last.check = { type: 'url', equals: url, tab: newAlias }; delete last.unresolved; }
     } else add({ op: 'manual', title: 'Unassociated new tab: review this operation', unresolved: true });
@@ -37,7 +38,18 @@ export function applyRecordingEvent(record, event) {
   }
   if (event.type === 'focus') { if (last?.tab !== alias) add({ op: 'focus', tab: alias, title: 'Switch tab' }); return next; }
   if (event.sensitive || event.type === 'sensitive' || event.type === 'unsupported') {
-    if (last?.op !== 'manual' || next.lastEvent?.tab !== alias) add({ op: 'manual', title: (event.sensitive || event.type === 'sensitive') ? 'Complete sensitive input manually, then continue' : 'Unsupported action: edit or replace this step', ...((event.sensitive || event.type === 'sensitive') ? {} : { unresolved: true }) });
+    const sensitive = event.sensitive || event.type === 'sensitive';
+    const reason = String(event.unresolvedReason || event.reason || '');
+    const title = sensitive
+      ? 'Complete sensitive input manually, then continue'
+      : reason === 'DRAG_UNSUPPORTED'
+        ? 'Drag is not a host primitive; replace with a manual step'
+        : reason === 'UPLOAD_PATH'
+          ? 'File upload must use a guest FS path; replace with an upload step'
+          : 'Unsupported action: edit or replace this step';
+    if (last?.op !== 'manual' || next.lastEvent?.tab !== alias) {
+      add({ op: 'manual', title, ...(sensitive ? {} : { unresolved: true, ...(reason ? { unresolvedReason: reason } : {}) }) });
+    }
     return next;
   }
   if (next.pendingChildren?.[alias]) delete next.pendingChildren[alias];
@@ -47,16 +59,21 @@ export function applyRecordingEvent(record, event) {
     validateTarget(target);
   } catch { add({ op: 'manual', title: 'Target could not be recorded; edit this step', unresolved: true }); return next; }
   const op = event.type;
-  if (!['click', 'fill', 'select', 'press', 'scroll'].includes(op)) return next;
-  const step = { op, tab: alias, target, title: `${op} · ${target.name || target.id || target.tag || ''}` };
-  if (op === 'fill' || op === 'select') {
-    step.value = String(event.value || '').slice(0, 20000);
-    step.check = { type: 'value', equals: step.value };
+  if (!PAGE_EVENTS.has(op)) return next;
+  if (op === 'dblclick' && last?.op === 'click' && last.tab === alias && JSON.stringify(last.target) === JSON.stringify(target) && stamp - (next.lastEvent?.at || 0) < 600) {
+    last.op = 'dblclick'; last.title = `dblclick · ${target.name || target.id || target.testId || target.tag || ''}`; last.unresolved = true; return next;
+  }
+  const step = { op, tab: alias, target, title: `${op} · ${target.name || target.id || target.testId || target.tag || ''}` };
+  if (op === 'fill' || op === 'select' || op === 'toggle') {
+    step.value = op === 'toggle' ? (event.checked === true || event.value === true || event.value === 'true') : String(event.value || '').slice(0, 20000);
+    if (op === 'toggle') step.checked = step.value;
+    step.check = { type: 'value', equals: String(step.value) };
     if (last?.op === op && last.tab === alias && JSON.stringify(last.target) === JSON.stringify(target)) {
-      last.value = step.value; last.check = step.check; return next;
+      last.value = step.value; last.check = step.check; if (op === 'toggle') last.checked = step.checked; return next;
     }
   } else if (op === 'press') { step.key = String(event.key || ''); step.unresolved = true; }
   else if (op === 'scroll') { step.deltaY = Number(event.deltaY) || 0; step.unresolved = true; }
+  else if (op === 'hover') { step.check = { type: 'visible' }; }
   else step.unresolved = true;
   add(step); return next;
 }

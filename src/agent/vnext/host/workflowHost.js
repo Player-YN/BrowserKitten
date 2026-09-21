@@ -2,7 +2,7 @@ import { resolveTarget, sanitizeRecordedUrl, validateTarget, workflowError } fro
 
 export const WORKFLOW_RECORDING_STORAGE_KEY = 'browserbot_workflow_recording_host_v1';
 
-const RECORD_TYPES = new Set(['click', 'fill', 'select', 'press', 'scroll', 'sensitive', 'unsupported']);
+const RECORD_TYPES = new Set(['click', 'fill', 'select', 'press', 'scroll', 'hover', 'dblclick', 'contextmenu', 'toggle', 'sensitive', 'unsupported']);
 const RECORD_STATUSES = new Set(['recording', 'paused', 'stopped']);
 const SENSITIVE_TARGET = /(?:pass(?:word|code)?|secret|token|api.?key|auth(?:orization)?|otp|one.?time|verification.?code|cvv|cvc|card.?number|ssn|social.?security|pin)/i;
 const integer = value => Number.isInteger(Number(value)) && Number(value) >= 0;
@@ -18,7 +18,7 @@ function short(value, max = 2000) { return String(value ?? '').slice(0, max); }
 function cleanTarget(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const target = {};
-  for (const key of ['role', 'name', 'type', 'region', 'id', 'testId', 'css', 'tag', 'frameUrl']) {
+  for (const key of ['role', 'name', 'type', 'region', 'id', 'testId', 'css', 'tag', 'frameUrl', 'key', 'shadowPath', 'text']) {
     if (typeof value[key] === 'string' && value[key]) target[key] = short(value[key]);
   }
   try { return validateTarget(target); } catch { return undefined; }
@@ -38,6 +38,8 @@ export function sanitizeWorkflowRecordingEvent(value) {
   const target = cleanTarget(value.target);
   if (target) event.target = target;
   if (type === 'fill' || type === 'select') event.value = short(value.value, 10000);
+  if (type === 'toggle') event.checked = value.checked === true || value.value === true || value.value === 'true';
+  if (type === 'unsupported' && typeof value.unresolvedReason === 'string') event.unresolvedReason = short(value.unresolvedReason, 64);
   if (type === 'press' && ['Enter', 'Tab', 'Escape', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Space'].includes(value.key)) event.key = value.key;
   if (type === 'scroll' && Number.isFinite(Number(value.deltaY))) event.deltaY = Math.max(-100000, Math.min(100000, Number(value.deltaY)));
   return event;

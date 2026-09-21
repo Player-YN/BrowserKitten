@@ -4,6 +4,8 @@
  * current / next / summary.
  */
 
+import { ACTIVITY_ICONS } from './icons.js';
+
 const TERMINAL_TASK = new Set(['completed', 'failed', 'cancelled']);
 const PROMINENT_TASK = new Set(['ready', 'running', 'waiting', 'paused']);
 const NARRATIVE = new Set(['thought', 'thought-open', 'text', 'reasoning']);
@@ -160,7 +162,7 @@ function runBrief(op, object, isZh) {
     return isZh ? pair(`正在写 ${object}`, `已写 ${object}`) : pair(`Writing ${object}`, `Wrote ${object}`);
   }
   if (op === 'write_artifact' || op === 'update_artifact' || op === 'write_package_file' || op === 'persist') {
-    return isZh ? pair('正在写入交付物', '已写入交付物') : pair('Writing a deliverable', 'Wrote a deliverable');
+    return isZh ? pair('正在写入文件', '已写入文件') : pair('Writing a file', 'Wrote a file');
   }
   if (op === 'write_scratch') {
     return isZh ? pair('正在写临时文件', '已写临时文件') : pair('Writing a scratch file', 'Wrote a scratch file');
@@ -254,8 +256,8 @@ export function currentFromToolCall(name, args = {}, lang = 'zh') {
       running = isZh ? '正在读取页面 HTML' : 'Reading page HTML';
       done = isZh ? '已读取页面 HTML' : 'Read page HTML';
     } else if (view === 'artifacts' || view === 'files') {
-      running = isZh ? '正在查看交付物' : 'Looking at deliverables';
-      done = isZh ? '已查看交付物' : 'Looked at deliverables';
+      running = isZh ? '正在查看文件' : 'Looking at files';
+      done = isZh ? '已查看文件' : 'Looked at files';
     } else if (view === 'skill' || view === 'skills') {
       running = isZh ? '正在查阅做法' : 'Reading a playbook';
       done = isZh ? '已查阅做法' : 'Read a playbook';
@@ -396,7 +398,7 @@ function summaryLabel(kind, current, lang) {
   if (current?.text) return current.text.replace(/^正在/, '').trim() || current.text;
   const isZh = zh(lang);
   if (kind === 'page') return isZh ? '页面操作' : 'Page action';
-  if (kind === 'write') return isZh ? '写入交付物' : 'Write deliverable';
+  if (kind === 'write') return isZh ? '写入文件' : 'Write file';
   if (kind === 'wait') return isZh ? '等待 / 任务' : 'Wait / task';
   return isZh ? '读取 / 外网' : 'Read / network';
 }
@@ -989,16 +991,8 @@ export function collapseConsecutiveSummary(summary) {
   return out;
 }
 
-/** Small muted Sider-style marks. Not brand copy. */
-export const ACTIVITY_ICON = {
-  think: '💡',
-  read: '📖',
-  run: '🔧',
-  browser: '✨',
-  write: '✏️',
-  wait: '⏳',
-  error: '⚠️'
-};
+/** Small muted stroke marks. currentColor. Not brand copy. */
+export const ACTIVITY_ICON = ACTIVITY_ICONS;
 
 export function activityIconKind(row = {}) {
   const kind = String(row.kind || '');
@@ -1079,7 +1073,7 @@ export function formatSummaryRowText(row, t) {
   const kindAlready = kind && (main === kind || main.startsWith(`${kind} ·`) || main.startsWith(kind));
   if (kind && main && !kindAlready && !writeDup) main = `${kind} · ${main}`;
   else if (!main) main = kind;
-  const genericWrite = /^(写入交付物|Write deliverable)$/i.test(rawLabel);
+  const genericWrite = /^(写入文件|Write file)$/i.test(rawLabel);
   if (count > 1) {
     const stem = genericWrite || (!object && writeDup) ? kind || main : main || kind;
     return `${stem}×${count}`;

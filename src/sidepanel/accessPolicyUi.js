@@ -46,29 +46,9 @@ export function createAccessPolicyUi(deps) {
     return policy;
   }
 
-  function paintSettings() {
-    const modeEl = deps.getSettingsMode?.();
-    if (modeEl) modeEl.textContent = accessChipLabel(policy, t);
-    const title = accessChipTitle(policy, t);
-    const toggle = deps.getSettingsToggle?.();
-    if (toggle) {
-      toggle.checked = policy.mode === 'full';
-      toggle.title = title;
-      const row = toggle.closest?.('label') || deps.getSettingsToggleRow?.();
-      if (row) row.title = title;
-    }
-    const card = deps.getSettingsCard?.();
-    if (card) card.title = title;
-    const heading = card?.querySelector?.('#settingsAccessTitle');
-    if (heading) heading.title = title;
-    const modeTitle = deps.getSettingsMode?.();
-    if (modeTitle) modeTitle.title = title;
-  }
-
   function setPolicy(next) {
     if (next && typeof next === 'object') policy = next;
     renderChip();
-    paintSettings();
     return policy;
   }
 
@@ -125,16 +105,7 @@ export function createAccessPolicyUi(deps) {
         if (result && result.mode) setPolicy(result);
       })();
     });
-    const toggle = deps.getSettingsToggle?.();
-    toggle?.addEventListener('change', () => {
-      void (async () => {
-        const result = await requestMode(toggle.checked ? 'full' : 'guarded');
-        if (result && result.mode) setPolicy(result);
-        else toggle.checked = policy.mode === 'full';
-      })();
-    });
     renderChip();
-    paintSettings();
   }
 
   return { setPolicy, current, renderChip, bind, requestMode, confirmFullAccess };

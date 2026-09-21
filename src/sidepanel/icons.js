@@ -61,7 +61,51 @@ export const ICONS = {
   pencil: svg(
     '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
     { size: 13 }
+  ),
+  /** Lucide book — inspect / read */
+  book: svg(
+    '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+    { size: 14, stroke: 1.75 }
+  ),
+  /** Lucide wrench — run / guest code */
+  wrench: svg(
+    '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+    { size: 14, stroke: 1.75 }
+  ),
+  /** Lucide lightbulb — think */
+  lightbulb: svg(
+    '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+    { size: 14, stroke: 1.75 }
+  ),
+  /** Lucide clock — wait / approval */
+  clock: svg(
+    '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    { size: 14, stroke: 1.75 }
+  ),
+  /** Lucide triangle-alert — error */
+  alert: svg(
+    '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    { size: 14, stroke: 1.75 }
   )
+};
+
+const ACTIVITY_MARK = { size: 14, stroke: 1.75 };
+
+/** Turn-summary row marks. Same helper / weight as ICONS; currentColor → --ink. */
+export const ACTIVITY_ICONS = {
+  think: ICONS.lightbulb,
+  read: ICONS.book,
+  run: ICONS.wrench,
+  browser: svg(
+    '<path d="m15 4-1 3-3 1 3 1 1 3 1-3 3-1-3-1z"/><path d="M4 20 14 10"/><path d="m18 8 2 2"/>',
+    ACTIVITY_MARK
+  ),
+  write: svg(
+    '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    ACTIVITY_MARK
+  ),
+  wait: ICONS.clock,
+  error: ICONS.alert
 };
 
 /**

@@ -52,6 +52,19 @@ function node(tag, className, content) {
   return el;
 }
 
+function setRowIcon(el, html) {
+  if (!el) return el;
+  const markup = String(html || '');
+  if (el.innerHTML !== markup) el.innerHTML = markup;
+  return el;
+}
+
+function rowIcon(html) {
+  const el = node('span', 'turn-disclosure-row-icon');
+  el.setAttribute('aria-hidden', 'true');
+  return setRowIcon(el, html);
+}
+
 export function prefersReducedMotion(matchMediaFn) {
   const mm = matchMediaFn || (typeof matchMedia === 'function' ? matchMedia : null);
   try {
@@ -125,8 +138,7 @@ function fillRows(list, rows, t, { shineRowId, labelId } = {}) {
     li.dataset.status = row.status || '';
     li.dataset.icon = visual.iconKind;
     if (row.count > 1) li.dataset.count = String(row.count);
-    const icon = node('span', 'turn-disclosure-row-icon', visual.icon);
-    icon.setAttribute('aria-hidden', 'true');
+    const icon = rowIcon(visual.icon);
     const textClass = isLatest ? LIVE_ACTION_SHINE.glyphClass : 'turn-disclosure-row-text';
     const label = node('span', textClass, visual.label);
     if (isLatest && labelId) li.id = labelId;
@@ -238,18 +250,16 @@ export function createTurnDisclosureUi(deps) {
     let icon = current?.querySelector?.('.turn-disclosure-row-icon');
     if (!current) {
       current = node('span', LIVE_ACTION_SHINE.rowClass);
-      icon = node('span', 'turn-disclosure-row-icon', visual.icon);
-      icon.setAttribute('aria-hidden', 'true');
+      icon = rowIcon(visual.icon);
       glyphs = node('span', LIVE_ACTION_SHINE.glyphClass, visual.label);
       current.append(icon, glyphs);
       head.replaceChildren(current);
     } else {
       if (!icon) {
-        icon = node('span', 'turn-disclosure-row-icon', visual.icon);
-        icon.setAttribute('aria-hidden', 'true');
+        icon = rowIcon(visual.icon);
         current.prepend(icon);
-      } else if (icon.textContent !== visual.icon) {
-        icon.textContent = visual.icon;
+      } else {
+        setRowIcon(icon, visual.icon);
       }
       if (!glyphs) {
         glyphs = node('span', LIVE_ACTION_SHINE.glyphClass, visual.label);

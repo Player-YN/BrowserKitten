@@ -34,17 +34,23 @@ test('last check error copy never exposes raw upstream errors', () => {
   assert.equal(mediaCheckErrorLabel('an upstream error with a secret'), 'chatMediaCheckUnavailable');
 });
 
-function fixture(rpc, loadProvidersState = async () => ({ activeProviderId: provider.id, providers: [provider] }), NodeImpl) {
+function fixture(rpc, loadProvidersState = async () => ({ activeProviderId: provider.id, providers: [provider] }), NodeImpl, extraIds = []) {
   const nodes = new Map();
   class Node {
-    constructor(id) { this.id = id; this.value = ''; this.hidden = false; this.handlers = {}; }
-    append(...children) { for (const child of children) if (child.id) nodes.set(child.id, child); }
-    replaceChildren() {}
+    constructor(id) { this.id = id; this.value = ''; this.hidden = false; this.handlers = {}; this.children = []; }
+    append(...children) {
+      for (const child of children) {
+        this.children.push(child);
+        if (child.id) nodes.set(child.id, child);
+        for (const nested of child.children || []) if (nested.id) nodes.set(nested.id, nested);
+      }
+    }
+    replaceChildren() { this.children = []; }
     setAttribute() {}
     addEventListener(name, cb) { this.handlers[name] = cb; }
   }
   const Ctor = NodeImpl || Node;
-  for (const id of ['agentSettingsModal', 'inferenceEditor', 'chatMediaSettings', 'chatMediaStatusPanel', 'apiBaseInput', 'providerModelInput', 'apiKeyInput']) nodes.set(id, new Ctor(id));
+  for (const id of ['agentSettingsModal', 'inferenceEditor', 'chatMediaSettings', 'chatMediaStatusPanel', 'apiBaseInput', 'providerModelInput', 'apiKeyInput', ...extraIds]) nodes.set(id, new Ctor(id));
   nodes.get('apiBaseInput').value = provider.baseURL;
   nodes.get('providerModelInput').value = provider.model;
   const root = { visibilityState: 'visible', getElementById: id => nodes.get(id), createElement: () => new Ctor(), addEventListener() {} };
@@ -138,4 +144,24 @@ test('capability paint does not assign the read-only HTMLElement.dataset getter'
       capabilities: { inputs: {} }
     }), undefined, GetterOnlyDatasetNode);
   });
+});
+
+test('auto-check stays off the main surface and mounts in the advanced host', () => {
+  const main = fixture(async () => ({ providerId: provider.id, model: provider.model, base: provider.baseURL, capabilities: { inputs: {} } }));
+  assert.equal(main.nodes.has('chatMediaAutoCheck'), false);
+  const advanced = fixture(async () => ({ providerId: provider.id, model: provider.model, base: provider.baseURL, capabilities: { inputs: {} } }), undefined, undefined, ['inferenceAutoCheckHost']);
+  assert.ok(advanced.nodes.get('chatMediaAutoCheck'));
+  assert.equal(advanced.nodes.get('chatMediaStatusPanel').children.some((c) => c.id === 'chatMediaAutoCheck'), false);
+});
+
+test('hidden inference diagnostics do not start a media check', async () => {
+  const calls = [];
+  const f = fixture(async (method) => {
+    calls.push(method);
+    return { providerId: provider.id, model: provider.model, base: provider.baseURL, capabilities: { inputs: {} } };
+  }, undefined, undefined, ['inferenceDiagnostics']);
+  f.nodes.get('inferenceDiagnostics').hidden = true;
+  f.nodes.get('agentSettingsModal').open = true;
+  f.ui.open(); await tick();
+  assert.deepEqual(calls, []);
 });

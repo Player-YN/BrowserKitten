@@ -137,8 +137,10 @@ export function parseOfficeMarkdown(md) {
   const fences = [];
   text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
     const id = `%%CB${fences.length}%%`;
+    const safeLang = escapeMdHtml(lang || 'text');
+    const langAttr = lang ? ` data-lang="${escapeMdHtml(lang)}"` : '';
     fences.push(
-      `<pre><code class="language-${escapeMdHtml(lang || 'text')}">${escapeMdHtml(code.trim())}</code></pre>`
+      `<div class="md-code"${langAttr}><pre><code class="language-${safeLang}">${escapeMdHtml(code.trim())}</code></pre></div>`
     );
     return id;
   });

@@ -27,11 +27,15 @@ export const MSG = {
   CAPTURE_RESULT: 'browserbot_capture_result',
   SCREENSHOT_CAPTURED: 'screenshot_captured',
   COPY_IMAGE_CLIPBOARD: 'browserbot_copy_image_clipboard',
-  /** Start Win+Shift+S style region picker on the page */
+  /** SW already captured the viewport; page paints that PNG then the user draws. */
   START_REGION_CAPTURE: 'browserbot_start_region_capture',
   CANCEL_REGION_CAPTURE: 'browserbot_cancel_region_capture',
   REGION_SELECTED: 'browserbot_region_selected',
-  REGION_CANCELLED: 'browserbot_region_cancelled'
+  REGION_CANCELLED: 'browserbot_region_cancelled',
+  /** Legacy: review now starts in-place on the same freeze. Not a chat attach. */
+  REGION_REVIEW: 'browserbot_region_review',
+  REGION_REVIEW_FAILED: 'browserbot_region_review_failed',
+  SCREENSHOT_OCR: 'browserbot_screenshot_ocr'
 };
 
 /**

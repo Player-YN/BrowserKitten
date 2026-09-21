@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   applyThinkExpanded,
@@ -209,4 +212,26 @@ test('history think rebinds leftover data-think-bound and keeps Enter/Space', ()
   assert.equal(attrs['aria-expanded'], 'true');
   assert.equal(isThinkToggleKey('Enter'), true);
   assert.equal(isThinkToggleKey(' '), true);
+});
+
+test('open think block has no orange LTR sweep; no chat-well rim or composer orbit', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const css = readFileSync(join(root, 'src/sidepanel.css'), 'utf8');
+  const liveAt = css.indexOf('.think-block.is-live.is-expanded .think-body-wrap');
+  assert.ok(liveAt >= 0);
+  const liveBlock = css.slice(liveAt, liveAt + 280);
+  assert.doesNotMatch(liveBlock, /stream-shimmer/);
+  assert.doesNotMatch(liveBlock, /linear-gradient\(90deg/);
+  assert.doesNotMatch(css, /@keyframes composer-orbit-spin/);
+  assert.doesNotMatch(css, /\.composer-inner::before/);
+  assert.doesNotMatch(css, /@keyframes chat-window-breathe/);
+  assert.doesNotMatch(css, /\.session-thread\.is-active::before/);
+  const wellAt = css.indexOf('/* ── Session thread: layout host only, no bordered well ── */');
+  assert.ok(wellAt >= 0);
+  const wellBlock = css.slice(wellAt, wellAt + 420);
+  assert.match(wellBlock, /background:\s*transparent/);
+  assert.match(wellBlock, /border:\s*none/);
+  const sbAt = css.indexOf('.think-body-wrap::-webkit-scrollbar');
+  assert.ok(sbAt >= 0);
+  assert.match(css.slice(sbAt, sbAt + 120), /width:\s*0/);
 });

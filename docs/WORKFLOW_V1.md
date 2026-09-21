@@ -1,78 +1,82 @@
-# Workflow 第一阶段：顺序自动化
+# Workflow 合同：可录制的浏览器自动化
 
 Workflow 是用户持有、可版本化、可重复运行的流程定义。当前个人库包含两类 Workflow：
 
-- **自动化**：`workflow.version: 1` 的结构化顺序流程，由 offscreen 执行器运行，不解析模型、不需要 Key。
+- **自动化**：`workflow.version: 2` 的结构化流程，由 offscreen 执行器运行，不解析模型、不需要 Key。支持录制、循环、抓取、分支、CSV 与（浏览器仍打开时的）定时新运行。
 - **Agent 任务**：已有 `instructions` 文字 Playbook，继续创建普通 Agent 对话。
 
-工具是独立的 QuickJS 脚本。自动化可以把工具作为一个步骤，但不解释工具内部控制流。模型只能通过制作对话修改草稿；发布必须由侧栏的「添加／更新」执行。没有 Agent 节点、自动修复、分支、循环、并行、嵌套流程、定时触发或浏览器外执行。
+工具是独立的 QuickJS 脚本。自动化可以把工具作为一个步骤，但不解释工具内部控制流。模型只能通过制作对话修改草稿；发布必须由侧栏的「添加／更新」执行。没有 Agent 节点、没有页面 CustomEvent / webhook 发布入口、没有桌面键鼠或云端无人值守农场。
 
 ## 模块与职责
 
-`agent/vnext/workflow/definition.js` 冻结数据合同及校验，`recording.js` 合并录制事件，`engine.js` 调度顺序步骤，`service.js` 管理草稿、执行槽位、恢复及持久记录。侧栏的 `workflowUi.js` 负责录制控制、步骤编辑、显式发布、标签匹配和运行监控。
+`agent/vnext/workflow/definition.js` 冻结数据合同及校验，`recording.js` 合并录制事件，`engine.js` 调度步骤（含循环与分支），`service.js` 管理草稿、执行槽位、恢复、CSV 与到期新运行。侧栏的 `workflowUi.js` 负责录制、步骤编辑、表 / 变量 / 定时字段、显式发布和运行监控。
 
-`host/workflowHost.js` 只负责录制运输、标签清单、目标高亮与下载核查。回放页面操作仍经 `_gatedPageAction` / `pageActionHost`，工具仍经 QuickJS / `_gatedSys`，复用既有权限、journal、ticket、documentId 和标签租约。录制、保存、发布均不会提高浏览器权限。资料组不参与授权。
+`host/workflowHost.js` 只负责录制运输、标签清单、目标高亮与下载核查。`host/workflowScheduler.js` 用 `chrome.alarms` 唤醒 **新的** 已发布运行。回放页面操作仍经 `_gatedPageAction` / `pageActionHost`，工具仍经 QuickJS / `_gatedSys`，复用既有权限、journal、ticket、documentId 和标签租约。录制、保存、发布、定时都不会提高浏览器权限。资料组不参与授权。
 
 ## 定义合同
 
-流程包含 `version`、`tabs`、`steps`。标签保存 `{id,title,url?,opener?}`；`id` 是流程内别名。定义禁止真实 tabId、临时 ref/rev、documentId。每个步骤有稳定 `id`、`title`、`op`，页面步骤引用 `tab` 别名。
+流程包含 `version`（必须为 **2**）、`tabs`、`steps`，以及可选的 `variables`、`table`、`schedule`。标签保存 `{id,title,url?,opener?}`；`id` 是流程内别名。定义禁止真实 tabId、临时 ref/rev、documentId。每个步骤有稳定 `id`、`title`、`op`；页面步骤引用 `tab` 别名。
 
-支持 `open / focus / navigate / click / fill / select / press / scroll / read / wait / check / tool / manual`。`read` 提取唯一目标的文字、字段值，供后续步骤引用。目标包含 role/name/type/region/id/testId/css/tag/frameUrl 的组合，所有指定约束都必须匹配；零个或多个候选均停止。目标高亮也检查所有可访问 frame 的唯一性。
+支持的操作：`open / focus / navigate / click / fill / select / press / scroll / read / wait / check / tool / manual`，以及 `hover / dblclick / contextmenu / toggle / upload / scrape / paginate / foreach / repeat / if / setVar / csvImport / csvExport`。
 
-参数仅使用 JSON 字面量或 `{"$ref":"input.customer"}`、`{"$ref":"steps.readName.text"}`。不求值表达式。输入 schema 沿用个人工具库的基本类型子集。
+目标包含 role/name/type/region/id/testId/css/tag/frameUrl/key/shadowPath/text 的组合。录制时按 Playwright 风格优先生成 testid、id、role+name、name、text，最后才是 CSS。**回放仍是唯一匹配**：所有指定约束都必须匹配；零个或多个候选均停止。iframe 用 `frameUrl`；Shadow DOM 用 `shadowPath`。循环元素的身份必须是稳定键（testid / id / name / text / href / key），**禁止把 CSS nth-child 当作身份**。
 
-检查类型为 URL、元素出现/消失、文字、字段值、下载完成、工具返回值、文件存在。检查可指定 `tab`，例如在来源页点击后检查新详情页的 URL。下载检查必须指定非空文件名或 URL 条件，且下载开始于当前尝试之后并完成。文件检查限定 `/artifacts/`。打开/聚焦步骤默认重新读取标签状态；读步骤以本次唯一目标的观察结果为依据。其他自动操作必须配置成功检查；宿主点击回执不能替代检查。
+参数仅使用 JSON 字面量或 `{"$ref":"input.customer"}`、`{"$ref":"steps.readName.text"}`、`{"$ref":"loop.row.title"}`、`{"$ref":"vars.total"}`、`{"$ref":"table.rows"}`。不求值表达式，没有 mustache / JS。输入 schema 沿用个人工具库的基本类型子集；集合来自流程表、抓取结果、字面量数组或 `table` 覆盖，不是个人库数组参数。
 
-工具步骤保存完整发布快照（含 entryId/revision/code/runtimeVersion/parameters），而不是查找“最新版本”。工具更新、删除后，流程仍使用原快照。修改依赖需修改草稿并重新发布。工具产生的工作区文件必须先提交持久存储，运行记录才能推进。
+检查类型为 URL、元素出现/消失、文字、字段值、下载完成、工具返回值、文件存在。打开/聚焦/读取/手动/循环与分支/变量/CSV 导入/抓取默认不强制检查；其他自动写操作必须配置成功检查。宿主点击回执不能替代检查。
 
-第一阶段限制为最多 20 个标签别名、100 个步骤、单流程定义 2 MB。达到录制限制会暂停并生成待处理项，不把截断内容当作完整流程。
+### 循环、分支与失败处理
+
+- `foreach`：遍历显式集合（`table.rows`、先前 `scrape.items`、字面量数组）。`source: "elements"` 时每一项必须带稳定 `key` 与唯一 `target`。循环体用 `loop.row` / `loop.index` / `loop.key`。`max` 上限 200。
+- `repeat`：重复 N 次，上限 100。
+- `if`：对先前输出或检查做 `equals` / `contains` / 真值判断，然后走 `then` / `else`。
+- 每步可选 `onError`：`retry`（最多 5 次）/ `stop` / `fallback`。**未知派发（phase 仍为 `dispatching`）不能 fallback 或继续**；fallback 分支里的写操作仍走 journal。
+
+### 抓取、分页与交互
+
+- `scrape`：`kind` 为 `table` / `links` / `attributes`；输出 `{items,count}`，键必须唯一。
+- `paginate`：`next` 或 `loadMore` 作为一等步骤，并带成功检查（通常是 next 消失、URL 或页数）。
+- `hover` / `dblclick` / `contextmenu` / `toggle` / `upload`：经既有 page action。`upload` 只接受 guest FS 路径（`/scratch` `/artifacts` `/context`）。
+- **拖拽**：现有 page action 只有视口 `pointer` 点按，没有 drag 原语。录制生成带 `unresolvedReason: DRAG_UNSUPPORTED` 的手动步骤，不静默跳过。不要用 raw CDP 当工作流逃逸舱口。
+
+密码、OTP、支付字段仍是手动步骤，定义里不存密钥。
+
+### 容量
+
+最多 **40** 个标签别名、**400** 个步骤（含嵌套）、单流程定义 **4 MB**、循环 **200** 项、抓取 **500** 行、分页 **50** 页、重复 **100** 次。达到录制限制会暂停并生成待处理项，不把截断内容当作完整流程。
+
+### 定时
+
+`schedule: { enabled, everyMinutes, input? }`。`chrome.alarms` 仅在浏览器 / 扩展仍存活时，为已发布流程启动 **一次新的 WorkflowRun**。崩溃中的运行仍需人工核查，**绝不** Automa 式 `reuseLastState` / 盲重放。页面 CustomEvent 与绕过 Access Policy 的 webhook 都不能发布或启动流程。
 
 ## 录制与编辑
 
 用户显式开始录制；顶部持续显示状态及暂停、加入当前标签、停止控制。点选模式与录制互斥。初始标签和它打开的子标签按 opener 加入范围，其他现有标签必须显式加入。
 
-内容脚本仅处理真实用户事件。SW 根据原生 sender 补齐标签、frame、document 身份并排序。连续输入合并为最终填写；点击/Enter 引发的导航合并为该步骤的检查。点击打开的新标签保存为别名及子标签 URL 检查，不额外插入重复的打开/导航步骤。自动关联有有限时间窗口；无法可靠关联时保留待处理项，由用户审阅。
+内容脚本仅处理真实用户事件，并穿透 iframe 与 shadow root 生成定位。SW 根据原生 sender 补齐标签、frame、document 身份。连续输入合并为最终填写；点击/Enter 引发的导航合并为该步骤的检查。悬停（短停留）、双击、右键、复选框记入对应操作。文件选择与拖拽生成待处理手动步骤。识别为密码、验证码、令牌或支付字段的输入生成手动处理步骤，不传输或保存值。
 
-识别为密码、验证码、令牌或支付字段的输入生成手动处理步骤，不传输或保存值。URL 去除认证信息和识别到的敏感参数。文件上传、拖拽、无法定位的目标等生成待处理项。录制不会阻止用户原本的网页操作。
-
-暂停/停止先排空各 frame 的输入缓冲，再保存草稿。SW 重启、运输失败、存储失败会暂停并报告录制缺口。录制结束不会执行或发布。步骤编辑器支持添加/删除/排序、参数、目标、检查、标签及工具依赖；试运行到所选步骤具有真实副作用，并经过正常审批。清除待处理标记前应补齐检查或明确替换为手动步骤。
+暂停/停止先排空各 frame 的输入缓冲，再保存草稿。SW 重启、运输失败、存储失败会暂停并报告录制缺口。录制结束不会执行或发布。步骤编辑器支持循环 / 分支 / 抓取 / 检查、流程表 CSV、变量和定时字段。试运行到所选步骤具有真实副作用，并经过正常审批。
 
 ## 执行、暂停与恢复
 
-每次运行新建执行会话及独立 WorkflowRun，固定定义版本、输入和工具快照。记录 nextStep、标签临时映射、attempts、当前 attempt、输出与检查证据。sidepanel 不持有执行器；关闭侧栏不会把任务移交给模型。界面通过带 revision 的运行/录制事件更新，忽略较旧状态；打开、切回侧栏或重新查看监控时补读，不持续轮询。录制范围由 SW 的 tabAliases 唯一决定，不另存 enrollment 副本。
+每次运行新建执行会话及独立 WorkflowRun，固定定义版本、输入、表快照和工具快照。记录 nextStep、循环游标、标签临时映射、attempts、当前 attempt、输出与检查证据。sidepanel 不持有执行器。
 
-顺序步骤在派发前保存 `prepared`、`dispatching`；取得结果后保存 `checking`，成功检查后保存 `verified` 和下一步骤。宿主调用使用 attempt ID 作为 operationId；工具内部多次 sys 调用通过相同 requestId 关联其各自的 journal 操作。写前记录失败时不派发。
+步骤在派发前保存 `prepared`、`dispatching`；取得结果后保存 `checking`，成功检查后保存 `verified`。宿主调用使用 attempt ID 作为 operationId。写前记录失败时不派发。
 
 - 暂停停止后续推进，可恢复；取消是终态。
-- 浏览器、扩展或 offscreen 重启后，未结束运行需要用户核查，绝不自动续跑。
+- 浏览器、扩展或 offscreen 重启后，未结束运行需要用户核查，绝不自动续跑，定时器也只开新运行。
 - 恢复先重新匹配/选择标签，然后重新观察目标和前置条件。
 - 已完成步骤不重放。当前已派发但未知的步骤只能先验证结果、由用户确认完成、显式重试或取消。
-- 用户确认记录为 `evidence.type: user`，与宿主检查区分。没有可验证后置条件的未知操作不能“重新验证”后自动越过。
-- 工具是恢复最小单位；不能恢复到其中某一行。
+- 用户确认记录为 `evidence.type: user`。没有可验证后置条件的未知操作不能“重新验证”后自动越过。
 
-WorkflowRun 与 journal 在不同库中，不能原子提交；通过 attempt/operationId/requestId 关联核查，不承诺 exactly-once。工具内部有副作用时，重试会重新运行整个工具。
+WorkflowRun 与 journal 在不同库中，不能原子提交；通过 attempt/operationId/requestId 关联核查，不承诺 exactly-once。
 
 ## 持久化与兼容
 
-个人库 IDB 仍是 `browserbot-personal-library-v1`，内部 schema 升为 2，旧 schema 1 和旧备份可读取/导入。正式定义、草稿、历史版本、运行及录制记录由库事务提交，运行记录不属于聊天。删除聊天不删除已发布流程；已删除执行会话的旧运行不能继续，应开启新运行。
-
-JSON 导出包含正式定义、历史及完整固定依赖，不含录制/运行记录、标签临时映射、cookies 或登录状态。正常重开浏览器、同一扩展 ID 下更新保留本地库。卸载、清除扩展数据或换 ID/profile 需要用户自行导出恢复。没有云端服务。
-
-当前库仍以整条状态记录原子读改写，运行次数增加会增长占用；尚未实现归档、增量记录或自动清理。
+个人库 IDB 仍是 `browserbot-personal-library-v1`。正式定义必须是 `workflow.version: 2`。JSON 导出包含正式定义、历史及完整固定依赖，不含录制/运行记录、标签临时映射、cookies 或登录状态。没有云端服务。
 
 ## Node 与 Chrome 验收
 
-Node：`node --test tests/*.test.mjs`。新增 workflow 测试覆盖定义、数据引用、固定依赖备份往返、真实 service 制作/发布/运行/恢复、录制合并与脱敏、SW 原生 sender/范围/重启/缓冲排空、错误检查、写前故障及 UI 合同。既有权限、journal、租约和真实 QuickJS 回归继续运行。
+Node：`node --test tests/*.test.mjs`。workflow 测试覆盖定义、循环、抓取、分支、唯一目标、CSV、上传、悬停、shadow/iframe 字段、定时开新运行而非续跑，以及既有录制/恢复/权限回归。
 
-Chrome 实机验收由用户执行，代码测试不替代实际网页与浏览器体验。建议使用测试站点或沙盒账号：
-
-1. 无 Key：新建自动化，录制列表页点击详情链接（新标签）、在详情输入普通文字、返回列表；停止并确认没有重复打开/导航步骤。
-2. 添加详情页 `read` 步骤，通过 `steps.<id>.text` 传给已保存的生成文件工具，配置 `/artifacts/report.txt` 文件检查。编辑输入为 `input.<name>` 引用，并定义参数 schema。
-3. 高亮目标；试运行到某一步，核对当前步骤、检查和输出。点击「添加」，从正式库再次运行。更新或删除原工具后，流程应仍使用旧版本。
-4. 新建未加入范围的标签操作，确认不被记录；显式加入后才录制。密码/OTP 输入只留下手动步骤；查看导出文件不含这些值。
-5. 给目标制造重名、隐藏/移除、frame 改变、SPA 导航或关闭标签，确认等待/停点，不选择第一个候选。
-6. 运行中暂停/取消；制造需要审批的操作并拒绝；同时让另一会话占用目标标签，确认权限门和租约冲突不能绕过。
-7. 操作后、检查前重新加载扩展或关闭重开浏览器：应显示待核查，不自动重放。分别测试重新验证、用户确认完成、明确重试；确认记录区别可见。
-8. 录制时重载扩展、关闭侧栏后重开、窄侧栏和中英文切换，检查持续状态、恢复入口、参数编辑和审批是否可达。
-
-第一阶段在上述顺序流程闭环截止，不延伸图编辑器、混合 Agent 节点、后台调度或商业化能力。
+Chrome 实机验收由用户执行。建议：录制列表→详情；编辑 foreach / scrape / if；导入 CSV 跑 N 行；定时在浏览器打开时启动新运行；制造重名目标确认不停在第一项；崩溃后需人工核查。

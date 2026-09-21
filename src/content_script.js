@@ -268,61 +268,25 @@
         background: #7c3aed; color: #fff; border-color: #a78bfa;
       }
       #browserbot-confirm-bar button[data-pw-confirm="ok"]:hover { background: #6d28d9; }
-
-
-      /* Region screenshot (Windows Snip style) */
-      #browserbot-region-root {
-        position: fixed; inset: 0; z-index: 2147483646;
-        cursor: crosshair !important;
-        user-select: none !important;
-        -webkit-user-select: none !important;
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      }
-      #browserbot-region-root, #browserbot-region-root * {
-        cursor: crosshair !important;
-        box-sizing: border-box;
-      }
-      #browserbot-region-dim {
-        position: absolute; inset: 0;
-        background: rgba(15, 23, 42, 0.45);
-        pointer-events: none;
-      }
-      #browserbot-region-box {
-        position: absolute;
-        border: 2px solid #a78bfa;
-        background: transparent;
-        box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.5);
-        display: none;
-        pointer-events: none;
-        z-index: 2;
-      }
-      #browserbot-region-box.browserbot-region-active { display: block; }
-      #browserbot-region-size {
-        position: absolute; left: 0; top: -26px;
-        background: #0f172a; color: #f8fafc;
-        border: 1px solid #8b5cf6; border-radius: 4px;
-        font-size: 11px; font-weight: 600;
-        padding: 2px 8px; white-space: nowrap;
-        pointer-events: none;
-      }
-      #browserbot-region-hint {
-        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-        background: #0f172a; color: #f8fafc;
-        border: 1.5px solid #8b5cf6; border-radius: 999px;
-        padding: 10px 18px; font-size: 13px; font-weight: 600;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-        z-index: 3; pointer-events: none;
-        white-space: nowrap;
-      }
     `;
     (document.head || document.documentElement).appendChild(styleEl);
   }
 
   // ── Region screenshot picker (Win+Shift+S style) ─────────────────────────
   let regionCaptureActive = false;
+  let regionReviewActive = false;
+  let regionReviewBusy = false;
+  let regionReviewDataUrl = '';
+  let regionReviewFullDataUrl = '';
+  let regionReviewCropPromise = null;
+  let regionReviewRect = null;
+  let regionFreezeViewport = null;
+  let regionUiLang = 'zh';
   let regionRoot = null;
   let regionStart = null; // { x, y }
   let regionDragging = false;
+  let regionIgnoreNextClick = false;
+  let regionReviewPointerWired = false;
 
   function ensureRegionStyles() {
     if (document.getElementById('browserbot-region-styles')) return;
@@ -340,52 +304,158 @@
         cursor: crosshair !important;
         box-sizing: border-box;
       }
+      #browserbot-region-freeze {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        background-color: #050506;
+        background-repeat: no-repeat;
+        background-position: 0 0;
+        background-size: 100% 100%;
+        pointer-events: none;
+      }
       #browserbot-region-dim {
-        position: absolute; inset: 0;
-        background: rgba(15, 23, 42, 0.45);
+        position: absolute; inset: 0; z-index: 2;
+        background: rgba(5, 5, 6, 0.55);
         pointer-events: none;
       }
       #browserbot-region-box {
         position: absolute;
-        border: 2px solid #a78bfa;
+        border: 2px solid #ff6a00;
         background: transparent;
-        box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.5);
+        box-shadow: 0 0 0 9999px rgba(5, 5, 6, 0.55);
         display: none;
         pointer-events: none;
-        z-index: 2;
+        z-index: 3;
       }
       #browserbot-region-box.browserbot-region-active { display: block; }
       #browserbot-region-size {
         position: absolute; left: 0; top: -26px;
-        background: #0f172a; color: #f8fafc;
-        border: 1px solid #8b5cf6; border-radius: 4px;
+        background: #111113; color: #f4f3ef;
+        border: 1px solid #ff6a00; border-radius: 4px;
         font-size: 11px; font-weight: 600;
         padding: 2px 8px; white-space: nowrap;
         pointer-events: none;
       }
       #browserbot-region-hint {
         position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-        background: #0f172a; color: #f8fafc;
-        border: 1.5px solid #8b5cf6; border-radius: 999px;
-        padding: 10px 18px; font-size: 13px; font-weight: 600;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-        z-index: 3; pointer-events: none;
+        background: #111113; color: #f4f3ef;
+        border: 1px solid #2a2a2e; border-radius: 999px;
+        padding: 10px 18px; font-size: 13px; font-weight: 650;
+        z-index: 4; pointer-events: none;
         white-space: nowrap;
+      }
+      #browserbot-region-root.browserbot-region-review {
+        overflow: hidden;
+        cursor: default !important;
+      }
+      #browserbot-region-root.browserbot-region-review,
+      #browserbot-region-root.browserbot-region-review * {
+        cursor: default !important;
+      }
+      #browserbot-region-root.browserbot-region-review [data-shot-action] {
+        cursor: pointer !important;
+      }
+      #browserbot-region-toolbar {
+        position: fixed;
+        z-index: 10;
+        isolation: isolate;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px;
+        background: #111113;
+        color: #f4f3ef;
+        border: 1px solid #2a2a2e;
+        border-radius: 10px;
+        font-size: 12px;
+        pointer-events: auto;
+      }
+      #browserbot-region-toolbar button {
+        appearance: none;
+        cursor: pointer !important;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: 6px;
+        border: 1px solid #3a3a3e;
+        background: #1c1c1e;
+        color: #f4f3ef;
+        font: inherit;
+        font-weight: 650;
+      }
+      #browserbot-region-toolbar button[data-shot-action="copy"] {
+        background: #f4f3ef;
+        color: #050506;
+        border-color: #f4f3ef;
+      }
+      #browserbot-region-toolbar button:focus-visible {
+        outline: 2px solid #ff6a00;
+        outline-offset: 1px;
+      }
+      #browserbot-region-toolbar button:disabled,
+      #browserbot-region-toolbar button.is-busy {
+        opacity: 0.55;
+        cursor: wait !important;
       }
     `;
     (document.head || document.documentElement).appendChild(el);
   }
 
-  function stopRegionCaptureUi(reason) {
-    if (!regionCaptureActive && !regionRoot) return;
-    regionCaptureActive = false;
-    regionDragging = false;
-    regionStart = null;
+  function regionReviewCopy(lang) {
+    const en = lang === 'en';
+    return {
+      hintSelect: en ? 'Drag to select · Esc / right-click to cancel' : '拖拽选择截图区域 · Esc / 右键 取消',
+      hintReview: en ? 'Choose what to do · Esc to close' : '选择如何处理这张截图 · Esc 关闭',
+      ocr: 'OCR',
+      qr: en ? 'QR' : '二维码',
+      copy: en ? 'Copy' : '复制',
+      ocrBusy: en ? 'Reading…' : '识别中…',
+      qrBusy: en ? 'Scanning…' : '扫描中…',
+      copied: en ? 'Copied to clipboard' : '已复制到剪贴板',
+      textCopied: en ? 'Text copied' : '已复制文字',
+      qrCopied: en ? 'QR copied' : '已复制二维码',
+      ocrEmpty: en ? 'No text found' : '没有识别到文字',
+      qrEmpty: en ? 'No QR code found' : '没有识别到二维码',
+      ocrNeedKey: en
+        ? 'OCR uses the current chat model. Add an inference key in Settings first.'
+        : 'OCR 使用当前对话模型，请先在设置里填推理 Key',
+      ocrFail: en ? 'Could not read text' : '识别失败',
+      qrNeedApi: en ? 'Local QR scanning is not available here' : '此环境没有本地扫码能力'
+    };
+  }
+
+  function refreshRegionLang() {
+    try {
+      chrome.storage.local.get(['app_lang'], (res) => {
+        regionUiLang = res?.app_lang === 'en' ? 'en' : 'zh';
+      });
+    } catch (_) {}
+  }
+
+  function detachRegionSelectListeners() {
     document.removeEventListener('mousedown', onRegionMouseDown, true);
     document.removeEventListener('mousemove', onRegionMouseMove, true);
     document.removeEventListener('mouseup', onRegionMouseUp, true);
     document.removeEventListener('keydown', onRegionKeyDown, true);
     window.removeEventListener('blur', onRegionWindowBlur, true);
+    document.removeEventListener('keydown', onRegionReviewKeyDown, true);
+  }
+
+  function stopRegionCaptureUi(reason) {
+    if (!regionCaptureActive && !regionReviewActive && !regionRoot) return;
+    regionCaptureActive = false;
+    regionReviewActive = false;
+    regionReviewBusy = false;
+    regionReviewDataUrl = '';
+    regionReviewFullDataUrl = '';
+    regionReviewCropPromise = null;
+    regionReviewRect = null;
+    regionFreezeViewport = null;
+    regionDragging = false;
+    regionStart = null;
+    regionIgnoreNextClick = false;
+    regionReviewPointerWired = false;
+    detachRegionSelectListeners();
     if (regionRoot) {
       try { regionRoot.remove(); } catch (_) {}
       regionRoot = null;
@@ -393,6 +463,10 @@
   }
 
   function finishRegionCancel() {
+    if (regionReviewActive) {
+      stopRegionCaptureUi('review-cancel');
+      return;
+    }
     if (!regionCaptureActive) return;
     stopRegionCaptureUi('cancel');
     try {
@@ -400,8 +474,17 @@
     } catch (_) {}
   }
 
+  function regionViewport() {
+    return regionFreezeViewport || {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      dpr: window.devicePixelRatio || 1
+    };
+  }
+
   function finishRegionSelect(rect) {
-    stopRegionCaptureUi('select');
+    enterRegionReview(rect);
+    const vp = regionViewport();
     extSend({
       action: 'browserbot_region_selected',
       region: {
@@ -409,9 +492,9 @@
         y: rect.y,
         width: rect.width,
         height: rect.height,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-        dpr: window.devicePixelRatio || 1
+        viewportWidth: vp.width,
+        viewportHeight: vp.height,
+        dpr: vp.dpr
       }
     });
   }
@@ -506,29 +589,381 @@
     if (regionCaptureActive) finishRegionCancel();
   }
 
-  function startRegionCaptureUi() {
-    if (regionCaptureActive) {
-      return { status: 'already_active' };
+  function onRegionReviewKeyDown(e) {
+    if (!regionReviewActive) return;
+    if (e.key === 'Escape' || e.key === 'Esc') {
+      e.preventDefault();
+      e.stopPropagation();
+      stopRegionCaptureUi('review-esc');
     }
-    // Prefer body; fall back to documentElement for rare pages
+  }
+
+  function placeReviewChrome(rect, viewport, chrome = {}) {
+    const barW = Number(chrome.width) > 0 ? Number(chrome.width) : 220;
+    const barH = Number(chrome.height) > 0 ? Number(chrome.height) : 40;
+    const gap = Number(chrome.gap) >= 0 ? Number(chrome.gap) : 8;
+    const vw = Number(viewport?.width) || 0;
+    const vh = Number(viewport?.height) || 0;
+    const rx = Number(rect?.x) || 0;
+    const ry = Number(rect?.y) || 0;
+    const rh = Number(rect?.height) || 0;
+    const margin = 8;
+    let left = rx;
+    if (vw) {
+      const maxLeft = Math.max(margin, vw - barW - margin);
+      left = Math.min(Math.max(margin, left), maxLeft);
+    } else if (left < margin) {
+      left = margin;
+    }
+    const below = ry + rh + gap;
+    const above = ry - barH - gap;
+    const minTop = margin;
+    const maxTop = vh ? Math.max(minTop, vh - barH - margin) : below;
+    let top = below;
+    if (vh && below + barH > vh - margin) {
+      top = above >= minTop ? above : maxTop;
+    }
+    if (vh) top = Math.min(Math.max(minTop, top), maxTop);
+    else if (top < minTop) top = minTop;
+    return { left, top };
+  }
+
+  function placeRegionToolbar(rect) {
+    const bar = regionRoot?.querySelector('#browserbot-region-toolbar');
+    if (!bar || !rect) return;
+    const barW = bar.offsetWidth || 220;
+    const barH = bar.offsetHeight || 42;
+    const pos = placeReviewChrome(rect, { width: window.innerWidth, height: window.innerHeight }, {
+      width: barW,
+      height: barH,
+      gap: 8
+    });
+    bar.style.left = pos.left + 'px';
+    bar.style.top = pos.top + 'px';
+  }
+
+  function setRegionReviewBusy(action, busy) {
+    regionReviewBusy = busy;
+    if (!regionRoot) return;
+    const copy = regionReviewCopy(regionUiLang);
+    regionRoot.querySelectorAll('[data-shot-action]').forEach((btn) => {
+      const kind = btn.getAttribute('data-shot-action');
+      const active = kind === action;
+      btn.disabled = busy;
+      btn.classList.toggle('is-busy', busy && active);
+      if (active) {
+        btn.textContent = busy
+          ? (kind === 'ocr' ? copy.ocrBusy : copy.qrBusy)
+          : (kind === 'ocr' ? copy.ocr : kind === 'qr' ? copy.qr : copy.copy);
+      }
+    });
+  }
+
+  function cropDataUrlToRegion(dataUrl, region) {
+    return new Promise((resolve, reject) => {
+      if (!dataUrl || !region) {
+        reject(new Error('missing crop source'));
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const vw = region.viewportWidth > 0 ? region.viewportWidth : window.innerWidth;
+          const vh = region.viewportHeight > 0 ? region.viewportHeight : window.innerHeight;
+          const scaleX = img.naturalWidth / vw;
+          const scaleY = img.naturalHeight / vh;
+          let sx = Math.round(region.x * scaleX);
+          let sy = Math.round(region.y * scaleY);
+          let sw = Math.round(region.width * scaleX);
+          let sh = Math.round(region.height * scaleY);
+          sx = Math.max(0, Math.min(sx, img.naturalWidth - 1));
+          sy = Math.max(0, Math.min(sy, img.naturalHeight - 1));
+          sw = Math.max(1, Math.min(sw, img.naturalWidth - sx));
+          sh = Math.max(1, Math.min(sh, img.naturalHeight - sy));
+          const canvas = document.createElement('canvas');
+          canvas.width = sw;
+          canvas.height = sh;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('2d context unavailable'));
+            return;
+          }
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = () => reject(new Error('decode failed'));
+      img.src = dataUrl;
+    });
+  }
+
+  async function ensureRegionCrop() {
+    if (regionReviewDataUrl) return regionReviewDataUrl;
+    if (regionReviewCropPromise) return regionReviewCropPromise;
+    if (!regionReviewFullDataUrl || !regionReviewRect) return '';
+    const vp = regionViewport();
+    const cropRegion = {
+      ...regionReviewRect,
+      viewportWidth: regionReviewRect.viewportWidth || vp.width,
+      viewportHeight: regionReviewRect.viewportHeight || vp.height,
+      dpr: regionReviewRect.dpr || vp.dpr
+    };
+    regionReviewCropPromise = cropDataUrlToRegion(regionReviewFullDataUrl, cropRegion)
+      .then((url) => {
+        regionReviewDataUrl = url;
+        return url;
+      })
+      .finally(() => {
+        regionReviewCropPromise = null;
+      });
+    return regionReviewCropPromise;
+  }
+
+  async function copyRegionImage() {
+    const dataUrl = await ensureRegionCrop();
+    if (!dataUrl || !navigator.clipboard || typeof ClipboardItem === 'undefined') return false;
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const type = blob.type || 'image/png';
+    await navigator.clipboard.write([new ClipboardItem({ [type]: blob })]);
+    return true;
+  }
+
+  async function copyRegionText(text) {
+    const body = String(text || '').trim();
+    if (!body) return false;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(body);
+      return true;
+    }
+    return false;
+  }
+
+  async function handleRegionReviewAction(action) {
+    if (!regionReviewActive || regionReviewBusy) return;
+    const copy = regionReviewCopy(regionUiLang);
+    try {
+      await ensureRegionCrop();
+    } catch (_) {
+      showToast(copy.ocrFail);
+      stopRegionCaptureUi('review-crop-fail');
+      return;
+    }
+    if (!regionReviewDataUrl) {
+      showToast(copy.ocrFail);
+      stopRegionCaptureUi('review-no-crop');
+      return;
+    }
+    if (action === 'copy') {
+      try {
+        await copyRegionImage();
+        showToast(copy.copied);
+      } catch (_) {
+        showToast(copy.ocrFail);
+      }
+      stopRegionCaptureUi('review-copy');
+      return;
+    }
+    if (action === 'qr') {
+      setRegionReviewBusy('qr', true);
+      try {
+        if (typeof BarcodeDetector !== 'function') {
+          showToast(copy.qrNeedApi);
+          return;
+        }
+        const bitmap = await createImageBitmap(await (await fetch(regionReviewDataUrl)).blob());
+        const detector = new BarcodeDetector({ formats: ['qr_code', 'aztec', 'data_matrix', 'pdf417'] });
+        const values = [...new Set((await detector.detect(bitmap)).map((item) => String(item?.rawValue || '').trim()).filter(Boolean))];
+        if (!values.length) {
+          showToast(copy.qrEmpty);
+          return;
+        }
+        await copyRegionText(values.join('\n'));
+        showToast(copy.qrCopied);
+      } catch (_) {
+        showToast(copy.qrEmpty);
+      } finally {
+        setRegionReviewBusy('qr', false);
+        stopRegionCaptureUi('review-qr');
+      }
+      return;
+    }
+    if (action !== 'ocr') {
+      stopRegionCaptureUi('review-unknown');
+      return;
+    }
+    setRegionReviewBusy('ocr', true);
+    try {
+      let found = null;
+      if (typeof TextDetector === 'function') {
+        try {
+          const bitmap = await createImageBitmap(await (await fetch(regionReviewDataUrl)).blob());
+          const text = [...new Set((await new TextDetector().detect(bitmap)).map((item) => String(item?.rawValue || '').trim()).filter(Boolean))].join('\n');
+          if (text) found = { ok: true, text };
+        } catch (_) {}
+      }
+      if (!found) {
+        found = await chrome.runtime.sendMessage({
+          action: 'browserbot_screenshot_ocr',
+          dataUrl: regionReviewDataUrl,
+          lang: regionUiLang
+        });
+      }
+      if (found?.code === 'NEED_KEY') {
+        showToast(copy.ocrNeedKey);
+        return;
+      }
+      if (!found?.ok || !found.text) {
+        showToast(found?.code === 'EMPTY' ? copy.ocrEmpty : copy.ocrFail);
+        return;
+      }
+      await copyRegionText(found.text);
+      extSend({
+        action: 'clipboard_text_picked',
+        text: found.text,
+        textRaw: found.text,
+        url: window.location.href,
+        pageTitle: document.title,
+        sourceKind: 'screenshot-ocr',
+        openDrawer: true,
+        toast: false
+      });
+      showToast(copy.textCopied);
+    } catch (_) {
+      showToast(copy.ocrFail);
+    } finally {
+      setRegionReviewBusy('ocr', false);
+      stopRegionCaptureUi('review-ocr');
+    }
+  }
+
+  function ensureRegionToolbar() {
+    if (!regionRoot || regionRoot.querySelector('#browserbot-region-toolbar')) return;
+    const copy = regionReviewCopy(regionUiLang);
+    const bar = document.createElement('div');
+    bar.id = 'browserbot-region-toolbar';
+    bar.innerHTML =
+      `<button type="button" data-shot-action="ocr">${copy.ocr}</button>` +
+      `<button type="button" data-shot-action="qr">${copy.qr}</button>` +
+      `<button type="button" data-shot-action="copy">${copy.copy}</button>`;
+    regionRoot.appendChild(bar);
+  }
+
+  function onRegionReviewClick(e) {
+    if (!regionReviewActive) return;
+    if (regionIgnoreNextClick) {
+      regionIgnoreNextClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    const btn = e.target.closest?.('[data-shot-action]');
+    if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      void handleRegionReviewAction(btn.getAttribute('data-shot-action'));
+      return;
+    }
+    if (e.target.closest?.('#browserbot-region-toolbar')) return;
+    stopRegionCaptureUi('review-dismiss');
+  }
+
+  function onRegionReviewContext(e) {
+    if (!regionReviewActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    stopRegionCaptureUi('review-right');
+  }
+
+  function wireRegionReviewPointer() {
+    if (regionReviewPointerWired || !regionRoot) return;
+    regionReviewPointerWired = true;
+    regionRoot.addEventListener('click', onRegionReviewClick);
+    regionRoot.addEventListener('contextmenu', onRegionReviewContext);
+  }
+
+  function enterRegionReview(rect) {
+    if (!regionRoot || !rect) return;
+    regionCaptureActive = false;
+    regionReviewActive = true;
+    regionReviewBusy = false;
+    regionDragging = false;
+    regionStart = null;
+    regionReviewRect = {
+      ...rect,
+      viewportWidth: regionViewport().width,
+      viewportHeight: regionViewport().height,
+      dpr: regionViewport().dpr
+    };
+    detachRegionSelectListeners();
+    const hint = regionRoot.querySelector('#browserbot-region-hint');
+    if (hint) hint.hidden = true;
+    const dim = regionRoot.querySelector('#browserbot-region-dim');
+    if (dim) dim.style.opacity = '0';
+    updateRegionBox(rect);
+    regionRoot.classList.add('browserbot-region-review');
+    ensureRegionToolbar();
+    placeRegionToolbar(rect);
+    regionIgnoreNextClick = true;
+    document.addEventListener('keydown', onRegionReviewKeyDown, true);
+    wireRegionReviewPointer();
+    requestAnimationFrame(() => placeRegionToolbar(rect));
+    void ensureRegionCrop().catch(() => {});
+  }
+
+  function showRegionReview(payload) {
+    const rect = payload?.region || regionReviewRect;
+    if (regionRoot && regionReviewFullDataUrl && rect && rect.width >= 1 && rect.height >= 1) {
+      enterRegionReview(rect);
+      return { status: 'reviewing' };
+    }
+    stopRegionCaptureUi('bad-review');
+    return { status: 'error' };
+  }
+
+  function startRegionCaptureUi(payload) {
+    if (window !== window.top) {
+      return { status: 'ignored', reason: 'not-top' };
+    }
+    const fullDataUrl = payload?.fullDataUrl || '';
+    if (!fullDataUrl || typeof fullDataUrl !== 'string' || !fullDataUrl.startsWith('data:image')) {
+      return { status: 'error', message: 'missing freeze bitmap' };
+    }
     const mount = document.body || document.documentElement;
     if (!mount) return { status: 'error', message: 'no document body' };
 
+    refreshRegionLang();
     ensureRegionStyles();
     stopRegionCaptureUi('restart');
 
+    const copy = regionReviewCopy(regionUiLang);
     regionRoot = document.createElement('div');
     regionRoot.id = 'browserbot-region-root';
     regionRoot.setAttribute('data-browserbot', 'region-capture');
     regionRoot.innerHTML =
+      '<div id="browserbot-region-freeze"></div>' +
       '<div id="browserbot-region-dim"></div>' +
       '<div id="browserbot-region-box"><span id="browserbot-region-size"></span></div>' +
-      '<div id="browserbot-region-hint">拖拽选择截图区域 · Esc / 右键 取消</div>';
+      `<div id="browserbot-region-hint">${copy.hintSelect}</div>`;
+    const freeze = regionRoot.querySelector('#browserbot-region-freeze');
+    freeze.style.backgroundImage = `url("${fullDataUrl}")`;
     mount.appendChild(regionRoot);
 
+    regionReviewFullDataUrl = fullDataUrl;
+    regionReviewDataUrl = '';
+    regionReviewRect = null;
+    regionFreezeViewport = {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      dpr: window.devicePixelRatio || 1
+    };
     regionCaptureActive = true;
+    regionReviewActive = false;
     regionDragging = false;
     regionStart = null;
+    regionIgnoreNextClick = false;
 
     document.addEventListener('mousedown', onRegionMouseDown, true);
     document.addEventListener('mousemove', onRegionMouseMove, true);
@@ -582,6 +1017,31 @@
     }
   }, true);
 
+  function queryDeepAll(root, selector) {
+    const out = [];
+    const visit = (node) => {
+      if (!node?.querySelectorAll) return;
+      if (selector) { try { out.push(...node.querySelectorAll(selector)); } catch { /* invalid selector */ } }
+      let all = [];
+      try { all = node.querySelectorAll('*'); } catch { all = []; }
+      for (const el of all) if (el.shadowRoot) visit(el.shadowRoot);
+    };
+    visit(root);
+    return out;
+  }
+  function composeShadowPath(el) {
+    const hosts = [];
+    let node = el;
+    while (node) {
+      const root = node.getRootNode?.();
+      if (root && root !== document && root.host) {
+        const host = root.host;
+        hosts.unshift(host.getAttribute?.('data-testid') ? `[data-testid="${host.getAttribute('data-testid')}"]` : host.id ? `#${host.id}` : host.tagName.toLowerCase());
+        node = host;
+      } else break;
+    }
+    return hosts.length ? hosts.join(' >> ') : '';
+  }
   function generateSelector(el) {
     if (!el || el.nodeType !== 1) return '';
     if (el.id) {
@@ -3830,6 +4290,18 @@ ${fragment}
     return true;
   }
 
+  function collectDeepInteractive(cap = ACTION_SNAPSHOT_CAP) {
+    const seen = new Set();
+    const out = [];
+    const add = (el) => {
+      if (!el || el.nodeType !== 1 || seen.has(el) || isActionChrome(el)) return;
+      seen.add(el);
+      out.push(el);
+    };
+    try { Array.from(document.querySelectorAll(ACTION_INTERACTIVE_SEL)).forEach(add); } catch { /* invalid */ }
+    try { queryDeepAll(document, ACTION_INTERACTIVE_SEL).forEach(add); } catch { /* invalid */ }
+    return out.slice(0, cap);
+  }
   function collectActionInteractive() {
     const seen = new Set();
     const visible = [];
@@ -4000,12 +4472,13 @@ ${fragment}
   }
 
   function takeActionSnapshot(workflowTarget, workflowObserve = false) {
-    let els = collectActionInteractive();
+    let els = workflowObserve || workflowTarget ? collectDeepInteractive(200) : collectActionInteractive();
     if (workflowTarget) {
       let candidates = [];
-      try { candidates = Array.from(document.querySelectorAll(workflowTarget.css || (workflowTarget.id ? '[id]' : workflowTarget.testId ? '[data-testid]' : workflowTarget.tag || ACTION_INTERACTIVE_SEL))); } catch { /* invalid selector produces no match */ }
+      const seed = workflowTarget.css || (workflowTarget.id ? '[id]' : workflowTarget.testId ? '[data-testid]' : workflowTarget.tag || ACTION_INTERACTIVE_SEL);
+      try { candidates = [...document.querySelectorAll(seed), ...queryDeepAll(document, seed)]; } catch { /* invalid selector produces no match */ }
       els = candidates.filter(el => !isActionChrome(el) && Object.entries(workflowTarget).every(([key, value]) => {
-        if (!value) return true;
+        if (!value || key === 'css') return !value || key !== 'css' || generateSelector(el) === value || workflowLocator(el).css === value;
         const row = { ...workflowLocator(el), css: workflowTarget.css || generateSelector(el), frameUrl: location.href };
         return String(row[key] || '') === value;
       })).slice(0, 81);
@@ -4383,6 +4856,7 @@ ${fragment}
     if (op === 'wait') return waitActionCondition(request);
 
     if (op === 'snapshot') return takeActionSnapshot(request.workflowTarget, request.workflowObserve);
+    if (op === 'scrape') return scrapeWorkflow(request);
 
     if (op === 'pointer') {
       const x = Number(request.x);
@@ -4440,6 +4914,37 @@ ${fragment}
     if (op === 'click') {
       const clicked = clickActionTarget(el);
       if (clicked && clicked.ok === false) return clicked;
+      return { ok: true, op, after: actionAfter(el, afterExtra) };
+    }
+
+    if (op === 'hover') {
+      scrollActionTarget(el);
+      try { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window })); } catch { /* */ }
+      try { el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true, view: window })); } catch { /* */ }
+      return { ok: true, op, after: actionAfter(el, afterExtra) };
+    }
+    if (op === 'dblclick') {
+      scrollActionTarget(el);
+      try { el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window })); } catch { /* */ }
+      try { el.click(); } catch { /* */ }
+      return { ok: true, op, after: actionAfter(el, afterExtra) };
+    }
+    if (op === 'contextmenu') {
+      scrollActionTarget(el);
+      try { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, view: window, button: 2 })); } catch { /* */ }
+      return { ok: true, op, after: actionAfter(el, afterExtra) };
+    }
+    if (op === 'toggle') {
+      const type = actionControlType(el);
+      if (type !== 'checkbox' && type !== 'radio' && actionRole(el) !== 'checkbox' && actionRole(el) !== 'radio') {
+        return { ok: false, code: 'NO_TARGET', error: 'toggle requires a checkbox or radio' };
+      }
+      const token = request.value === true || request.value === 'true' || request.checked === true;
+      if (el.checked !== token) {
+        const clicked = clickActionTarget(el);
+        if (clicked && clicked.ok === false) return clicked;
+      }
+      el.checked = token;
       return { ok: true, op, after: actionAfter(el, afterExtra) };
     }
 
@@ -4937,13 +5442,79 @@ ${fragment}
   function workflowSensitive(el) {
     return el?.type === 'password' || /password|passwd|token|secret|one.?time|otp|cvv|cvc|card|cc-|payment|api.?key/i.test([el?.name, el?.id, el?.autocomplete, el?.getAttribute?.('aria-label')].join(' '));
   }
+  function looksGeneratedId(id) {
+    return /[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id) || /^(ember|react|gwt)-?\d/i.test(id) || String(id).length > 64;
+  }
   function workflowLocator(el) {
+    const all = collectDeepInteractive(200);
+    const unique = pred => all.filter(pred).length === 1;
     const out = { tag: String(el.tagName || '').toLowerCase(), role: actionRole(el), name: actionAccessibleName(el) || '', type: actionControlType(el) || '' };
-    if (el.getAttribute('data-testid')) out.testId = el.getAttribute('data-testid');
+    const testId = el.getAttribute?.('data-testid');
+    const text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const shadowPath = composeShadowPath(el);
+    if (shadowPath) out.shadowPath = shadowPath;
+    const region = actionRegion(el); if (region) out.region = region;
+    if (el.href) out.key = String(el.href);
+    if (testId && unique(e => e.getAttribute?.('data-testid') === testId)) { out.testId = testId; return out; }
+    if (el.id && !looksGeneratedId(el.id) && unique(e => e.id === el.id)) { out.id = el.id; return out; }
+    if (out.role && out.name && unique(e => actionRole(e) === out.role && actionAccessibleName(e) === out.name)) return out;
+    if (out.name && unique(e => actionAccessibleName(e) === out.name)) return out;
+    if (text && unique(e => String(e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80) === text)) { out.text = text; return out; }
+    if (testId) out.testId = testId;
     else if (el.id) out.id = el.id;
     else if (!out.name) out.css = generateSelector(el);
-    const region = actionRegion(el); if (region) out.region = region;
+    if (text && !out.name) out.text = text;
     return out;
+  }
+  function scrapeWorkflow(request) {
+    const kind = String(request.kind || 'links');
+    const itemKey = request.itemKey || (kind === 'links' ? 'href' : 'text');
+    const columns = Array.isArray(request.columns) ? request.columns.map(col => typeof col === 'string' ? { name: col, attr: col } : col) : [];
+    const scopeEls = request.target ? (takeActionSnapshot(request.target, true).controls || []).map(row => pawActionEls.get(row.ref)).filter(Boolean) : collectDeepInteractive(200);
+    const items = [];
+    const push = (el, extra) => {
+      const loc = workflowLocator(el);
+      const text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+      const href = el.href || el.getAttribute?.('href') || '';
+      const row = { ...extra, text, href, name: loc.name || '', testId: loc.testId || '', id: loc.id || '', target: loc, frameUrl: location.href };
+      row.key = String(row[itemKey] || loc.testId || loc.id || loc.name || href || text || '');
+      if (row.key) items.push(row);
+    };
+    if (kind === 'table') {
+      const table = scopeEls.find(el => (el.tagName || '').toLowerCase() === 'table') || document.querySelector('table');
+      if (!table) return { ok: true, op: 'scrape', items: [], count: 0, kind };
+      const headers = Array.from(table.querySelectorAll('th')).map(th => String(th.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+      const names = headers.length ? headers.map((name, i) => /^[a-zA-Z]/.test(name) ? name.replace(/\W+/g, '_') : `col${i + 1}`) : columns.map(c => c.name);
+      for (const tr of Array.from(table.querySelectorAll('tr')).slice(0, 500)) {
+        const cells = Array.from(tr.querySelectorAll('td'));
+        if (!cells.length) continue;
+        const extra = {};
+        cells.forEach((td, i) => { extra[names[i] || `col${i + 1}`] = String(td.innerText || '').replace(/\s+/g, ' ').trim(); });
+        const link = tr.querySelector('a[href]');
+        extra.href = link?.href || '';
+        extra.text = String(tr.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+        push(link || cells[0], extra);
+      }
+    } else if (kind === 'links') {
+      const roots = scopeEls.length ? scopeEls : [document];
+      const seen = new Set();
+      for (const root of roots) {
+        const links = root.matches?.('a[href]') ? [root] : [...(root.querySelectorAll?.('a[href]') || []), ...queryDeepAll(root, 'a[href]')];
+        for (const a of links) {
+          if (seen.has(a) || isActionChrome(a)) continue;
+          seen.add(a);
+          push(a, { href: a.href, text: String(a.innerText || '').replace(/\s+/g, ' ').trim() });
+        }
+      }
+    } else {
+      for (const el of scopeEls) {
+        const extra = {};
+        for (const col of columns) extra[col.name] = el.getAttribute?.(col.attr || col.name) || (col.attr === 'text' ? String(el.innerText || '').trim() : '');
+        if (!columns.length) extra.text = String(el.innerText || '').replace(/\s+/g, ' ').trim();
+        push(el, extra);
+      }
+    }
+    return { ok: true, op: 'scrape', items: items.slice(0, 500), count: Math.min(items.length, 500), kind };
   }
   function workflowEmit(event) {
     if (!workflowRecorder.active) return;
@@ -4966,7 +5537,8 @@ ${fragment}
     if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
     const el = event.target;
     if (workflowSensitive(el)) { workflowEmit({ type: 'sensitive' }); return; }
-    if (el.type === 'file' || el.isContentEditable) { workflowEmit({ type: 'unsupported' }); return; }
+    if (el.type === 'file') { workflowEmit({ type: 'unsupported', unresolvedReason: 'UPLOAD_PATH' }); return; }
+    if (el.isContentEditable) { workflowEmit({ type: 'unsupported' }); return; }
     const next = { type: el.tagName === 'SELECT' ? 'select' : 'fill', target: workflowLocator(el), value: String(el.value ?? '') };
     if (workflowRecorder.pending && JSON.stringify(workflowRecorder.pending.target) !== JSON.stringify(next.target)) flushWorkflowInput();
     workflowRecorder.pending = next;
@@ -4974,7 +5546,8 @@ ${fragment}
   }, true);
   document.addEventListener('change', event => {
     if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
-    if (event.target.type === 'file') workflowEmit({ type: 'unsupported' });
+    if (event.target.type === 'file') workflowEmit({ type: 'unsupported', unresolvedReason: 'UPLOAD_PATH' });
+    else if (['checkbox', 'radio'].includes(event.target.type)) { flushWorkflowInput(); workflowEmit({ type: 'toggle', target: workflowLocator(event.target), checked: event.target.checked === true }); }
     else if (workflowSensitive(event.target)) workflowEmit({ type: 'sensitive' });
     else if (workflowRecorder.pending) flushWorkflowInput();
     else if (event.target.tagName === 'SELECT') workflowEmit({ type: 'select', target: workflowLocator(event.target), value: String(event.target.value ?? '') });
@@ -4986,7 +5559,32 @@ ${fragment}
     if (workflowSensitive(el)) { workflowEmit({ type: 'sensitive' }); return; }
     // Text-field focus is represented by the ensuing fill, not an extra click.
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) && !['checkbox','radio','button','submit'].includes(el.type)) return;
+    if (event.detail === 2) return;
+    if (['checkbox', 'radio'].includes(el.type)) { workflowEmit({ type: 'toggle', target: workflowLocator(el), checked: el.checked === true }); return; }
     workflowEmit({ type: 'click', target: workflowLocator(el) });
+  }, true);
+  document.addEventListener('dblclick', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
+    flushWorkflowInput();
+    const el = event.target.closest?.(ACTION_INTERACTIVE_SEL) || event.target;
+    if (workflowSensitive(el)) { workflowEmit({ type: 'sensitive' }); return; }
+    workflowEmit({ type: 'dblclick', target: workflowLocator(el) });
+  }, true);
+  document.addEventListener('contextmenu', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
+    flushWorkflowInput();
+    const el = event.target.closest?.(ACTION_INTERACTIVE_SEL) || event.target;
+    if (workflowSensitive(el)) { workflowEmit({ type: 'sensitive' }); return; }
+    workflowEmit({ type: 'contextmenu', target: workflowLocator(el) });
+  }, true);
+  let workflowHoverTimer = null; let workflowHoverEl = null;
+  document.addEventListener('mouseover', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
+    const el = event.target.closest?.(ACTION_INTERACTIVE_SEL) || event.target;
+    if (workflowSensitive(el) || workflowHoverEl === el) return;
+    clearTimeout(workflowHoverTimer);
+    workflowHoverEl = el;
+    workflowHoverTimer = setTimeout(() => { if (workflowRecorder.active && workflowHoverEl === el) workflowEmit({ type: 'hover', target: workflowLocator(el) }); }, 500);
   }, true);
   document.addEventListener('keydown', event => {
     if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target) || workflowSensitive(event.target)) return;
@@ -5000,7 +5598,7 @@ ${fragment}
     clearTimeout(workflowRecorder.scrollTimer);
     workflowRecorder.scrollTimer = setTimeout(() => { workflowEmit({ type: 'scroll', deltaY: Math.round(workflowScroll), target: workflowLocator(document.scrollingElement || document.body) }); workflowScroll = 0; }, 200);
   }, { capture: true, passive: true });
-  for (const type of ['drop', 'dragstart']) document.addEventListener(type, event => { if (workflowRecorder.active && event.isTrusted) workflowEmit({ type: 'unsupported' }); }, true);
+  for (const type of ['drop', 'dragstart']) document.addEventListener(type, event => { if (workflowRecorder.active && event.isTrusted) workflowEmit({ type: 'unsupported', unresolvedReason: 'DRAG_UNSUPPORTED' }); }, true);
   window.addEventListener('pagehide', flushWorkflowInput);
   chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'workflow_record_status' }).then(result => configureWorkflowRecording(result?.recording)).catch(() => {});
 
@@ -5061,9 +5659,14 @@ ${fragment}
     else if (request.action === 'scan_full_page_dom') { sendResponse(scanFullPageDOMContext()); }
     else if (request.action === 'show_custom_toast') { showToast(request.msg); sendResponse({ status: 'toast_shown' }); }
     else if (request.action === 'browserbot_start_region_capture') {
-      sendResponse(startRegionCaptureUi());
+      sendResponse(startRegionCaptureUi(request));
+    } else if (request.action === 'browserbot_region_review') {
+      sendResponse(showRegionReview(request));
+    } else if (request.action === 'browserbot_region_review_failed') {
+      stopRegionCaptureUi('fail');
+      sendResponse({ status: 'dismissed' });
     } else if (request.action === 'browserbot_cancel_region_capture') {
-      if (regionCaptureActive) finishRegionCancel();
+      if (regionCaptureActive || regionReviewActive) finishRegionCancel();
       else stopRegionCaptureUi('cancel');
       sendResponse({ status: 'cancelled' });
     }

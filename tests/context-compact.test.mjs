@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   COMPACT_RATIO,
   shouldCompact,
+  contextUsageRatio,
   findCompactCutByBudget,
   packFoldedTurnsForSummary,
   generateCompactText,
@@ -26,6 +27,7 @@ import { DurableSessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspac
 import { replayWireMessages } from '../src/agent/vnext/sessionWorkspace/wireTranscript.js';
 import { createCallModelLanguageModel, runSessionToolLoopAgent } from '../src/agent/vnext/sessionWorkspace/sessionAgent.js';
 import { makeOfficePrepareStep } from '../src/agent/vnext/sessionWorkspace/toolSchedule.js';
+import { DEFAULT_CONTEXT_WINDOW, resolveContextWindow } from '../src/agent/modelCatalog.js';
 
 function user(id, content) {
   return { role: 'user', messageId: id, content };
@@ -53,6 +55,23 @@ function memStore(session) {
     }
   };
 }
+
+test('unknown window compact math uses 256k; UI allowDefault stays null', () => {
+  assert.equal(DEFAULT_CONTEXT_WINDOW, 256000);
+  assert.equal(resolveContextWindow('mystery-model'), 256000);
+  assert.equal(resolveContextWindow('mystery-model', null, { allowDefault: false }), null);
+  assert.equal(contextUsageRatio(204800, null), COMPACT_RATIO);
+  assert.ok(contextUsageRatio(204799, undefined) < COMPACT_RATIO);
+  assert.equal(shouldCompact({
+    promptTokens: 204799,
+    contextWindow: null,
+    messages: [
+      user('u1', '第一轮'), assistant('a1', '好'),
+      user('u2', '第二轮'), assistant('a2', '好'),
+      user('u3', '第三轮')
+    ]
+  }), false);
+});
 
 test('greetings are not request-like and never freeze as sessionGoal', () => {
   assert.equal(isGreetingOrFiller('你好'), true);

@@ -1,6 +1,6 @@
 # 自定义工具与 Workflow
 
-工具是保存后可直接运行的脚本。运行复用本地 QuickJS 沙箱和现有 `fs` / `sys`，不调用模型、不要求 API Key。Workflow 包括确定性「自动化」与文字「Agent 任务」。自动化顺序执行页面步骤和固定版本工具，不调用模型；文字任务仍新建普通 Agent 对话。完整合同与 Chrome 验收步骤见 [Workflow 第一阶段](WORKFLOW_V1.md)。
+工具是保存后可直接运行的脚本。运行复用本地 QuickJS 沙箱和现有 `fs` / `sys`，不调用模型、不要求 API Key。Workflow 包括确定性「自动化」与文字「Agent 任务」。自动化执行页面步骤、循环、抓取和固定版本工具，不调用模型；文字任务仍新建普通 Agent 对话。完整合同与 Chrome 验收步骤见 [Workflow 合同](WORKFLOW_V1.md)。
 
 ## 制作与修改
 

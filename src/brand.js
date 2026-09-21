@@ -30,6 +30,8 @@ export const ACCESS_POLICY_SESSION_SCHEMA = 'browserbot.access-policy-session/v1
 
 export const TASK_WAKE_ALARM = 'browserbot-task-wake';
 export const TASK_RECONCILE_ALARM = 'browserbot-task-reconcile';
+export const WORKFLOW_WAKE_ALARM = 'browserbot-workflow-wake';
+export const WORKFLOW_RECONCILE_ALARM = 'browserbot-workflow-reconcile';
 
 export const SANDBOX_CHANNEL = 'browserbot-code-sandbox-v1';
 

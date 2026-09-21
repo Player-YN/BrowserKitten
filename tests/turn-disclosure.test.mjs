@@ -27,8 +27,8 @@ import {
   shouldShowGlobalStatusWall,
   visibleSummaryRows
 } from '../src/sidepanel/executionStatus.js';
-import { nextStatusCopy } from '../src/sidepanel/botStatusUi.js';
-import { createBotStatusUi } from '../src/sidepanel/botStatusUi.js';
+import { ACTIVITY_ICONS, ICONS } from '../src/sidepanel/icons.js';
+import { createBotStatusUi, nextStatusCopy } from '../src/sidepanel/botStatusUi.js';
 import {
   exclusiveHistoricalOpen,
   insertTurnDisclosure,
@@ -47,6 +47,15 @@ import {
 } from '../src/sidepanel/thinkUi.js';
 import { I18N } from '../src/sidepanel/i18n.js';
 import { applyLiveProgress, createLiveProgressState } from '../src/agent/vnext/sessionWorkspace/liveProgress.js';
+
+const EMOJI_ROW_MARK = /📖|🔧|💡|✨|✏️|✏|⏳|⚠️|⚠|[\u{1F300}-\u{1FAFF}]/u;
+
+function assertStrokeIcon(html) {
+  assert.match(String(html), /<svg\b/);
+  assert.match(String(html), /stroke="currentColor"/);
+  assert.match(String(html), /fill="none"/);
+  assert.doesNotMatch(String(html), EMOJI_ROW_MARK);
+}
 
 function zh(key) {
   return I18N.zh[key] || key;
@@ -413,26 +422,32 @@ test('activity rows map small muted icons and keep run as activity', () => {
   assert.equal(activityIconKind({ tool: 'web', kind: 'web' }), 'browser');
   assert.equal(activityIconKind({ tool: 'run', kind: 'write', op: 'write_artifact' }), 'write');
   assert.equal(activityIconKind({ kind: 'think' }), 'think');
-  assert.equal(ACTIVITY_ICON.read, '📖');
-  assert.equal(ACTIVITY_ICON.run, '🔧');
-  assert.equal(ACTIVITY_ICON.browser, '✨');
-  assert.equal(ACTIVITY_ICON.write, '✏️');
-  assert.equal(ACTIVITY_ICON.think, '💡');
+  assert.equal(ACTIVITY_ICON.read, ICONS.book);
+  assert.equal(ACTIVITY_ICON.run, ICONS.wrench);
+  assert.equal(ACTIVITY_ICON.think, ICONS.lightbulb);
+  assert.equal(ACTIVITY_ICON.wait, ICONS.clock);
+  assert.equal(ACTIVITY_ICON.error, ICONS.alert);
+  assert.equal(ACTIVITY_ICON.browser, ACTIVITY_ICONS.browser);
+  assert.equal(ACTIVITY_ICON.write, ACTIVITY_ICONS.write);
+  for (const kind of Object.keys(ACTIVITY_ICON)) assertStrokeIcon(ACTIVITY_ICON[kind]);
   const runRow = formatActivityRow({ tool: 'run', kind: 'run', label: '运行访客代码', count: 17 }, zh);
   assert.equal(runRow.iconKind, 'run');
-  assert.equal(runRow.icon, '🔧');
+  assert.equal(runRow.icon, ICONS.wrench);
+  assertStrokeIcon(runRow.icon);
   assert.match(runRow.label, /运行访客代码/);
   assert.doesNotMatch(runRow.label, /交付物|deliverable/);
   const thinkLive = liveActivityVisual({ phase: 'running', current: null }, I18N.zh.liveProgress, zh);
   assert.equal(thinkLive.iconKind, 'think');
-  assert.equal(thinkLive.icon, '💡');
+  assert.equal(thinkLive.icon, ICONS.lightbulb);
+  assertStrokeIcon(thinkLive.icon);
   const runLive = liveActivityVisual(
     { phase: 'running', current: { tool: 'run', op: '', status: 'running', text: '正在运行访客代码' } },
     '正在运行访客代码',
     zh
   );
   assert.equal(runLive.iconKind, 'run');
-  assert.equal(runLive.icon, '🔧');
+  assert.equal(runLive.icon, ICONS.wrench);
+  assertStrokeIcon(runLive.icon);
 });
 
 test('after complete or stop the live activity list is folded away', () => {
@@ -482,8 +497,8 @@ test('after complete or stop the live activity list is folded away', () => {
 
 test('fold line i18n omits deliverables when count is 0', () => {
   assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 0 }, zh), '完成 · 12S');
-  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 1 }, zh), '完成 · 12S · 1 个交付物');
-  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 2 }, en), 'Done · 12S · 2 deliverables');
+  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 1 }, zh), '完成 · 12S · 1 个文件');
+  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 2 }, en), 'Done · 12S · 2 files');
 });
 
 test('run inspect and page-read never become deliverable chips or increment the count', () => {
@@ -583,7 +598,7 @@ test('run inspect and page-read never become deliverable chips or increment the 
     result: { ok: true, artifactId: 'art-1', registered: true }
   });
   assert.equal(wrote.artifactCount, 1);
-  assert.match(foldStubFromState(wrote, zh).line, /1 个交付物/);
+  assert.match(foldStubFromState(wrote, zh).line, /1 个文件/);
 });
 
 test('liveProgress commentary never becomes execution current', () => {
@@ -722,13 +737,13 @@ test('consecutive identical writes collapse to a count', () => {
   const collapsed = collapseConsecutiveSummary(state.summary);
   assert.equal(collapsed.length, 1);
   assert.equal(collapsed[0].count, 6);
-  assert.match(collapsed[0].label, /写入交付物|Write deliverable/);
+  assert.match(collapsed[0].label, /写入文件|Write file/);
   assert.equal(formatSummaryRowText(collapsed[0], zh), '写入×6');
   assert.equal(formatSummaryRowText(collapsed[0], en), 'Write×6');
   const visible = visibleSummaryRows(state.summary, 8);
   assert.equal(visible.length, 1);
   assert.equal(state.current?.status, 'success');
-  assert.match(state.current.text, /已写入交付物|Wrote a deliverable/);
+  assert.match(state.current.text, /已写入文件|Wrote a file/);
 });
 
 test('completed folds while approval and payment stay sticky', () => {

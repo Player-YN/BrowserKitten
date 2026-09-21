@@ -130,8 +130,8 @@ export function findCatalogModel(models, modelId) {
  * @param {ModelReasoningInfo|null|undefined} info
  * @returns {string[]|null}
  */
-/** Conservative default when /models does not advertise a window. */
-export const DEFAULT_CONTEXT_WINDOW = 128000;
+/** Compact-math fallback when override / catalog / probe / family yield no window. UI must not paint this as measured. */
+export const DEFAULT_CONTEXT_WINDOW = 256000;
 
 /**
  * Read advertised context window from OpenRouter / OpenAI-compatible /models rows.
@@ -188,7 +188,7 @@ export function guessContextWindow(modelId) {
 
 /**
  * Adaptive window: user override → measured evidence → catalog row → family →
- * optional 128k compacting default. UI must pass { allowDefault: false }.
+ * optional 256k compacting default. UI must pass { allowDefault: false }.
  * Never treat an 8k output cap as a window; callers only pass adopted ≥2048 values.
  * @param {string} [modelId]
  * @param {ModelEntry|null|undefined} [entry]

@@ -1,7 +1,7 @@
 import { createSessionGuestFs } from '../sessionWorkspace/fs.js';
 import { validatePersonalLibraryInput, requireLibraryRevision, validatePersonalLibraryDefinition } from '../service/personalLibraryContract.js';
 import { PERSONAL_LIBRARY_DRAFT_PATH, personalLibraryCreationInstructions } from '../service/personalLibraryCreationInstructions.js';
-import { validateWorkflow, workflowError, sanitizeRecordedUrl } from './definition.js';
+import { validateWorkflow, workflowError, sanitizeRecordedUrl, emptyWorkflow, parseWorkflowCsv, serializeWorkflowCsv, WORKFLOW_CAPS, listStepIds } from './definition.js';
 import { executeWorkflow, bindWorkflowTabs, verifyStep } from './engine.js';
 import { applyRecordingEvent } from './recording.js';
 const id = prefix => `${prefix}_${crypto.randomUUID()}`;
@@ -33,7 +33,7 @@ export class WorkflowService {
     if (entryId && made.draft.workflow) { await this.seed(made.draft); return made; }
     if (entryId) throw workflowError('WORKFLOW_INVALID', 'Use the Agent task editor for a playbook.');
     const lib = await this.library();
-    const draft = await lib.updateDraft({ draftId: made.draftId, expectedRevision: made.draft.revision, patch: { name, workflow: { version: 1, tabs: [], steps: [] } } });
+    const draft = await lib.updateDraft({ draftId: made.draftId, expectedRevision: made.draft.revision, patch: { name, workflow: emptyWorkflow() } });
     await this.seed(draft); return { ...made, draft };
   }
   async seed(draft) {
@@ -54,18 +54,18 @@ export class WorkflowService {
     const saved = await (await this.library()).updateDraft({ draftId, expectedRevision, patch: { name: next.name, description: next.description, parameters: next.parameters, workflow: next.workflow } });
     await this.seed(saved); return { draft: saved };
   }
-  async start({ entryId, draftId, expectedRevision, input = {}, bindings = {}, stopAfter } = {}) {
+  async start({ entryId, draftId, expectedRevision, input = {}, bindings = {}, stopAfter, table, trigger } = {}) {
     const lib = await this.library();
     const definition = draftId ? (await this.owner.getPersonalLibraryDraft({ draftId })).draft : await lib.get({ entryId });
     if (!definition?.workflow) throw workflowError('WORKFLOW_INVALID', 'A structured workflow is required.');
     if (draftId) requireLibraryRevision(expectedRevision, definition.revision);
     validatePersonalLibraryDefinition(definition);
     if (draftId && !this.owner.runtime.store.has('sessions', definition.sessionId)) throw workflowError('WORKFLOW_NOT_FOUND', 'Creation conversation was deleted.');
-    if (stopAfter && !definition.workflow.steps.some(step => step.id === stopAfter)) throw workflowError('WORKFLOW_INVALID', 'Unknown trial boundary.');
+    if (stopAfter && !listStepIds(definition.workflow.steps).includes(stopAfter)) throw workflowError('WORKFLOW_INVALID', 'Unknown trial boundary.');
     const values = validatePersonalLibraryInput(definition.parameters, input);
     const session = this.owner.runtime.createSession({ title: definition.name });
     await this.owner._persist();
-    let run = { id: id('workflow'), type: 'run', status: 'paused', sessionId: session.sessionId, definition, input: values, outputs: {}, bindings: {}, nextStep: 0, attempts: [], attempt: null, startedAt: Date.now(), draftId: draftId || null, makerSessionId: draftId ? definition.sessionId : null };
+    let run = { id: id('workflow'), type: 'run', status: 'paused', sessionId: session.sessionId, definition, input: values, outputs: {}, bindings: {}, vars: structuredClone(definition.workflow.variables || {}), table: structuredClone(table || definition.workflow.table || { columns: [], rows: [] }), nextStep: 0, attempts: [], attempt: null, startedAt: Date.now(), draftId: draftId || null, makerSessionId: draftId ? definition.sessionId : null, trigger: trigger === 'schedule' ? 'schedule' : 'user', entryId: definition.entryId || entryId || null };
     try { run.bindings = await bindWorkflowTabs(run, { tabs: () => this.host('tabs') }, bindings); }
     catch (error) { run.error = detail(error); run.recovering = true; }
     run = await lib.putWorkflowRecord({ record: run, expectedRevision: 0 });
@@ -78,7 +78,7 @@ export class WorkflowService {
       const lib = await this.library(); let run = await this.get({ runId });
       requireLibraryRevision(expectedRevision, run.revision);
       if (!this.owner.runtime.store.has('sessions', run.sessionId)) throw workflowError('WORKFLOW_NOT_FOUND', 'Execution conversation was deleted; start a new run.');
-      if (stopAfter && !run.definition.workflow.steps.some(step => step.id === stopAfter)) throw workflowError('WORKFLOW_INVALID', 'Unknown trial boundary.');
+      if (stopAfter && !listStepIds(run.definition.workflow.steps).includes(stopAfter)) throw workflowError('WORKFLOW_INVALID', 'Unknown trial boundary.');
       if (this.active.has(runId) || ['completed','cancelled'].includes(run.status)) throw workflowError('WORKFLOW_BUSY', 'This run cannot resume.');
       if (!['verify', 'complete', 'retry'].includes(decision)) throw workflowError('WORKFLOW_INVALID', 'Unknown recovery decision.');
       run.bindings = await bindWorkflowTabs({ ...run, recovering: true }, { tabs: () => this.host('tabs') }, bindings);
@@ -133,6 +133,8 @@ export class WorkflowService {
         hostSys: (op, params, context) => service._gatedSys(op, params, { ...context, requestId }, sid, control.controller.signal) }),
       checkpoint: () => service._persist(),
       fileExists: path => fs.exists(path),
+      writeFile: (path, text) => fs.writeFile(path, text, { mimeType: 'text/csv' }),
+      scrape: (tabId, spec) => service._gatedPageAction({ op: 'scrape', tabId, ...spec, screenshot: false }, sid, control.controller.signal),
       download: (check, since) => this.host('downloads', { check, since })
     };
     void (async () => {
@@ -176,7 +178,7 @@ export class WorkflowService {
     const tabs = await this.host('tabs'); const tab = tabs.find(row => row.id === Number(tabId));
     if (!tab || !sanitizeRecordedUrl(tab.url)) throw workflowError('WORKFLOW_TAB_MISSING', 'Choose an HTTP(S) page to record.');
     const made = await this.createDraft({ name: lang === 'en' ? 'Recorded workflow' : '录制流程', lang });
-    const definition = { ...made.draft, workflow: { version: 1, tabs: [{ id: 'tab1', title: tab.title || 'Tab 1', url: sanitizeRecordedUrl(tab.url) }], steps: [] } };
+    const definition = { ...made.draft, workflow: { ...emptyWorkflow(), tabs: [{ id: 'tab1', title: tab.title || 'Tab 1', url: sanitizeRecordedUrl(tab.url) }] } };
     let record = { id: id('recording'), type: 'recording', status: 'paused', sessionId: made.sessionId, draftId: made.draftId, definition, sequence: 0, tabAliases: { [tab.id]: 'tab1' } };
     record = await (await this.library()).putWorkflowRecord({ record, expectedRevision: 0 });
     record = await (await this.library()).putWorkflowRecord({ record: { ...record, status: 'recording' }, expectedRevision: record.revision });
@@ -215,7 +217,7 @@ export class WorkflowService {
       if (!row || row.status === 'stopped') return row;
       try {
         const steps = row.definition.workflow.steps;
-        if (!steps.some(step => step.id === 'recordingGap') && steps.length < 100) steps.push({ id: 'recordingGap', title: 'Recording interrupted: review unrecorded actions before continuing', op: 'manual', unresolved: true });
+        if (!steps.some(step => step.id === 'recordingGap') && steps.length < WORKFLOW_CAPS.steps) steps.push({ id: 'recordingGap', title: 'Recording interrupted: review unrecorded actions before continuing', op: 'manual', unresolved: true });
         const saved = await lib.putWorkflowRecord({ record: { ...row, status: 'paused', recovering: true, error: { code: 'WORKFLOW_RECORDING_INTERRUPTED', message: String(reason || 'Recorder interrupted; review before continuing.').slice(0, 2000) } }, expectedRevision: row.revision });
         this.notify(saved);
         return saved;
@@ -229,14 +231,67 @@ export class WorkflowService {
         const alias = `tab${record.definition.workflow.tabs.length + 1}`; record.tabAliases[event.newTabId] = alias;
         record.definition.workflow.tabs.push({ id: alias, title: event.title || alias, url: sanitizeRecordedUrl(event.url), opener: record.tabAliases[event.tabId] });
       }
-      if (record.definition.workflow.tabs.length > 20 || record.definition.workflow.steps.length >= 99) {
+      if (record.definition.workflow.tabs.length > WORKFLOW_CAPS.recordingTabs || record.definition.workflow.steps.length >= WORKFLOW_CAPS.steps - 1) {
         record.status = 'paused'; record.error = { code: 'WORKFLOW_RECORDING_LIMIT', message: 'Recording limit reached. Review and finish this draft.' };
-        record.definition.workflow.tabs = record.definition.workflow.tabs.slice(0, 20);
+        record.definition.workflow.tabs = record.definition.workflow.tabs.slice(0, WORKFLOW_CAPS.recordingTabs);
         record.definition.workflow.steps.push({ id: 'recordingLimit', title: 'Recording limit reached; later actions were not captured', op: 'manual', unresolved: true });
       } else record = applyRecordingEvent(record, event);
       record = await (await this.library()).putWorkflowRecord({ record, expectedRevision: record.revision });
       this.notify(record);
       return record;
     });
+  }
+  async importTable({ draftId, expectedRevision, csv }) {
+    const parsed = parseWorkflowCsv(csv);
+    const { draft } = await this.owner.getPersonalLibraryDraft({ draftId });
+    const workflow = { ...draft.workflow, table: parsed };
+    return this.updateDraft({ draftId, expectedRevision, patch: { workflow } });
+  }
+  async exportTable({ draftId, runId } = {}) {
+    if (runId) {
+      const run = await this.get({ runId });
+      return { csv: serializeWorkflowCsv(run.table || run.definition?.workflow?.table || { columns: [], rows: [] }), table: run.table || run.definition?.workflow?.table };
+    }
+    const { draft } = await this.owner.getPersonalLibraryDraft({ draftId });
+    return { csv: serializeWorkflowCsv(draft.workflow?.table || { columns: [], rows: [] }), table: draft.workflow?.table };
+  }
+  scheduleStamp(entryId) { return `schedule_${entryId}`; }
+  async getSchedule() {
+    const lib = await this.library();
+    const entries = (await lib.list({ kind: 'workflow' })).filter(row => row.workflow?.schedule?.enabled && Number.isInteger(row.workflow.schedule.everyMinutes));
+    const stamps = await lib.listWorkflowRecords({ type: 'schedule' });
+    const byEntry = new Map(stamps.map(row => [row.entryId, row]));
+    const now = Date.now();
+    let nextWakeAt = null;
+    for (const entry of entries) {
+      const minutes = entry.workflow.schedule.everyMinutes;
+      const last = Number(byEntry.get(entry.entryId)?.lastFiredAt) || 0;
+      const due = last ? last + minutes * 60_000 : now;
+      if (nextWakeAt == null || due < nextWakeAt) nextWakeAt = due;
+    }
+    return { nextWakeAt, count: entries.length };
+  }
+  async runDue({ now = Date.now() } = {}) {
+    const lib = await this.library();
+    const entries = (await lib.list({ kind: 'workflow' })).filter(row => row.workflow?.schedule?.enabled && Number.isInteger(row.workflow.schedule.everyMinutes));
+    const stamps = await lib.listWorkflowRecords({ type: 'schedule' });
+    const byEntry = new Map(stamps.map(row => [row.entryId, row]));
+    const live = await lib.listWorkflowRecords({ type: 'run' });
+    const launched = []; const skipped = [];
+    for (const entry of entries) {
+      const minutes = entry.workflow.schedule.everyMinutes;
+      const stamp = byEntry.get(entry.entryId);
+      const last = Number(stamp?.lastFiredAt) || 0;
+      if (last && now < last + minutes * 60_000) { skipped.push({ entryId: entry.entryId, reason: 'not_due' }); continue; }
+      if (live.some(row => row.entryId === entry.entryId && row.status === 'running')) {
+        skipped.push({ entryId: entry.entryId, reason: 'running' }); continue;
+      }
+      // Start a new run. Never resume a crashed or needs_human run.
+      const started = await this.start({ entryId: entry.entryId, input: entry.workflow.schedule.input || {}, trigger: 'schedule' });
+      const nextStamp = { id: this.scheduleStamp(entry.entryId), type: 'schedule', entryId: entry.entryId, lastFiredAt: now, runId: started.run.id };
+      await lib.putWorkflowRecord({ record: { ...stamp, ...nextStamp }, expectedRevision: stamp?.revision || 0 });
+      launched.push({ entryId: entry.entryId, runId: started.run.id });
+    }
+    return { ok: true, launched, skipped };
   }
 }

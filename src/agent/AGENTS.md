@@ -85,7 +85,7 @@ Guest FS（`fs.js`）：
 
 ## Compact（模型线，不是 UI 全文）
 
-`contextCompact.js`：占用 **本模型窗口 ≥ 80%** 才压。不改写 `session.messages` / artifacts / 组 / guest FS，不新建 durable task。system prefix 与 tool schema 不进摘要。窗口解析：覆盖 → 探测 → 目录 → 家族；压缩数学可用 128k 默认，侧栏 `allowDefault: false`。
+`contextCompact.js`：占用 **本模型窗口 ≥ 80%** 才压。不改写 `session.messages` / artifacts / 组 / guest FS，不新建 durable task。system prefix 与 tool schema 不进摘要。窗口解析：覆盖 → 探测 → 目录 → 家族；压缩数学可用 256k 默认，侧栏 `allowDefault: false`（芯片仍显示未知，不把默认画成已测）。
 
 1. **时机**：`sendMessage` 进 ToolLoop **之前**跑一次 `runSessionCompact`；`prepareStep` 每 hop 估 SDK `messages`，再超 80% 且可切则再压。同一 `throughMessageId` / 同一 hop 不连压。SDK 可返回缩短的 `messages`。
 2. **Compact 不定义授权**：摘要 `Goal` 只是历史/发现/进度，可写 `session.sessionGoal` 兼容字段，**不再作为独立目标注入**。用户授权只存在于确认过的 Durable Task 合同。`sessionIntent.js` 仍从持久化原文每 hop 选取有界用户原文；clarify 答案在工具投影前原样持久化。完整原文：`/context/user-requests.json` 与 `/context/conversation.json`。
@@ -193,4 +193,4 @@ BYOK：`llm.js` → `browserbot_providers`。推理 / 生图 / 转写各有独�
 
 制作走普通新会话，service 保存制作合同到 session，每轮追加到系统指令。模型只写 `/artifacts/library-draft.json`；UI `refreshLibraryDraft` 读取并验证身份/参数，`publishLibraryDraft` 要求用户已看过的 revision。不能把 publish 暴露给模型、guest sys 或 preview。
 
-工具走 `personalLibraryRunner.js` 的 QuickJS + `fs/sys`，不调模型；service 登记执行槽位并复用 `_gatedSys`、取消、journal 与租约清理。文字 Workflow（Agent 任务）将发布快照放入新会话指导，再走 sendMessage。结构化 Workflow（自动化）由 `workflow/service.js` / `engine.js` 无模型顺序执行，复用原有门与执行槽位。WorkflowRun 及录制记录存于个人库 schema 2，定义和运行分离，旧 schema 1 可读。每次派发前持久化 attempt；恢复必须由用户触发，未知副作用不能盲重放。它们都不是 durable task 或后台调度。详见 [Workflow v1](../../docs/WORKFLOW_V1.md)。详见 [个人库合同](../../docs/PERSONAL_LIBRARY.md)。
+工具走 `personalLibraryRunner.js` 的 QuickJS + `fs/sys`，不调模型；service 登记执行槽位并复用 `_gatedSys`、取消、journal 与租约清理。文字 Workflow（Agent 任务）将发布快照放入新会话指导，再走 sendMessage。结构化 Workflow（自动化，`workflow.version: 2`）由 `workflow/service.js` / `engine.js` 无模型执行，复用原有门与执行槽位，支持循环、抓取、分支、CSV 与 alarms 启动的**新运行**。WorkflowRun 及录制记录存于个人库 schema 2，定义和运行分离。每次派发前持久化 attempt；恢复必须由用户触发，未知副作用不能盲重放；到期闹钟不得续跑崩溃中的运行。详见 [Workflow 合同](../../docs/WORKFLOW_V1.md)。详见 [个人库合同](../../docs/PERSONAL_LIBRARY.md)。

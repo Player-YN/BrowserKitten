@@ -28,6 +28,13 @@ export function mediaIconState(label) {
   return 'supported';
 }
 
+export function mediaCompactMark(state) {
+  if (state === 'checking') return '…';
+  if (state === 'unsupported') return '✗';
+  if (state === 'supported') return '✓';
+  return '?';
+}
+
 export function mediaCheckErrorLabel(error) {
   if (error === 'ANSWER_MISMATCH') return 'chatMediaCheckAnswerMismatch';
   if (error === 'HTTP_401' || error === 'HTTP_403') return 'chatMediaCheckAuth';
@@ -39,12 +46,17 @@ export function mediaCheckErrorLabel(error) {
 
 /** Local editor draft. Every change is keyed by both base URL and exact model id. */
 export function createChatMediaSettings({ root = document, t, workspaceRpc, loadProvidersState, getProviderId,
-  storage = globalThis.chrome?.storage, schedule = setTimeout, unschedule = clearTimeout }) {
+  storage = globalThis.chrome?.storage, schedule = setTimeout, unschedule = clearTimeout, onOverridesChange }) {
   let overrides = {};
   let timer = null, revision = 0;
   let automatic = true;
+  let busyListener = null;
   const fields = ['image', 'audio', 'video', 'transport'];
-  const visible = () => !!root.getElementById('agentSettingsModal')?.open && root.visibilityState !== 'hidden';
+  const visible = () => {
+    if (!root.getElementById('agentSettingsModal')?.open || root.visibilityState === 'hidden') return false;
+    const host = root.getElementById('inferenceDiagnostics');
+    return !(host && host.hidden);
+  };
   const stop = () => { revision += 1; if (timer != null) unschedule(timer); timer = null; };
   const poll = () => { if (timer != null) unschedule(timer); if (visible()) timer = schedule(() => { timer = null; void refresh(); }, 2000); };
   const el = (id) => root.getElementById(id);
@@ -63,27 +75,48 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
     if (node.dataset) node.dataset[key] = value;
     else node.setAttribute?.(`data-${key}`, value);
   }
+  function setBusy(busy) {
+    if (typeof busyListener === 'function') busyListener(!!busy);
+  }
   function paint(title, icons = [], state = 'unknown') {
     const status = el('chatMediaStatus');
     if (!status) return;
     status.replaceChildren();
-    status.className = 'capability-status';
+    status.className = 'capability-status is-compact';
     status.title = title || '';
     setData(status, 'state', state);
     status.setAttribute('aria-label', title || '');
-    for (const icon of icons) {
+    if (!icons.length) {
+      const text = root.createElement('span');
+      text.className = 'capability-compact';
+      text.textContent = title || '';
+      status.append(text);
+      return;
+    }
+    icons.forEach((icon, index) => {
+      if (index) {
+        const sep = root.createElement('span');
+        sep.className = 'capability-compact-sep';
+        sep.setAttribute('aria-hidden', 'true');
+        sep.textContent = '/';
+        status.append(sep);
+      }
       const node = root.createElement('span');
       node.className = `capability-icon is-${icon.state}`;
       setData(node, 'kind', icon.kind);
       setData(node, 'state', icon.state);
       node.title = icon.title;
       node.setAttribute('aria-label', icon.title);
-      status.append(node);
-    }
+      const mark = root.createElement('span');
+      mark.className = 'capability-compact';
+      mark.textContent = `${t(`chatMediaShort_${icon.kind}`)} ${mediaCompactMark(icon.state)}`;
+      mark.title = icon.title;
+      status.append(node, mark);
+    });
   }
   function message(key) {
     paint(t(key));
-    if (el('chatMediaRecheck')) el('chatMediaRecheck').disabled = true;
+    setBusy(false);
   }
   async function refresh({ start = false, force = false } = {}) {
     if (!visible() || !workspaceRpc || !loadProvidersState) return;
@@ -92,7 +125,10 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
       const provider = await matchesSaved();
       if (ownRevision !== revision || !visible()) return;
       if (!provider) { message('chatMediaSaveFirst'); return; }
-      if (start) await workspaceRpc('requestChatMediaCheck', { force });
+      if (start) {
+        setBusy(true);
+        await workspaceRpc('requestChatMediaCheck', { force });
+      }
       const status = await workspaceRpc('getChatMediaStatus', {});
       const latestProvider = await matchesSaved();
       if (ownRevision !== revision || !visible()) return;
@@ -124,12 +160,12 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
         return { kind, state: mediaIconState(label), title: parts.join(' · ') };
       });
       paint(icons.map((icon) => icon.title).join('\n'), icons, status.checking ? 'checking' : icons[0]?.state || 'unknown');
-      if (el('chatMediaRecheck')) el('chatMediaRecheck').disabled = !!status.checking;
+      setBusy(!!status.checking);
       if (status.checking) poll();
     } catch {
       if (ownRevision === revision && visible()) {
         message('chatMediaUnavailable');
-        if (el('chatMediaRecheck')) el('chatMediaRecheck').disabled = false;
+        setBusy(false);
       }
     }
   }
@@ -148,16 +184,15 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
     const panel = el('chatMediaStatusPanel');
     if (panel) {
       panel.replaceChildren();
-      const title = root.createElement('p'); title.className = 'settings-label'; title.textContent = t('chatMediaTitle');
-      title.title = t('chatMediaHint');
       const status = root.createElement('div');
       status.id = 'chatMediaStatus';
-      status.className = 'capability-status';
+      status.className = 'capability-status is-compact';
       status.setAttribute('aria-live', 'polite');
-      const recheck = root.createElement('button'); recheck.type = 'button'; recheck.id = 'chatMediaRecheck';
-      recheck.className = 'btn btn-secondary settings-mini-btn'; recheck.textContent = t('chatMediaRecheck'); recheck.disabled = true;
-      recheck.title = t('chatMediaHint');
-      recheck.addEventListener('click', () => { recheck.disabled = true; void refresh({ start: true, force: true }); });
+      panel.append(status);
+    }
+    const autoHost = el('inferenceAutoCheckHost');
+    if (autoHost) {
+      el('chatMediaAutoCheck')?.closest?.('label')?.remove();
       const autoLabel = root.createElement('label'); autoLabel.className = 'settings-check-row';
       autoLabel.title = t('chatMediaCost');
       const auto = root.createElement('input'); auto.type = 'checkbox'; auto.id = 'chatMediaAutoCheck'; auto.checked = automatic;
@@ -172,16 +207,24 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
           void refresh({ start: enabled });
         });
       });
-      panel.append(title, status, recheck, autoLabel);
+      autoHost.append(autoLabel);
       storage?.local?.get([AUTO_CHECK_KEY], data => { automatic = data?.[AUTO_CHECK_KEY] !== false; auto.checked = automatic; });
     }
     const host = root.getElementById('chatMediaSettings');
     if (!host) return;
     host.replaceChildren();
-    const summary = root.createElement('summary');
-    summary.textContent = t('chatMediaAdvanced');
-    summary.title = t('chatMediaHint');
-    host.append(summary);
+    if (String(host.tagName || '').toUpperCase() === 'DETAILS') {
+      const summary = root.createElement('summary');
+      summary.textContent = t('chatMediaAdvanced');
+      summary.title = t('chatMediaHint');
+      host.append(summary);
+    } else {
+      const heading = root.createElement('p');
+      heading.className = 'settings-label';
+      heading.textContent = t('chatMediaAdvanced');
+      heading.title = t('chatMediaHint');
+      host.append(heading);
+    }
     for (const field of fields) {
       const label = root.createElement('label');
       label.className = 'settings-label'; label.htmlFor = `chatMedia-${field}`;
@@ -201,6 +244,7 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
         overrides[key()] = value;
         stop();
         void refresh();
+        if (typeof onOverridesChange === 'function') void onOverridesChange(normalizeMediaOverrides(overrides));
       });
       host.append(label, select);
     }
@@ -215,6 +259,8 @@ export function createChatMediaSettings({ root = document, t, workspaceRpc, load
   return {
     load(provider) { overrides = normalizeMediaOverrides(provider?.chatMediaOverrides); mount(); },
     open() { void refresh({ start: true }); },
+    probe(opts = {}) { return refresh({ start: true, force: opts.force !== false }); },
+    setBusyListener(fn) { busyListener = typeof fn === 'function' ? fn : null; },
     sync,
     read() { return normalizeMediaOverrides(overrides); }
   };

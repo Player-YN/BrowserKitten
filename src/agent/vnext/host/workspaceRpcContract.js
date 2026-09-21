@@ -1,6 +1,7 @@
 /** Explicit transport contract. Adding a service method does NOT expose it over RPC. */
 const reads = [
   'getWorkflowRun', 'listWorkflowRuns', 'getWorkflowRecording', 'listWorkflowTabs',
+  'exportWorkflowTable',
   'getChatMediaStatus',
   'getContextWindowStatus',
   'listSessions', 'getSession', 'getActiveExecution', 'listTasks', 'getTask',
@@ -14,6 +15,7 @@ const reads = [
 const writes = [
   'createWorkflowDraft', 'updateWorkflowDraft', 'startWorkflowRun', 'resumeWorkflowRun', 'pauseWorkflowRun',
   'validateWorkflowTarget', 'startWorkflowRecording', 'controlWorkflowRecording',
+  'importWorkflowTable',
   'requestChatMediaCheck',
   'requestContextWindowCheck',
   'updateTask', 'renameSession', 'pruneSessions', 'allocateLabel', 'bindGroups',
@@ -37,12 +39,13 @@ const previewMethods = new Set([
 const descriptors = Object.create(null);
 for (const method of reads) descriptors[method] = Object.freeze({ retrySafe: true, internal: false });
 for (const method of writes) descriptors[method] = Object.freeze({ retrySafe: false, internal: false });
-for (const method of ['getTaskSchedule', 'getBrowserRuntimeState']) {
+for (const method of ['getTaskSchedule', 'getBrowserRuntimeState', 'getWorkflowSchedule']) {
   descriptors[method] = Object.freeze({ retrySafe: true, internal: true });
 }
 descriptors.interruptWorkflowRecording = Object.freeze({ retrySafe: false, internal: true });
 descriptors.ingestWorkflowRecordingEvent = Object.freeze({ retrySafe: false, internal: true });
 descriptors.runDueTasks = Object.freeze({ retrySafe: false, internal: true });
+descriptors.runDueWorkflows = Object.freeze({ retrySafe: false, internal: true });
 export const WORKSPACE_RPC_METHODS = Object.freeze(descriptors);
 
 export function rpcFailure(code, message) {

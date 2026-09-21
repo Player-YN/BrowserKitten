@@ -9,7 +9,7 @@ const button = { role: 'button', name: 'Continue' };
 function recording(extra = {}) {
   return {
     id: 'recording-1', status: 'recording', sequence: 0, tabAliases: { 10: 'main' },
-    definition: { workflow: { version: 1, tabs: [{ id: 'main', title: 'Main', url: 'https://example.test/' }], steps: [] } },
+    definition: { workflow: { version: 2, tabs: [{ id: 'main', title: 'Main', url: 'https://example.test/' }], steps: [] } },
     ...extra,
   };
 }

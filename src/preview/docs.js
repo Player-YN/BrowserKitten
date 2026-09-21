@@ -580,7 +580,7 @@ function disposeUniverRuntime() {
 
 async function main() {
   if (!sessionId || !artifactId) {
-    boot('缺少 sessionId 或交付物 id', true);
+    boot('缺少 sessionId 或文件 id', true);
     return;
   }
   wireBar();
@@ -615,7 +615,7 @@ async function main() {
     } else {
       const src = text.trim() || (isUtf8OpenKind(cls.kind) ? bytesToUtf8(bytes) : '');
       if (!src) {
-        boot('这份交付物不是可打开的文档', true);
+        boot('这份文件不是可打开的文档', true);
         return;
       }
       loaded = parseLoadedDoc(src, title);

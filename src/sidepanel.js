@@ -1,5 +1,6 @@
 import { createChatMediaSettings } from './sidepanel/chatMediaSettings.js';
 import { createContextWindowSettings } from './sidepanel/contextWindowSettings.js';
+import { bindInferenceProbe } from './sidepanel/inferenceProbe.js';
 // Bundled agent entry (Vercel AI SDK + tools). Rebuild: npm run build:agent
 import {
   loadLlmSettings,
@@ -17,7 +18,10 @@ import {
   listImageProviders,
   listSttProviders,
   imageVendorLabel,
+  imageCardTitle,
   sttVendorLabel,
+  sttCardTitle,
+  providerDisplayName,
   setActiveImageProviderId,
   setActiveSttProviderId,
   PROVIDER_PRESETS,
@@ -34,6 +38,8 @@ import { putListenGrant } from './agent/vnext/host/tabListen.js';
 import {
   loadWebAcquireSettings,
   saveWebAcquireSettings,
+  webAcquireCardTitle,
+  webAcquireNicknameKey,
   firecrawlCreditUsageUrls,
   firecrawlAuthHeaders,
   summarizeFirecrawlCreditUsage,
@@ -114,6 +120,7 @@ import { createContextUsageUi, projectContextUsage } from './sidepanel/contextUs
 import { createAccessPolicyUi } from './sidepanel/accessPolicyUi.js';
 import { createPersonalLibraryUi, collectPersonalLibraryInput } from './sidepanel/personalLibraryUi.js';
 import { createWorkflowUi } from './sidepanel/workflowUi.js';
+import { getHomeHints } from './sidepanel/homeHints.js';
 import { createApprovalUi } from './sidepanel/approvalUi.js';
 import { approvalBelongsToSession } from './sidepanel/sessionIsolation.js';
 import { buildZipStore } from './agent/vnext/sessionWorkspace/pptxExport.js';
@@ -133,7 +140,6 @@ import {
 } from './agent/skills.js';
 import {
   DEFAULT_CAPTURE_SHORTCUT,
-  STORAGE_PENDING_SCREENSHOT,
   MSG as CAPTURE_MSG,
   isKnownTextOnlyChatModel,
   notMultimodalMessage,
@@ -143,14 +149,7 @@ import {
   loadCaptureShortcut,
   saveCaptureShortcut
 } from './screenshot.js';
-import {
-  shouldOfferScreenshotActions,
-  detectBarcodesFromDataUrl,
-  detectLocalTextFromDataUrl,
-  buildVisionOcrBody,
-  chatCompletionsUrl,
-  textFromChatCompletion
-} from './sidepanel/screenshotRecognize.js';
+import { shouldAttachScreenshotToComposer } from './sidepanel/screenshotRecognize.js';
 import { createSmoothStreamRenderer } from './smoothStream.js';
 import {
   DEV_TRAJECTORY_STORAGE_KEY,
@@ -204,7 +203,7 @@ import {
 } from './agent/draftStore.js';
 import { renderDocumentFromDraft, RENDER_FORMATS } from './agent/documentRender.js';
 import { getArtifact, bytesToDataUrl } from './agent/artifacts.js';
-import { $, escapeHtml, sanitizeModelHtml, truncateUi } from './sidepanel/dom.js';
+import { $, escapeHtml, sanitizeModelHtml, mountMarkdownCodeCopy, truncateUi } from './sidepanel/dom.js';
 import { parseOfficeMarkdown } from './markdown/officeMarkdown.js';
 import {
   cycleThemeMode,
@@ -250,7 +249,7 @@ let selectedImageModel = '';
 let reasoningEffort = 'none';
 /** @type {import('./agent/modelCatalog.js').ModelEntry[]} */
 let catalogModels = [];
-/** Last evidence/override for the composer chip. Never invents the 128k compacting default. */
+/** Last evidence/override for the composer chip. Never invents the 256k compacting default. */
 let composerContextWindowState = { model: '', base: '', evidence: null, override: undefined };
 /** Resolved theme mirror (source of truth: sidepanel/theme.js) */
 let currentTheme = 'dark';
@@ -611,10 +610,6 @@ const accessPolicyUi = createAccessPolicyUi({
   t,
   getChip: () => $('accessPolicyChip'),
   getDialog: () => $('accessFullDialog'),
-  getSettingsCard: () => $('settingsAccessCard'),
-  getSettingsMode: () => $('accessSettingsMode'),
-  getSettingsToggle: () => $('accessFullToggle'),
-  getSettingsToggleRow: () => $('accessFullToggleRow'),
   setAccessPolicy: async (params) => {
     const policy = await workspaceRpc('setAccessPolicy', params);
     accessPolicyUi.setPolicy(policy);
@@ -4174,14 +4169,9 @@ function showWelcome() {
   } catch (_) {}
 }
 
-/** @returns {{ label: string, prompt: string }[]} */
+/** @returns {{ id: string, label: string, prompt: string }[]} */
 function getGuideOnlyHints() {
-  return [
-    {
-      label: t('guideChipLabel'),
-      prompt: t('guideChipPrompt')
-    }
-  ];
+  return getHomeHints(t);
 }
 
 function summarizeSelectionForSuggest(elements) {
@@ -4289,7 +4279,7 @@ let suggestionGenToken = 0;
 
 /**
  * Render hint chips into #hintChips (welcome only).
- * @param {{ label: string, prompt: string }[]} items
+ * @param {{ id?: string, label: string, prompt: string }[]} items
  */
 function renderHintChips(items) {
   const host =
@@ -4305,6 +4295,7 @@ function renderHintChips(items) {
     btn.textContent = item.label;
     btn.setAttribute('aria-label', item.label);
     btn.setAttribute('data-prompt', item.prompt);
+    if (item.id) btn.setAttribute('data-hint-id', item.id);
     btn.addEventListener('click', () => {
       if (isCurrentSessionRunning()) return;
       const input = composerEl();
@@ -4629,7 +4620,7 @@ function createTaskCard(title, opts = {}) {
     stateEl: null,
     setState(s) {
       // Product: never show success/failed chips on the card.
-      // is-active = live conversation chrome (flow border), not "agent running".
+      // is-active = this session's live thread (no well / rim), not "agent running".
       this._state = s;
       card.classList.add('is-active');
     },
@@ -6026,10 +6017,9 @@ function renderAttachmentPreviews() {
     if (String(att?.source || '').toLowerCase() !== 'paste' || att.labelKind !== 'screenshot') return true;
     return !inlinePasteShots.has(String(att.name || ''));
   });
-  if (!visible.length) {
+    if (!visible.length) {
     bar.hidden = true;
     bar.innerHTML = '';
-    if (typeof syncScreenshotActionRow === 'function') syncScreenshotActionRow();
     return;
   }
   bar.hidden = false;
@@ -6065,7 +6055,6 @@ function renderAttachmentPreviews() {
     chip.appendChild(remove);
     bar.appendChild(chip);
   });
-  if (typeof syncScreenshotActionRow === 'function') syncScreenshotActionRow();
 }
 
 // ── Submit + Agent run ──
@@ -7498,8 +7487,8 @@ async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
         : '已停止。'
       : channel
         ? currentLang === 'en'
-          ? 'The turn finished, but the side panel lost the long RPC. Check 交付物 for files, then send a follow-up if needed.'
-          : '这一轮已经跑完，但侧栏和后台的长连接断了。请先看交付物里的文件，需要的话再发一句继续。'
+          ? 'The turn finished, but the side panel lost the long RPC. Check Files, then send a follow-up if needed.'
+          : '这一轮已经跑完，但侧栏和后台的长连接断了。请先看文件，需要的话再发一句继续。'
         : currentLang === 'en'
         ? `**Error:** ${msg}`
         : `**错误:** ${msg}`;
@@ -7958,7 +7947,7 @@ function setupPersonalLibrary() {
     agentTaskLabel: () => currentLang === 'en' ? 'Agent task' : 'Agent 任务',
     create: async (kind, entry = null) => {
       personalLibraryUi.close();
-      if (kind === 'workflow' && entry?.workflow?.version === 1) return workflowUi.open({ published: entry });
+      if (kind === 'workflow' && entry?.workflow) return workflowUi.open({ published: entry });
       if (kind === 'workflow' && !entry) return workflowUi.chooseCreate();
       if (kind === 'workflow') return startAgentWorkflowCreation(entry);
       const made = await workspaceRpc('startLibraryCreation', { kind, entryId: entry?.entryId, lang: currentLang });
@@ -7966,7 +7955,7 @@ function setupPersonalLibrary() {
       personalLibraryDraft = made.draft; renderPersonalLibraryDraft();
       return submitCustomPrompt(made.content);
     },
-    run: (entry, input) => entry.kind === 'workflow' ? (entry.workflow?.version === 1 ? workflowUi.runPublished(entry, input) : startLibraryWorkflowUi(entry, input)) : runLibraryScript(entry, input),
+    run: (entry, input) => entry.kind === 'workflow' ? (entry.workflow ? workflowUi.runPublished(entry, input) : startLibraryWorkflowUi(entry, input)) : runLibraryScript(entry, input),
     remove: async entry => {
       // Removing a personal definition also removes its history: explicit UI confirmation.
       personalLibraryUi.close();
@@ -8430,7 +8419,26 @@ function setupCoreEventListeners() {
     }
     if (request?.action === 'clipboard_text_picked') {
       const text = clipClipboardText(String(request.text || ''));
-      if (text.trim()) pinTextsToClipboard([{ text, textRaw: String(request.textRaw || text), kind: 'text', source: { clipboard: true, tabId: sender?.tab?.id, frameId: sender?.frameId ?? 0, documentId: sender?.documentId || '', url: request.url || sender?.tab?.url || '', pageTitle: request.pageTitle || sender?.tab?.title || '' } }], { openDrawer: true, toast: true });
+      if (text.trim()) {
+        const fromOcr = request.sourceKind === 'screenshot-ocr';
+        pinTextsToClipboard([{
+          text,
+          textRaw: String(request.textRaw || text),
+          kind: 'text',
+          source: {
+            clipboard: true,
+            ...(fromOcr ? { screenshotOcr: true } : {}),
+            tabId: sender?.tab?.id,
+            frameId: sender?.frameId ?? 0,
+            documentId: sender?.documentId || '',
+            url: request.url || sender?.tab?.url || '',
+            pageTitle: request.pageTitle || sender?.tab?.title || ''
+          }
+        }], {
+          openDrawer: request.openDrawer !== false,
+          toast: fromOcr ? request.toast === true : request.toast !== false
+        });
+      }
       sendResponse?.({ ok: true });
       return true;
     }
@@ -11578,8 +11586,8 @@ function handleImageGeneratedEvent(ev) {
   }
   showSidepanelToast(
     currentLang === 'en'
-      ? `Saved to 交付物 · ${downloadName}`
-      : `已写入交付物 · ${downloadName}`,
+      ? `Saved to Files · ${downloadName}`
+      : `已写入文件 · ${downloadName}`,
     { ms: 2800 }
   );
 }
@@ -12577,12 +12585,31 @@ function guessPresetId(p) {
  */
 let chatMediaSettingsUi;
 let contextWindowSettingsUi;
+let inferenceProbeBound = false;
+function fillNickname(id, value) {
+  const input = document.getElementById(id);
+  if (input) input.value = value || '';
+}
+function readNickname(id) {
+  return document.getElementById(id)?.value?.trim() || '';
+}
+function ensureInferenceProbe() {
+  if (inferenceProbeBound || !chatMediaSettingsUi || !contextWindowSettingsUi) return;
+  inferenceProbeBound = true;
+  bindInferenceProbe({
+    root: document,
+    t,
+    media: chatMediaSettingsUi,
+    windowUi: contextWindowSettingsUi
+  });
+}
 function fillSettingsForm(provider, opts = {}) {
   const isNew = !!opts.isNew;
   const baseInput = document.getElementById('apiBaseInput');
   const keyInput = document.getElementById('apiKeyInput');
   const modelInput = document.getElementById('providerModelInput');
   const hint = document.getElementById('settingsApiHint');
+  fillNickname('providerNicknameInput', provider?.nickname);
 
   const baseURL =
     provider?.baseURL ||
@@ -12595,11 +12622,13 @@ function fillSettingsForm(provider, opts = {}) {
   if (modelInput) modelInput.value = provider?.model != null ? provider.model : isNew ? '' : model;
 
   chatMediaSettingsUi ||= createChatMediaSettings({ t, workspaceRpc, loadProvidersState,
-    getProviderId: () => settingsConfigUi.providerId });
+    getProviderId: () => settingsConfigUi.providerId,
+    onOverridesChange: persistActiveChatMediaOverrides });
   chatMediaSettingsUi.load(provider);
   contextWindowSettingsUi ||= createContextWindowSettings({ t, workspaceRpc, loadProvidersState,
     getProviderId: () => settingsConfigUi.providerId });
   contextWindowSettingsUi.load(provider);
+  ensureInferenceProbe();
   settingsConfigUi.providerId = provider?.id || null;
   settingsConfigUi.providerName = provider?.name || 'Provider';
   settingsConfigUi.createdAt = provider?.createdAt || null;
@@ -13222,10 +13251,55 @@ function setEditorOpen(editorId, addBtnId, open) {
   if (add) add.hidden = !!open;
 }
 
+function parkInferenceDiagnostics() {
+  const host = document.getElementById('inferenceDiagnostics');
+  const section = document.getElementById('settingsInferenceCard');
+  const addBtn = document.getElementById('addInferenceBtn');
+  if (!host || !section) return host;
+  if (host.parentElement !== section) {
+    section.insertBefore(host, addBtn || document.getElementById('inferenceEditor') || null);
+  }
+  return host;
+}
+
+function syncInferenceDiagnostics(state) {
+  const host = parkInferenceDiagnostics();
+  if (!host) return;
+  const editor = document.getElementById('inferenceEditor');
+  const editorOpen = !!(editor && !editor.hidden);
+  const providers = listChatProviders(state?.providers);
+  const activeId = state?.activeProviderId || null;
+  const hasActive = !!(activeId && providers.some((p) => p.id === activeId));
+  const activeCard = document.getElementById('inferenceVendorList')?.querySelector?.('.api-vendor-card.is-active');
+  if (editorOpen || !hasActive || !activeCard) {
+    host.hidden = true;
+    return;
+  }
+  activeCard.appendChild(host);
+  host.hidden = false;
+}
+
+async function persistActiveChatMediaOverrides(overrides) {
+  if (!document.getElementById('inferenceEditor')?.hidden) return;
+  const next = overrides || chatMediaSettingsUi?.read();
+  if (!next) return;
+  const state = await loadProvidersState();
+  const provider = (state.providers || []).find((p) => p.id === state.activeProviderId);
+  if (!provider) return;
+  await upsertProvider({ ...provider, chatMediaOverrides: next }, { makeActive: false });
+}
+
 function setInferenceEditorOpen(open) {
   setEditorOpen('inferenceEditor', 'addInferenceBtn', open);
-  chatMediaSettingsUi?.sync();
-  contextWindowSettingsUi?.sync();
+  if (open) {
+    const host = parkInferenceDiagnostics();
+    if (host) host.hidden = true;
+  }
+  void loadProvidersState().then((state) => {
+    syncInferenceDiagnostics(state);
+    chatMediaSettingsUi?.sync();
+    contextWindowSettingsUi?.sync();
+  });
 }
 
 function setImageEditorOpen(open) {
@@ -13240,16 +13314,20 @@ function setWebEditorOpen(open) {
   setEditorOpen('webAcquireEditor', 'addWebAcquireBtn', open);
 }
 
-function renderVendorCard({ name, meta, active, onSelect, onDelete }) {
+function renderVendorCard({ name, meta, active, onSelect, onDelete, onEdit }) {
   const card = document.createElement('div');
   card.className = 'api-vendor-card' + (active ? ' is-active' : '');
+  const head = document.createElement('div');
+  head.className = 'api-vendor-card-head';
   const main = document.createElement('button');
   main.type = 'button';
   main.className = 'api-vendor-card-main';
   const nameEl = document.createElement('div');
   nameEl.className = 'api-vendor-name';
   const title = document.createElement('span');
+  title.className = 'api-vendor-title';
   title.textContent = name;
+  title.title = name;
   nameEl.appendChild(title);
   if (active) {
     const badge = document.createElement('span');
@@ -13260,6 +13338,7 @@ function renderVendorCard({ name, meta, active, onSelect, onDelete }) {
   const metaEl = document.createElement('div');
   metaEl.className = 'api-vendor-meta';
   metaEl.textContent = meta;
+  metaEl.title = meta;
   main.append(nameEl, metaEl);
   main.addEventListener('click', onSelect);
   const del = document.createElement('button');
@@ -13272,7 +13351,23 @@ function renderVendorCard({ name, meta, active, onSelect, onDelete }) {
     e.stopPropagation();
     onDelete();
   });
-  card.append(main, del);
+  if (typeof onEdit === 'function') {
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'api-vendor-edit';
+    edit.setAttribute('aria-label', t('vendorEdit'));
+    edit.title = t('vendorEdit');
+    edit.textContent = '✎';
+    edit.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onEdit();
+    });
+    head.append(main, edit, del);
+  } else {
+    head.append(main, del);
+  }
+  card.append(head);
   return card;
 }
 
@@ -13287,6 +13382,7 @@ function confirmDeleteVendor(name, onYes) {
 }
 
 function renderInferenceVendorList(state) {
+  parkInferenceDiagnostics();
   const list = document.getElementById('inferenceVendorList');
   const hint = document.getElementById('inferenceEmptyHint');
   if (!list) return;
@@ -13296,20 +13392,14 @@ function renderInferenceVendorList(state) {
   if (hint) hint.hidden = providers.length > 0;
   for (const p of providers) {
     const host = vendorHostFromUrl(p.baseURL);
-    const key = maskKeyTail(p.apiKey);
-    const n = p.lastProbe?.ok ? p.lastProbe.count : 0;
-    const modelsBit =
-      n > 0
-        ? settingsLangEn()
-          ? `${n} models`
-          : `${n} 个模型`
-        : '';
-    const bits = [p.model || '', modelsBit, host, key].filter(Boolean);
+    const bits = [p.model || '', host].filter(Boolean);
+    const title = providerDisplayName(p, p.name || 'Provider');
     list.appendChild(
       renderVendorCard({
-        name: p.name || 'Provider',
+        name: title,
         meta: bits.join(' · '),
         active: p.id === activeId,
+        onEdit: () => openInferenceEditor(p),
         onSelect: () => {
           void (async () => {
             try {
@@ -13317,17 +13407,22 @@ function renderInferenceVendorList(state) {
             } catch (_) {}
             await syncToolbarFromActiveProvider();
             refreshAgentStatusBadge();
-            openInferenceEditor(p);
+            setInferenceEditorOpen(false);
             const next = await loadProvidersState();
+            const active = (next.providers || []).find((x) => x.id === next.activeProviderId) || null;
+            if (active) fillSettingsForm(active);
             renderInferenceVendorList(next);
             renderImageVendorList(next);
             renderSttVendorList(next);
+            chatMediaSettingsUi?.open();
+            contextWindowSettingsUi?.open();
           })();
         },
-        onDelete: () => confirmDeleteVendor(p.name || p.model || 'API', () => deleteInferenceVendor(p.id))
+        onDelete: () => confirmDeleteVendor(title, () => deleteInferenceVendor(p.id))
       })
     );
   }
+  syncInferenceDiagnostics(state);
 }
 
 function renderImageVendorList(state) {
@@ -13341,22 +13436,23 @@ function renderImageVendorList(state) {
     const model = p.image?.model || '';
     const host = vendorHostFromUrl(p.image?.baseURL || p.baseURL);
     const bits = [model, host].filter(Boolean);
+    const title = imageCardTitle(p);
     list.appendChild(
       renderVendorCard({
-        name: imageVendorLabel(p),
+        name: title,
         meta: bits.join(' · '),
         active: p.id === activeImageId,
+        onEdit: () => openImageEditor(p),
         onSelect: () => {
           void (async () => {
             try {
               await setActiveImageProviderId(p.id);
             } catch (_) {}
-            openImageEditor(p);
+            setImageEditorOpen(false);
             renderImageVendorList(await loadProvidersState());
           })();
         },
-        onDelete: () =>
-          confirmDeleteVendor(imageVendorLabel(p), () => deleteImageVendor(p.id))
+        onDelete: () => confirmDeleteVendor(title, () => deleteImageVendor(p.id))
       })
     );
   }
@@ -13375,22 +13471,24 @@ function renderSttVendorList(state) {
   }
   for (const p of vendors) {
     const host = vendorHostFromUrl(p.baseURL);
-    const bits = [p.model || DEFAULT_STT_MODEL, host, maskKeyTail(p.apiKey)].filter(Boolean);
+    const bits = [p.model || DEFAULT_STT_MODEL, host].filter(Boolean);
+    const title = sttCardTitle(p);
     list.appendChild(
       renderVendorCard({
-        name: sttVendorLabel(p),
+        name: title,
         meta: bits.join(' · '),
         active: p.id === activeSttId,
+        onEdit: () => openSttEditor(p),
         onSelect: () => {
           void (async () => {
             try {
               await setActiveSttProviderId(p.id);
             } catch (_) {}
-            openSttEditor(p);
+            setSttEditorOpen(false);
             renderSttVendorList(await loadProvidersState());
           })();
         },
-        onDelete: () => confirmDeleteVendor(sttVendorLabel(p), () => deleteSttVendor(p.id))
+        onDelete: () => confirmDeleteVendor(title, () => deleteSttVendor(p.id))
       })
     );
   }
@@ -13407,24 +13505,24 @@ async function renderWebVendorList() {
   if (cfg.tavilyKey) {
     vendors.push({
       kind: 'tavily',
-      name: 'Tavily',
-      meta: `${maskKeyTail(cfg.tavilyKey)} · search`,
+      name: webAcquireCardTitle('tavily', cfg, 'Tavily'),
+      meta: 'search',
       active: cfg.searchProvider === 'tavily'
     });
   }
   if (cfg.braveKey) {
     vendors.push({
       kind: 'brave',
-      name: 'Brave Search',
-      meta: `${maskKeyTail(cfg.braveKey)} · search`,
+      name: webAcquireCardTitle('brave', cfg, 'Brave Search'),
+      meta: 'search',
       active: cfg.searchProvider === 'brave'
     });
   }
   if (cfg.firecrawlKey) {
     vendors.push({
       kind: 'firecrawl',
-      name: 'Firecrawl',
-      meta: `${maskKeyTail(cfg.firecrawlKey)} · fetch scrape`,
+      name: webAcquireCardTitle('firecrawl', cfg, 'Firecrawl'),
+      meta: 'fetch scrape',
       active: false
     });
   }
@@ -13440,13 +13538,14 @@ async function renderWebVendorList() {
         name: v.name,
         meta: v.meta,
         active: v.active,
+        onEdit: () => openWebEditor(v.kind),
         onSelect: () => {
           void (async () => {
             if (v.kind === 'tavily' || v.kind === 'brave') {
               await saveWebAcquireSettings({ searchProvider: v.kind });
-              await renderWebVendorList();
             }
-            openWebEditor(v.kind);
+            setWebEditorOpen(false);
+            await renderWebVendorList();
           })();
         },
         onDelete: () => confirmDeleteVendor(v.name, () => deleteWebVendor(v.kind))
@@ -13611,6 +13710,7 @@ async function saveInferenceEditor(opts = {}) {
       {
         id,
         name: form.name || 'Provider',
+        nickname: form.nickname,
         baseURL: form.baseURL,
         apiKey: form.apiKey,
         model: form.model,
@@ -14068,7 +14168,7 @@ async function deleteWebVendor(kind) {
 }
 
 /**
- * Load providers into vendor cards. First visit with none opens the add form.
+ * Load providers into vendor cards. Add forms stay closed until the user clicks 添加.
  */
 async function refreshSettingsForm() {
   setInferenceEditorOpen(false);
@@ -14078,12 +14178,8 @@ async function refreshSettingsForm() {
   setSkillEditorOpen(false);
   await refreshVendorBoards();
   const state = await loadProvidersState();
-  if (state.activeProviderId) {
-    fillSettingsForm((state.providers || []).find((p) => p.id === state.activeProviderId) || null);
-  }
-  if (!(state.providers || []).length) {
-    openInferenceEditor(null);
-  }
+  const active = (state.providers || []).find((p) => p.id === state.activeProviderId) || null;
+  fillSettingsForm(active);
 }
 
 /**
@@ -14143,7 +14239,15 @@ function readSettingsForm() {
     if (image && 'apiKey' in image) delete image.apiKey;
   }
 
-  return { name, baseURL, apiKey, model, image, chatMediaOverrides: chatMediaSettingsUi?.read() || {} };
+  return {
+    name,
+    nickname: readNickname('providerNicknameInput'),
+    baseURL,
+    apiKey,
+    model,
+    image,
+    chatMediaOverrides: chatMediaSettingsUi?.read() || {}
+  };
 }
 
 function maskKeyPlaceholder(key, emptyPh) {
@@ -14389,6 +14493,8 @@ async function saveAllSettings() {
     if (infEd && !infEd.hidden) {
       const ok = await saveInferenceEditor({ keepOpen: true });
       if (!ok) return false;
+    } else {
+      await persistActiveChatMediaOverrides();
     }
     if (imgEd && !imgEd.hidden) {
       const ok = await saveImageEditor({ keepOpen: true });
@@ -14647,7 +14753,7 @@ async function refreshCaptureShortcutSettingsUi(storedShortcut) {
 /** CAPTURE_WP: dedupe concurrent hotkey + message + pending-stash attach */
 
 /**
- * Attach a screenshot dataURL into pending chat attachments; best-effort clipboard.
+ * Paste-only: capture stays on the page overlay and copies to the clipboard.
  * @param {{ dataUrl: string, name?: string, clipboardOk?: boolean, source?: string }} payload
  */
 const screenshotAttachInflight = new Set();
@@ -14677,187 +14783,18 @@ async function nextStickyLabel(kind, groupId) {
   return { kind, n, handle: `${kind}${n}` };
 }
 
-/** @type {{ dataUrl: string, source?: string } | null} */
-let screenshotActionPayload = null;
-let screenshotActionBusy = false;
-
-function screenshotActionRowEl() {
-  return document.getElementById('screenshotActionRow');
-}
-
-function hideScreenshotActionRow() {
-  screenshotActionPayload = null;
-  screenshotActionBusy = false;
-  const row = screenshotActionRowEl();
-  if (!row) return;
-  row.hidden = true;
-  row.querySelectorAll('[data-shot-action]').forEach((btn) => {
-    btn.disabled = false;
-    btn.classList.remove('is-busy');
-    const key = btn.getAttribute('data-shot-action') === 'ocr'
-      ? 'shotOcr'
-      : btn.getAttribute('data-shot-action') === 'qr'
-        ? 'shotQr'
-        : 'shotCopy';
-    btn.textContent = t(key);
-  });
-}
-
-function syncScreenshotActionRow() {
-  const row = screenshotActionRowEl();
-  if (!row) return;
-  const dataUrl = screenshotActionPayload?.dataUrl;
-  const still = dataUrl && pendingAttachments.some((a) => a.dataUrl === dataUrl);
-  if (!still) hideScreenshotActionRow();
-}
-
-function offerScreenshotActions(payload) {
-  if (!payload?.dataUrl || !shouldOfferScreenshotActions(payload.source)) return;
-  const row = screenshotActionRowEl();
-  if (!row) return;
-  screenshotActionPayload = { dataUrl: payload.dataUrl, source: payload.source };
-  screenshotActionBusy = false;
-  row.hidden = false;
-  row.querySelectorAll('[data-shot-action]').forEach((btn) => {
-    btn.disabled = false;
-    btn.classList.remove('is-busy');
-    const action = btn.getAttribute('data-shot-action');
-    btn.textContent = t(action === 'ocr' ? 'shotOcr' : action === 'qr' ? 'shotQr' : 'shotCopy');
-  });
-}
-
-function setScreenshotActionBusy(action, busy) {
-  screenshotActionBusy = busy;
-  const row = screenshotActionRowEl();
-  if (!row) return;
-  row.querySelectorAll('[data-shot-action]').forEach((btn) => {
-    const isActive = btn.getAttribute('data-shot-action') === action;
-    btn.disabled = busy;
-    btn.classList.toggle('is-busy', busy && isActive);
-    if (isActive) {
-      btn.textContent = busy
-        ? t(action === 'ocr' ? 'shotOcrBusy' : 'shotQrBusy')
-        : t(action === 'ocr' ? 'shotOcr' : action === 'qr' ? 'shotQr' : 'shotCopy');
-    }
-  });
-}
-
-function applyRecognizedScreenshotText(text, toastKey) {
-  const body = String(text || '').trim();
-  if (!body) return false;
-  const existing = composerPlainText();
-  setComposerPlainText(existing ? `${existing.replace(/\s+$/, '')}\n${body}` : body);
-  void copyTextToSystem(body).catch(() => {});
-  pinTextsToClipboard([{ text: body, kind: 'text', source: { clipboard: true, screenshot: true } }], {
-    openDrawer: false,
-    toast: false
-  });
-  showQuickToast(t(toastKey));
-  return true;
-}
-
-async function runScreenshotOcr(dataUrl) {
-  const local = await detectLocalTextFromDataUrl(dataUrl);
-  if (local.ok && local.text) return local;
-  const settings = await loadLlmSettings();
-  if (!String(settings?.apiKey || '').trim()) {
-    return { ok: false, code: 'NEED_KEY', text: '' };
-  }
-  const url = chatCompletionsUrl(settings.apiBase);
-  if (!url) return { ok: false, code: 'VISION_FAILED', text: '' };
-  const res = await proxyJsonRequest({
-    url,
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${settings.apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: buildVisionOcrBody({
-      model: settings.model,
-      dataUrl,
-      lang: currentLang
-    })
-  });
-  if (!res?.ok) {
-    return {
-      ok: false,
-      code: 'VISION_FAILED',
-      text: '',
-      error: res?.json?.error?.message || res?.error || `HTTP ${res?.status || ''}`
-    };
-  }
-  const text = textFromChatCompletion(res.json);
-  return text ? { ok: true, source: 'vision', text } : { ok: false, code: 'EMPTY', text: '' };
-}
-
-async function handleScreenshotAction(action) {
-  const payload = screenshotActionPayload;
-  if (!payload?.dataUrl || screenshotActionBusy) return;
-  if (action === 'copy') {
-    try {
-      await copyDataUrlToClipboard(payload.dataUrl);
-    } catch (_) {}
-    hideScreenshotActionRow();
-    showQuickToast(t('shotCopied'));
-    return;
-  }
-  if (action === 'qr') {
-    setScreenshotActionBusy('qr', true);
-    try {
-      const found = await detectBarcodesFromDataUrl(payload.dataUrl);
-      if (found.code === 'NO_BARCODE_DETECTOR') {
-        showQuickToast(t('shotQrNeedApi'));
-        return;
-      }
-      if (!found.ok || !found.text) {
-        showQuickToast(t('shotQrEmpty'));
-        return;
-      }
-      applyRecognizedScreenshotText(found.text, 'shotQrDone');
-      hideScreenshotActionRow();
-    } finally {
-      if (screenshotActionPayload) setScreenshotActionBusy('qr', false);
-    }
-    return;
-  }
-  if (action !== 'ocr') return;
-  setScreenshotActionBusy('ocr', true);
-  try {
-    const found = await runScreenshotOcr(payload.dataUrl);
-    if (found.code === 'NEED_KEY') {
-      showQuickToast(t('shotOcrNeedKey'));
-      return;
-    }
-    if (!found.ok || !found.text) {
-      showQuickToast(found.code === 'EMPTY' ? t('shotOcrEmpty') : t('shotOcrFail'));
-      return;
-    }
-    applyRecognizedScreenshotText(found.text, 'shotOcrDone');
-    hideScreenshotActionRow();
-  } catch (err) {
-    console.warn('[CAPTURE_WP] ocr failed', err);
-    showQuickToast(t('shotOcrFail'));
-  } finally {
-    if (screenshotActionPayload) setScreenshotActionBusy('ocr', false);
-  }
-}
-
 async function attachScreenshotToChat(payload) {
   if (!payload?.dataUrl) return;
+  if (!shouldAttachScreenshotToComposer(payload.source)) return;
   const attachKey = screenshotAttachKey(payload.dataUrl);
   const now = Date.now();
   if (
     screenshotAttachInflight.has(attachKey) ||
     (attachKey === lastCaptureAttachKey && now - lastCaptureAttachAt < 3000)
   ) {
-    chrome.storage.local.remove(STORAGE_PENDING_SCREENSHOT);
     return;
   }
   if (pendingAttachments.some((a) => a.isImage && a.dataUrl === payload.dataUrl)) {
-    chrome.storage.local.remove(STORAGE_PENDING_SCREENSHOT);
-    if (payload.source !== 'paste' && typeof offerScreenshotActions === 'function') {
-      offerScreenshotActions(payload);
-    }
     return;
   }
   screenshotAttachInflight.add(attachKey);
@@ -14878,10 +14815,6 @@ async function attachScreenshotToChat(payload) {
     pendingAttachments.push(att);
     if (payload.source === 'paste') insertPastedScreenshotChip(att);
     renderAttachmentPreviews();
-    if (payload.source !== 'paste' && typeof offerScreenshotActions === 'function') {
-      offerScreenshotActions(payload);
-    }
-    // If SW clipboard inject failed, retry from Side Panel document
     if (!payload.clipboardOk) {
       try {
         await copyDataUrlToClipboard(payload.dataUrl);
@@ -14889,8 +14822,6 @@ async function attachScreenshotToChat(payload) {
         console.warn('[CAPTURE_WP] sidepanel clipboard retry failed', e);
       }
     }
-    // Clear pending stash so we do not re-attach on next open
-    chrome.storage.local.remove(STORAGE_PENDING_SCREENSHOT);
   } catch (err) {
     lastCaptureAttachKey = '';
     lastCaptureAttachAt = 0;
@@ -14915,18 +14846,7 @@ async function requestUserScreenshot(source = 'button') {
       action: CAPTURE_MSG.CAPTURE_REQUEST,
       source
     });
-    if (result?.deduped) return;
-    // User pressed Esc / right-click / tiny drag during region select
-    if (result?.cancelled) return;
-    if (result?.ok && result.dataUrl) {
-      await attachScreenshotToChat({
-        dataUrl: result.dataUrl,
-        name: result.name,
-        clipboardOk: result.clipboardOk,
-        source
-      });
-      return;
-    }
+    if (result?.deduped || result?.cancelled || result?.reviewed || result?.ok) return;
     const errMsg = result?.error || 'unknown error';
     showCustomModal({
       title: currentLang === 'en' ? 'Screenshot' : '截图',
@@ -14951,59 +14871,11 @@ async function requestUserScreenshot(source = 'button') {
 }
 
 function setupScreenshotCapture() {
-  // Capture button in toolbar / chat area
   const captureBtn = document.getElementById('captureScreenshotBtn');
   if (captureBtn) {
     captureBtn.addEventListener('click', () => requestUserScreenshot('button'));
   }
 
-  const row = screenshotActionRowEl();
-  if (row && !row.dataset.wired) {
-    row.dataset.wired = '1';
-    row.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-shot-action]');
-      if (!btn) return;
-      void handleScreenshotAction(btn.getAttribute('data-shot-action'));
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape' && e.key !== 'Esc') return;
-      if (!screenshotActionPayload || row.hidden) return;
-      hideScreenshotActionRow();
-    });
-  }
-
-  // Live broadcast from background (hotkey while sidepanel open)
-  chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-    if (request?.action === 'screenshot_captured' && request.dataUrl) {
-      attachScreenshotToChat({
-        dataUrl: request.dataUrl,
-        name: request.name,
-        clipboardOk: request.clipboardOk,
-        source: request.source || 'hotkey'
-      }).then(() => sendResponse({ received: true }));
-      return true;
-    }
-    return false;
-  });
-
-  // Pick up stash if panel opened after hotkey
-  chrome.storage.local.get([STORAGE_PENDING_SCREENSHOT], (res) => {
-    const pending = res?.[STORAGE_PENDING_SCREENSHOT];
-    if (!pending?.dataUrl) return;
-    // Only auto-attach fresh captures (< 2 min)
-    if (pending.ts && Date.now() - pending.ts > 120000) {
-      chrome.storage.local.remove(STORAGE_PENDING_SCREENSHOT);
-      return;
-    }
-    attachScreenshotToChat({
-      dataUrl: pending.dataUrl,
-      name: pending.name,
-      clipboardOk: pending.clipboardOk,
-      source: pending.source || 'pending'
-    });
-  });
-
-  // Keep settings label fresh
   loadCaptureShortcut().then((s) => {
     const labelEl = document.getElementById('captureShortcutLabel');
     if (labelEl && !labelEl.innerText?.trim()) labelEl.innerText = s;
@@ -15025,12 +14897,12 @@ function renderRichTextContent(container, markdownText) {
   const cleanMarkdown = markdownText.replace(/```popcard\n[\s\S]*?```/gi, '');
 
   try {
-    let html = parseOfficeMarkdown(cleanMarkdown);
-    html = html.replace(
-      /<pre><code class="language-(javascript|js)">([\s\S]*?)<\/code><\/pre>/g,
-      '<details class="browserbot-code-details"><summary>查看脚本</summary><pre><code class="language-javascript">$2</code></pre></details>'
-    );
+    const html = parseOfficeMarkdown(cleanMarkdown);
     container.innerHTML = sanitizeModelHtml(html);
+    mountMarkdownCodeCopy(container, {
+      copyLabel: t('codeCopy'),
+      copiedLabel: t('codeCopied')
+    });
   } catch (e) {
     console.warn('Markdown parse fallback:', e);
     container.innerHTML = escapeHtml(cleanMarkdown).replace(/\n/g, '<br>');

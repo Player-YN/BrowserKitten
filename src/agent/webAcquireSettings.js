@@ -24,11 +24,26 @@ export function defaultWebAcquireSettings() {
   return {
     searchProvider: 'tavily',
     tavilyKey: '',
+    tavilyNickname: '',
     tavilyBaseURL: 'https://api.tavily.com',
     braveKey: '',
+    braveNickname: '',
     firecrawlKey: '',
+    firecrawlNickname: '',
     firecrawlBaseURL: 'https://api.firecrawl.dev'
   };
+}
+
+export function webAcquireNicknameKey(kind) {
+  if (kind === 'brave') return 'braveNickname';
+  if (kind === 'firecrawl') return 'firecrawlNickname';
+  return 'tavilyNickname';
+}
+
+export function webAcquireCardTitle(kind, settings, fallback) {
+  const key = webAcquireNicknameKey(kind);
+  const nick = typeof settings?.[key] === 'string' ? settings[key].trim() : '';
+  return nick || fallback || kind;
 }
 
 function trimStr(v, fallback = '') {
@@ -42,9 +57,12 @@ export function normalizeWebAcquireSettings(raw = {}) {
   return {
     searchProvider: provider === 'brave' ? 'brave' : 'tavily',
     tavilyKey: trimStr(o.tavilyKey),
+    tavilyNickname: trimStr(o.tavilyNickname),
     tavilyBaseURL: trimStr(o.tavilyBaseURL, d.tavilyBaseURL).replace(/\/$/, ''),
     braveKey: trimStr(o.braveKey),
+    braveNickname: trimStr(o.braveNickname),
     firecrawlKey: trimStr(o.firecrawlKey),
+    firecrawlNickname: trimStr(o.firecrawlNickname),
     firecrawlBaseURL: trimStr(o.firecrawlBaseURL, d.firecrawlBaseURL).replace(/\/$/, '')
   };
 }

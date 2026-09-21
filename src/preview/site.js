@@ -386,7 +386,7 @@ function downloadHtml() {
 }
 
 async function loadFromStore() {
-  if (!sessionId || !artifactId) throw new Error('缺少 sessionId 或交付物 id');
+  if (!sessionId || !artifactId) throw new Error('缺少 sessionId 或文件 id');
   const rec = await fetchCompleteArtifact(
     (method, params) => workspaceRpc(method, params),
     { sessionId, artifactId }
@@ -545,7 +545,7 @@ async function boot() {
   if (!sessionId || !artifactId) {
     const bootEl = document.getElementById('boot');
     if (bootEl) {
-      bootEl.textContent = '缺少 sessionId 或交付物 id';
+      bootEl.textContent = '缺少 sessionId 或文件 id';
       bootEl.classList.add('error');
     }
     return;

@@ -83,9 +83,9 @@ const PAYMENT_URL_RE =
 const PAYMENT_HOST_RE =
   /(^|\.)(paypal\.|stripe\.|checkout\.shopify|alipay\.|alipayobjects\.|pay\.weixin|checkout\.)/i;
 
-const ACTION_READ = new Set(['snapshot', 'wait', 'resolve_name', 'resolve_intent', 'listen', 'record']);
-const ACTION_FILL = new Set(['fill', 'fill_form', 'select', 'scroll']);
-const ACTION_MUTATE = new Set(['click', 'fill', 'fill_form', 'select', 'press', 'scroll', 'upload', 'pointer']);
+const ACTION_READ = new Set(['snapshot', 'wait', 'resolve_name', 'resolve_intent', 'listen', 'record', 'scrape']);
+const ACTION_FILL = new Set(['fill', 'fill_form', 'select', 'scroll', 'toggle']);
+const ACTION_MUTATE = new Set(['click', 'fill', 'fill_form', 'select', 'press', 'scroll', 'upload', 'pointer', 'hover', 'dblclick', 'contextmenu', 'toggle']);
 
 const SYS_READ = new Set([
   'help',
@@ -704,7 +704,7 @@ function classifyArtifact(input = {}) {
   return verdict({
     risk: RISK_REVERSIBLE,
     reason: 'artifact:save',
-    summary: `保存交付物 ${input.artifactId || ''}`.trim(),
+    summary: `保存文件 ${input.artifactId || ''}`.trim(),
     signals: ['artifact-save'],
     target: { artifactId: input.artifactId }
   });

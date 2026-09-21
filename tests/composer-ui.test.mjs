@@ -40,7 +40,7 @@ test('attachments belong to the composer shell and travel with either composer d
   for (const match of html.matchAll(/<(\/?)([a-z][\w-]*)([^>]*?)>/gi)) {
     const [, close, name, attrs] = match;
     if (close) { stack.pop(); continue; }
-    if (/\bid="attachmentPreviewBar"/.test(attrs) || /\bid="screenshotActionRow"/.test(attrs)) {
+    if (/\bid="attachmentPreviewBar"/.test(attrs)) {
       found++;
       assert.ok(stack.some(n => n.name === 'footer' && /class="composer"/.test(n.attrs)));
       assert.match(stack.at(-1).attrs, /class="composer-inner"/);
@@ -49,7 +49,7 @@ test('attachments belong to the composer shell and travel with either composer d
       stack.push({ name, attrs });
     }
   }
-  assert.equal(found, 2);
+  assert.equal(found, 1);
 });
 
 test('uploaded images have thumbnails; removal preserves the other outgoing attachments', () => {
@@ -67,18 +67,17 @@ test('uploaded images have thumbnails; removal preserves the other outgoing atta
   assert.equal(bar.children.length, 0);
 });
 
-test('pasted screenshot renders once inline; capture-button screenshots remain in the shell preview', async () => {
+test('pasted screenshot renders once inline; capture stays off the composer', async () => {
   const { bar, inline, attachments, ctx } = attachmentUi();
-  const offered = [];
   Object.assign(ctx, {
     screenshotAttachInflight: new Set(), lastCaptureAttachKey: '', lastCaptureAttachAt: 0,
     screenshotAttachKey: value => value,
-    chrome: { storage: { local: { remove() {} } } }, STORAGE_PENDING_SCREENSHOT: 'pending',
+    shouldAttachScreenshotToComposer: source => String(source || '').toLowerCase() === 'paste',
     attachmentFromDataUrl: (dataUrl, props) => ({ ...props, dataUrl, isImage: true }),
     nextStickyLabel: async () => ({ n: attachments.length + 1 }),
     clipboardGroupFromState: () => null,
     insertPastedScreenshotChip: att => inline.add(att.name),
-    offerScreenshotActions: payload => offered.push(payload.source),
+    copyDataUrlToClipboard: async () => true,
     showCustomModal: () => assert.fail('attachment failed'), console,
   });
   vm.runInContext(section('async function attachScreenshotToChat(payload)', 'async function requestUserScreenshot('), ctx);
@@ -86,16 +85,42 @@ test('pasted screenshot renders once inline; capture-button screenshots remain i
   assert.equal(attachments.length, 1);
   assert.deepEqual([...inline], ['screenshot1']);
   assert.equal(bar.hidden, true);
-  assert.deepEqual(offered, []);
   await ctx.attachScreenshotToChat({ source: 'button', dataUrl: 'data:image/png;base64,BB==', clipboardOk: true });
-  assert.equal(attachments.length, 2);
-  assert.equal(bar.children.length, 1);
-  assert.equal(bar.children[0].children[0].src, attachments[1].dataUrl);
-  assert.deepEqual(offered, ['button']);
-  // The index is from the outgoing list, not the filtered preview list.
-  bar.children[0].children.at(-1).listeners.click();
   assert.equal(attachments.length, 1);
   assert.equal(attachments[0].source, 'paste');
+});
+
+test('welcome first paint lists the three teaching chips by id', () => {
+  const html = readFileSync(new URL('../src/sidepanel.html', import.meta.url), 'utf8');
+  assert.match(html, /id="hintChips"/);
+  assert.match(html, /data-hint-id="create-personal-tool"/);
+  assert.match(html, /data-hint-id="create-workflow"/);
+  assert.match(html, /data-hint-id="use-browser-kitten"/);
+});
+
+test('settings API sections are roster plus add form; diagnostics stay off the add form', () => {
+  const html = readFileSync(new URL('../src/sidepanel.html', import.meta.url), 'utf8');
+  for (const id of [
+    'inferenceVendorList', 'addInferenceBtn', 'inferenceEditor',
+    'imageVendorList', 'addImageBtn', 'imageEditor',
+    'sttVendorList', 'addSttBtn', 'sttEditor',
+    'webVendorList', 'addWebAcquireBtn', 'webAcquireEditor',
+    'inferenceDiagnostics', 'inferenceAdvancedDetails', 'inferenceAutoCheckHost'
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  const inferenceCard = html.slice(html.indexOf('id="settingsInferenceCard"'), html.indexOf('id="settingsImageCard"'));
+  const editor = inferenceCard.slice(inferenceCard.indexOf('id="inferenceEditor"'));
+  assert.match(inferenceCard, /id="chatMediaStatusPanel"/);
+  assert.match(inferenceCard, /id="contextWindowStatusPanel"/);
+  assert.doesNotMatch(editor, /id="chatMediaStatusPanel"/);
+  assert.doesNotMatch(editor, /id="contextWindowStatusPanel"/);
+  assert.doesNotMatch(editor, /id="chatMediaSettings"/);
+  assert.doesNotMatch(html, /id="settingsAccessCard"/);
+  assert.doesNotMatch(html, /id="accessFullToggle"/);
+  const i18n = readFileSync(new URL('../src/sidepanel/i18n.js', import.meta.url), 'utf8');
+  assert.match(i18n, /settingsDiagnosticsAdvanced: '高级 \/ 检测'/);
+  assert.match(i18n, /settingsDiagnosticsAdvanced: 'Advanced \/ checks'/);
 });
 
 test('access mode updates the accessible label without replacing the shield icon', () => {

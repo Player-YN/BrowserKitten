@@ -62,7 +62,7 @@ const PREVIEW_I18N = {
     safeText: '安全文本 · 未执行 HTML/JS',
     text: '只读文本',
     inspector: '检查器 · 仅元数据与下载',
-    missing: '缺少 sessionId 或交付物 id',
+    missing: '缺少 sessionId 或文件 id',
     title: '预览',
     syncFail: '同步失败',
     downloadRefused: '下载已拒绝：文件被截断，未保存损坏副本'

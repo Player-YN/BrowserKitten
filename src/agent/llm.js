@@ -2,7 +2,7 @@
  * Provider settings for BYOK OpenAI-compatible HTTPS.
  * Inference goes through AI SDK (`createBrowserBotLanguageModel`), not this file.
  *
- *   browserbot_providers: [{ id, name, baseURL, apiKey, model, createdAt, image?, lastProbe? }]
+ *   browserbot_providers: [{ id, name, nickname?, baseURL, apiKey, model, createdAt, image?, lastProbe? }]
  *   browserbot_active_provider_id: string
  * Flat copies (browserbot_api_key / browserbot_api_base / selected_model) stay in sync with the active chat provider.
  *
@@ -204,6 +204,25 @@ export function imageVendorLabel(provider) {
   return provider?.name || 'Image';
 }
 
+/** Card title: optional nickname, else vendor/name. Missing nickname stays compatible. */
+export function providerDisplayName(provider, fallback) {
+  const nick = typeof provider?.nickname === 'string' ? provider.nickname.trim() : '';
+  if (nick) return nick;
+  return String(fallback || provider?.name || '').trim() || 'Provider';
+}
+
+export function imageCardTitle(provider) {
+  const img = provider?.image && typeof provider.image === 'object' ? provider.image : {};
+  const imageNick = typeof img.nickname === 'string' ? img.nickname.trim() : '';
+  if (imageNick) return imageNick;
+  if (provider?.purpose === 'image') return providerDisplayName(provider, imageVendorLabel(provider));
+  return imageVendorLabel(provider);
+}
+
+export function sttCardTitle(provider) {
+  return providerDisplayName(provider, sttVendorLabel(provider));
+}
+
 function normalizeLastProbe(raw) {
   if (!raw || typeof raw !== 'object') return undefined;
   const at = Number(raw.at);
@@ -246,6 +265,9 @@ export function defaultImageConfig(overrides = {}) {
   }
   if (typeof o.apiKey === 'string' && o.apiKey.trim()) {
     cfg.apiKey = o.apiKey.trim();
+  }
+  if (typeof o.nickname === 'string' && o.nickname.trim()) {
+    cfg.nickname = o.nickname.trim();
   }
   return cfg;
 }
@@ -338,6 +360,7 @@ export function normalizeProvider(p) {
   if (Object.keys(contextWindowOverrides).length) out.contextWindowOverrides = contextWindowOverrides;
   const lastProbe = normalizeLastProbe(/** @type {any} */ (p).lastProbe);
   if (lastProbe) out.lastProbe = lastProbe;
+  if (typeof p.nickname === 'string' && p.nickname.trim()) out.nickname = p.nickname.trim();
   return out;
 }
 
@@ -638,6 +661,9 @@ export async function upsertProvider(provider, opts = {}) {
     }
     if (next.lastProbe === undefined && providers[idx].lastProbe) {
       next.lastProbe = providers[idx].lastProbe;
+    }
+    if (typeof provider.nickname !== 'string' && providers[idx].nickname) {
+      next.nickname = providers[idx].nickname;
     }
     if (!next.createdAt) next.createdAt = providers[idx].createdAt;
     providers[idx] = next;

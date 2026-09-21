@@ -8,9 +8,11 @@ const root = dirname(fileURLToPath(new URL('.', import.meta.url)));
 
 test('sidepanel HTML, i18n, and JS modules reference the new policy surfaces', async () => {
   const html = readFileSync(join(root, 'src/sidepanel.html'), 'utf8');
-  for (const id of ['accessPolicyChip', 'accessFullDialog', 'accessFullToggle', 'accessRememberProfile', 'settingsAccessCard']) {
+  for (const id of ['accessPolicyChip', 'accessFullDialog', 'accessRememberProfile']) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
+  assert.doesNotMatch(html, /id="settingsAccessCard"/);
+  assert.doesNotMatch(html, /id="accessFullToggle"/);
   assert.match(html, /无法保证不会发生未识别的付款或删除/);
   const i18n = readFileSync(join(root, 'src/sidepanel/i18n.js'), 'utf8');
   for (const key of ['accessFullHint', 'approvalPaymentWait', 'approvalApprove', 'accessRememberProfile']) {

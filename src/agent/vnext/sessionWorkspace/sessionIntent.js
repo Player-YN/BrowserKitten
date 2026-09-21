@@ -47,7 +47,7 @@ export function excerptWithOmission(text, cap) {
   return value.slice(0, side) + notice + value.slice(-side || value.length);
 }
 
-export function formatUserRequestInstructions(session, contextWindow = 128000) {
+export function formatUserRequestInstructions(session, contextWindow = 256000) {
   // Before compaction the transcript itself supplies the exact requests.
   if (!session?.compact?.throughMessageId && !session?.sessionGoal && !session?.userClarifications?.length) return '';
   const requests = sessionUserRequests(session);

@@ -99,7 +99,7 @@ function applyHostLamp(next, ev, isZh) {
         return next;
       }
       if (view === 'artifacts' || view === 'files') {
-        next.label = isZh ? '正在查看交付物' : 'Looking at deliverables';
+        next.label = isZh ? '正在查看文件' : 'Looking at files';
         next.visible = false;
         return next;
       }
@@ -125,7 +125,7 @@ function applyHostLamp(next, ev, isZh) {
       const op = String(args.op || '');
       if (object) next.label = isZh ? `正在写 ${object}` : `Writing ${object}`;
       else if (op === 'write_artifact' || op === 'update_artifact' || op === 'write_package_file') {
-        next.label = isZh ? '正在写入交付物' : 'Writing a deliverable';
+        next.label = isZh ? '正在写入文件' : 'Writing a file';
       } else if (op === 'write_scratch') next.label = isZh ? '正在写临时文件' : 'Writing a scratch file';
       else if (op === 'sheet' || op === 'createWorkbook') next.label = isZh ? '正在登记表格' : 'Registering a sheet';
       else if (op === 'doc' || op === 'createDocument') next.label = isZh ? '正在登记文档' : 'Registering a document';
@@ -215,7 +215,7 @@ function applyHostLamp(next, ev, isZh) {
 
   if (type === 'image') {
     if (next.phase === 'commentary' && next.buffer.trim()) return next;
-    next.label = isZh ? '图片已写入交付物' : 'Image saved to deliverables';
+    next.label = isZh ? '图片已写入文件' : 'Image saved to files';
     next.visible = false;
     return next;
   }

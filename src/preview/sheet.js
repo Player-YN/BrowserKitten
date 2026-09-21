@@ -1792,7 +1792,7 @@ async function mountUniver(workbookData) {
 
 async function main() {
   if (!sessionId || !artifactId) {
-    boot('缺少 sessionId 或交付物 id', true);
+    boot('缺少 sessionId 或文件 id', true);
     return;
   }
   wireBar();

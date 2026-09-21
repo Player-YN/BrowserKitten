@@ -18,7 +18,7 @@ async function fixture() {
   return { service, library, store, adapter, calls, workflowHost, modelCalls: () => modelCalls };
 }
 const target = { name: 'Save', role: 'button' };
-const wf = steps => ({ version: 1, tabs: [{ id: 'main', title: 'Main', url: 'https://example.test/' }], steps });
+const wf = steps => ({ version: 2, tabs: [{ id: 'main', title: 'Main', url: 'https://example.test/' }], steps });
 async function publish(service, workflow) {
   const made = await service.createWorkflowDraft({ name: 'Automation' });
   const { draft } = await service.updateWorkflowDraft({ draftId: made.draftId, expectedRevision: made.draft.revision, patch: { workflow } });

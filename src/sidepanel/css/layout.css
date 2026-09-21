@@ -5,8 +5,9 @@
  * Contract:
  * - Sticky: .topbar + .selection-bar + .composer
  * - Home / no-thread: #panelScroll is the document scrollport
- * - Conversation open (.is-thread-open): chat-window chrome — .task-header stays
- *   put; .task-body is the message scrollport
+ * - Conversation open (.is-thread-open): session title stays put; messages sit
+ *   on --paper (no bordered well). .task-body is the only message scrollport.
+ *   Overlay starlight scrollbar: hidden at rest, .is-scrolling while in motion.
  * - History lives inside .thread-workspace with #taskStream
  */
 
@@ -399,7 +400,7 @@ body {
   scrollbar-gutter: auto;
 }
 
-/* Chat window: session title bar stays; only messages scroll */
+/* Open conversation: title stays; only .task-body scrolls (no nested wells) */
 .panel.is-thread-open .panel-scroll {
   overflow: hidden;
   min-height: 0;
@@ -453,8 +454,16 @@ body {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overflow-y: overlay;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+}
+.panel.is-thread-open .task-body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  background: transparent;
 }
 /* Jump rail lives in this gutter so ticks / tips do not cover think chevrons. */
 .panel.has-turn-jump.is-thread-open .task-body {
@@ -660,6 +669,7 @@ body {
   --density-pick-min-w: 64px;
   --density-pick-fs: 12px;
   --density-pick-pad-x: 10px;
+  --density-scroll-w: 5px;
 }
 
 .panel[data-density='compact'] .topbar {

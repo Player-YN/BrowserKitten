@@ -22,7 +22,7 @@ Linked from `sidepanel.html` (do not reorder without reason):
 |------:|------|------|
 | 1 | `css/tokens.css` | Theme tokens (Quiet Black / Quiet Light; see ../../Design.md) |
 | 2 | `css/layout.css` | Height chain, chrome shrink, task-stream scrollport, **container queries** |
-| 3 | `css/motion.css` | Ambient, send/stop rings, reduced-motion |
+| 3 | `css/motion.css` | Starlight scroll overlay, send/stop rings, reduced-motion |
 | 4 | `sidepanel.css` | Components / surfaces leftovers |
 
 ### Container queries + density (P3)
@@ -85,7 +85,8 @@ Source of truth: **`css/layout.css`**.
 | Surface | Rule |
 |--------|------|
 | `html`, `body`, `.panel` | `height: 100%`, shell `overflow: hidden` |
-| **`#panelScroll`** | **Only** vertical scrollport: `flex: 1 1 0%`, `overflow-y: auto` |
+| **`#panelScroll`** | Home / no-thread document scrollport: `flex: 1 1 0%`, `overflow-y: auto` |
+| Conversation open | `#panelScroll` `overflow: hidden`; **`.task-body`** is the message scrollport; **`.think-body-wrap`** is its own starlight scrollport |
 | Sticky | `.topbar` + `.composer` (outside the scroll root) |
 | Same-level blocks in scroll | context, selection, drafts, **`.thread-workspace`** (history + task-stream) — all `overflow: visible`, no nested max-height traps |
 | `#taskStream` | document flow only (not a scrollport) |
@@ -93,7 +94,7 @@ Source of truth: **`css/layout.css`**.
 | Durable task cards | `taskStatus.js`：仅 `ready` / `running` / `waiting` / `paused` 显著；终态（completed/failed/cancelled）折进 `<details>`。无 live task 时不画空「进行中」区 |
 | Tab lease copy | `TAB_LEASED` / `NEED_EXPLICIT_TAB` 走 `tabLeaseUi.js` + `i18n.tabLeased` / `needExplicitTab`；文案是停对方或换标签，不引导新 Chrome profile |
 
-`scroll.js` scrolls `#panelScroll` and applies edge fades to it.
+`scroll.js` relays wheel onto the active scrollport and applies edge fades. Starlight `.is-scrolling` is per scrollport: `.think-body-wrap` wins over `.task-body` (think-block chrome does not promote to the chat bar). Only the thumb lights (6px chat / 4px think); particles clip to that pill, not a full-height column.
 
 ## Control layer
 
@@ -115,7 +116,7 @@ Durable task cards（`taskStatus.js`）≠ 对话流里的 live `.task-card`（�
 
 对话流里右对齐的粉胶囊是 **用户气泡**（`.msg.user`）。文案刚好是「继续」时也不是控件：durable `resume` 只出现在 `paused` 任务卡上；clarify 的「继续」只在多问题澄清条里。思考条复用逻辑在 `thinkUi.js`（一轮一条，禁止再叠一条「思考中」）。有真实 provider thought 时块必须在：流式与封条后都可展开，默认折叠，`aria-expanded` 与 Enter/Space。行动摘要不能顶替它。`#turnJumpRail` 走右槽，不盖思考条展开箭头。
 
-`#botStatus` 已降级为隐藏 polite announcer（另有 `#botStatusLive` / `#botStatusAssertive`）。完成后不再在会话顶画完成/目标页/瞄准/任务大卡。运行中的 `.turn-disclosure` 是 Sider 式小图标活动列表：每行左侧小灰 emoji（思考 💡 / 读取 📖 / 运行 🔧 / 页面 ✨ / 写入 ✏️），右侧短灰字；流光/脉冲只扫**最新一行**活动标签字形（思考条「思考中」有行动行后不再扫字，只留圆点）；先前行保持静止灰字，不卸挂（窄栏仍只留当前行）。不画 next、租约占用、政策 chip、页面 snapshot「读取当前标签」、也不把 inspect/`run`/page-read 算进交付物。无 provider thought 时披露仍占思考块下方同一位置，不造假思考块。完成 / 停止 / 失败 / 取消一律立刻折成一行 `完成|已停止|失败 · {duration} · {n} 个交付物`（默认折叠，按需 hydrate；`n` 只计会话 artifact），不留开放的活动列表或「客代码」行。只有等待用户、宿主审批、租约冲突、durable 暂停、needs_human 保持展开。`#accessPolicyChip` 在 composer 浮层常驻，不跟大卡隐藏。审批/付款卡在披露下方，折叠完成墙不得盖住它们。next 仍只来自 `task.nextAction`，且不画进直播摘要。历史摘要按 `executionId` 展开时才 hydrate，同时只开一张，内存完整投影只留 8 轮。思考块合同不变（卡片 chrome），状态不从 thought 推断。Stop 走 `abortCurrentExecution({sessionId})`。选区是可选瞄准，不是权限门。
+`#botStatus` 已降级为隐藏 polite announcer（另有 `#botStatusLive` / `#botStatusAssertive`）。完成后不再在会话顶画完成/目标页/瞄准/任务大卡。运行中的 `.turn-disclosure` 是 Sider 式小图标活动列表：每行左侧 14px 描边图标（思考 lightbulb / 读取 book / 运行 wrench / 页面 wand / 写入 pencil / 等待 clock / 错误 alert，`currentColor` 跟 `--ink`，不用 emoji），右侧短灰字；流光/脉冲只扫**最新一行**活动标签字形（思考条「思考中」有行动行后不再扫字，只留圆点）；先前行保持静止灰字，不卸挂（窄栏仍只留当前行）。不画 next、租约占用、政策 chip、页面 snapshot「读取当前标签」、也不把 inspect/`run`/page-read 算进交付物。无 provider thought 时披露仍占思考块下方同一位置，不造假思考块。完成 / 停止 / 失败 / 取消一律立刻折成一行 `完成|已停止|失败 · {duration} · {n} 个文件`（默认折叠，按需 hydrate；`n` 只计会话 artifact），不留开放的活动列表或「客代码」行。只有等待用户、宿主审批、租约冲突、durable 暂停、needs_human 保持展开。`#accessPolicyChip` 在 composer 浮层常驻，不跟大卡隐藏。审批/付款卡在披露下方，折叠完成墙不得盖住它们。next 仍只来自 `task.nextAction`，且不画进直播摘要。历史摘要按 `executionId` 展开时才 hydrate，同时只开一张，内存完整投影只留 8 轮。思考块合同不变（卡片 chrome），状态不从 thought 推断。Stop 走 `abortCurrentExecution({sessionId})`。选区是可选瞄准，不是权限门。
 
 交付物轨主 chip 是五家族（`docs` / `data` / `web` / `media` / `files`）。`design`/`slides` 不是主 chip，legacy 数据折进其它。打开面与徽标由 `artifactCapability.js` 单一映射驱动；未知文件进检查器，text-like 安全只读，未知 HTML/JS 不在 extension origin 执行。
 
@@ -133,7 +134,7 @@ Durable task cards（`taskStatus.js`）≠ 对话流里的 live `.task-card`（�
 Selector 同时服务直接工具与 Bot 引用。点选负责对象识别、来源与高亮；下载、复制、导出继续走确定性工具；SelectionGroup / WebItem 负责保存资料。用户无需先点选即可发起任务。
 
 - 顶部保留点选、截图和内容摘要；抽屉按对象、直接操作、文字剪贴板呈现，末尾「收集到」管理采集目标资料组。无内容时不显示资料组入口，也不展开空抽屉。
-- 输入框旁「对话参考」管理 sessionBindings，状态只计实际绑定的资料组。切换采集目标不改变引用；引用不代表网页操作授权。内部 ID、RPC 和存储名称不随展示名称迁移。
+- 输入框旁「参考」管理 sessionBindings，状态只计实际绑定的资料组。切换采集目标不改变引用；引用不代表网页操作授权。内部 ID、RPC 和存储名称不随展示名称迁移。
 - 点文字先收集到扩展剪贴板，点击条目才复制到系统剪贴板；两步反馈分别是「已收集」和「已复制」。
 - 点选后保留 2 秒短暂展开，悬停打开/关闭仍为 40/480ms；固定展开保持原义。浮到 body 的资料组、导出菜单与键盘焦点属于抽屉交互，期间不自动收起。折叠内容不进入键盘焦点序列。
 - 推荐提示属于 Agent 请求，明确提示点击会发送；直接工具按钮不发送对话。推荐触发和现有模型调用策略保持不变。
@@ -143,13 +144,13 @@ Selector 同时服务直接工具与 Bot 引用。点选负责对象识别、来
 - `#attachmentPreviewBar` lives **inside `.composer-inner`**, before `.composer-input-row`. Moving the composer between `#homeComposerSlot` and the footer must move previews with it. Attachments never occupy a sibling row outside the composer. Multiple previews may scroll within a 120px limit so they cannot consume the conversation viewport.
 - Uploaded/captured images show thumbnails. A pasted screenshot retains its existing inline screenshot mention and pending attachment; insert that mention **before** rendering previews to avoid duplicating the image below it. Removing an attachment still only changes the outgoing pending list.
 - `#accessPolicyChip` is a compact topbar shield: check mark for Guarded, highlighted exclamation for Full Access. Tooltip and accessible name include mode, session scope and policy explanation. Settings, confirmation dialog and host policy behavior remain unchanged.
-- Composer controls show model, Chat references and artifacts. The reference button shows the bound collection count; its tooltip and `#composerAiming` accessible description report the real binding state. The unbound state has no animated call-to-action border.
+- Composer controls show model, References and artifacts. The reference button shows the bound collection count; its tooltip and `#composerAiming` accessible description report the real binding state. The unbound state has no animated call-to-action border.
 - Collection destinations appear only when the selection summary has content; their tooltip and accessible description explain first-pick auto-creation. Active conversations use a neutral border; running status remains in the existing execution indicators.
 
 Selection drawer copy stays in tooltips and accessible labels: no visible gray explanatory paragraphs or “Selected” / “Collect into” prefixes. Counts, item names, collection picker and action labels remain visible.
 
 ## 顺序自动化
 
-`workflowUi.js` 不执行页面动作或持有存储。录制状态独立于编辑 modal；开始运行会切到执行会话并关闭 modal，让宿主审批可见。草稿编辑、固定工具版本、步骤检查与恢复边界见 [Workflow v1](../../docs/WORKFLOW_V1.md)。运行记录不是聊天消息，刷新事件不能自动恢复或发布。
+`workflowUi.js` 不执行页面动作或持有存储。录制状态独立于编辑 modal；开始运行会切到执行会话并关闭 modal，让宿主审批可见。草稿编辑、固定工具版本、步骤检查与恢复边界见 [Workflow 合同](../../docs/WORKFLOW_V1.md)。运行记录不是聊天消息，刷新事件不能自动恢复或发布。
 
 Workflow 状态消费既有 `session_workspace_event` 中的 `workflow-run` / `workflow-recording`，按记录 ID 和 revision 防止串任务与旧响应回退。初次打开及焦点/可见性恢复时补读，取消持续轮询；进度更新只替换监控区域，不重绘可编辑草稿。

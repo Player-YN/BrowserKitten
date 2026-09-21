@@ -97,7 +97,7 @@ export function createPersonalLibraryUi(opts = {}) {
     for (const entry of rows) {
       const card = doc.createElement('article'); card.className = 'personal-library-card';
       const name = doc.createElement('strong');
-      const type = entry.kind === 'workflow' ? (entry.workflow?.version === 1 ? (opts.workflowLabel?.() || 'Automation') : (opts.agentTaskLabel?.() || 'Agent task')) : '';
+      const type = entry.kind === 'workflow' ? (entry.workflow ? (opts.workflowLabel?.() || 'Automation') : (opts.agentTaskLabel?.() || 'Agent task')) : '';
       name.textContent = `${entry.name} · v${entry.revision}${type ? ` · ${type}` : ''}`; card.appendChild(name);
       const detail = doc.createElement('details'); const summary = doc.createElement('summary'); summary.textContent = t('libraryView');
       const code = doc.createElement('pre'); code.textContent = entry.code || entry.instructions || (entry.workflow ? JSON.stringify(entry.workflow, null, 2) : '');

@@ -56,12 +56,12 @@
     </aside>
 
     <div class="artifact-rail-scrim" id="artifactRailScrim" hidden></div>
-    <aside class="artifact-rail" id="artifactRail" aria-label="交付物" aria-hidden="true" hidden inert>
+    <aside class="artifact-rail" id="artifactRail" data-i18n-aria="artifactShelfTitle" aria-label="文件" aria-hidden="true" hidden inert>
       <div class="artifact-rail-head">
-        <span class="artifact-rail-title" data-i18n="artifactShelfTitle">交付物</span>
+        <span class="artifact-rail-title" data-i18n="artifactShelfTitle">文件</span>
         <button type="button" class="session-rail-icon-btn" id="artifactRailCloseBtn" title="收起" aria-label="收起工作区">›</button>
       </div>
-      <nav class="artifact-rail-nav" id="artifactRailNav" hidden aria-label="交付物分类"></nav>
+      <nav class="artifact-rail-nav" id="artifactRailNav" hidden aria-label="文件分类"></nav>
       <div class="artifact-rail-empty" id="sessionArtifactEmpty" hidden>工作区还没有文件</div>
       <ul class="artifact-rail-list" id="artifactShelfList" role="list"></ul>
       <div class="artifact-rail-foot" id="artifactRailFoot">
@@ -312,7 +312,9 @@
             <div class="home-mark home-mark-hero" aria-hidden="true"></div>
             <div class="home-composer-slot" id="homeComposerSlot"></div>
             <div class="hint-chips" id="hintChips">
-              <button type="button" class="hint-chip" data-prompt-key="userGuide" data-i18n="guideChipLabel" data-prompt="Browser Kitten 能做什么？简短介绍直接发起任务、点选后的下载复制与导出，以及用 @ 和对话参考引用资料。">怎么用 Browser Kitten？</button>
+              <button type="button" class="hint-chip" data-hint-id="create-personal-tool" data-i18n="teachCreateToolLabel">如何创造一个新工具？</button>
+              <button type="button" class="hint-chip" data-hint-id="create-workflow" data-i18n="teachCreateWorkflowLabel">如何创造一个新 workflow？</button>
+              <button type="button" class="hint-chip" data-hint-id="use-browser-kitten" data-i18n="teachUseProductLabel">如何使用 BrowserKitten？</button>
             </div>
           </div>
         </div>
@@ -327,7 +329,7 @@
 
     <!-- Sticky composer: floating model / bind-group / artifacts above white shell -->
     <footer class="composer">
-      <div class="composer-float-row" id="composerMeta" aria-label="模型与对话参考">
+      <div class="composer-float-row" id="composerMeta" aria-label="模型与参考">
         <div class="model-select" id="modelSelectRoot">
           <button
             type="button"
@@ -387,8 +389,9 @@
             aria-expanded="false"
             aria-controls="sessionBindAddMenu"
             aria-describedby="composerAiming"
-            title="选择供本对话参考的资料组"
-          >对话参考</button>
+            data-i18n-title="bindGroupTitle"
+            title="选择要参考的资料组"
+          >参考</button>
           <div class="session-bind-add-menu" id="sessionBindAddMenu" hidden></div>
           <div class="bind-group-hint" id="bindGroupHint" hidden>
             <div class="bind-group-hint-card">
@@ -410,9 +413,9 @@
             aria-expanded="false"
             aria-controls="artifactRail"
             data-i18n-title="artifactShelfTitle"
-            title="交付物"
+            title="文件"
           >
-            <span data-i18n="artifactShelfTitle">交付物</span>
+            <span data-i18n="artifactShelfTitle">文件</span>
             <span class="session-artifact-count" id="artifactShelfCount" hidden>0</span>
           </button>
         </div>
@@ -429,11 +432,6 @@
       </div>
       <div class="composer-inner">
         <div class="attachment-preview-bar" id="attachmentPreviewBar" hidden></div>
-        <div class="shot-action-row" id="screenshotActionRow" hidden role="group" data-i18n-aria="shotActions" aria-label="截图之后">
-          <button type="button" class="shot-action-chip" data-shot-action="ocr" data-i18n="shotOcr">OCR</button>
-          <button type="button" class="shot-action-chip" data-shot-action="qr" data-i18n="shotQr">二维码</button>
-          <button type="button" class="shot-action-chip" data-shot-action="copy" data-i18n="shotCopy">复制</button>
-        </div>
         <div class="composer-input-row">
           <button type="button" class="attach-btn" id="attachFileBtn" title="上传图片或文本文件" aria-label="Attach">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -659,35 +657,50 @@
         <button type="button" id="settingsModalCloseBtn" class="modal-close-btn" aria-label="关闭">&times;</button>
       </div>
       <div class="modal-body settings-modal-body">
-        <section class="settings-api-card" id="settingsAccessCard" aria-labelledby="settingsAccessTitle">
-          <h4 class="settings-api-card-title" id="settingsAccessTitle" data-i18n="accessSettingsTitle" data-i18n-title="accessGuardedHint" title="守卫模式：已知的读、导航、填写、发送会自动进行。已知付款会拒绝。已知删除会先问你。看不清的提交会先问你。页面脚本（eval / CDP 注入）关闭。">访问策略</h4>
-          <p class="settings-hint" id="accessSettingsMode">Guarded</p>
-          <label class="settings-check-row" id="accessFullToggleRow">
-            <input type="checkbox" id="accessFullToggle" />
-            <span data-i18n="accessChipFull">Full Access</span>
-          </label>
-        </section>
         <section class="settings-api-card" id="settingsInferenceCard" aria-labelledby="settingsInferenceTitle">
           <h4 class="settings-api-card-title" id="settingsInferenceTitle" data-i18n="settingsInferenceTitle">推理</h4>
           <p class="settings-hint" id="inferenceEmptyHint" data-i18n="inferenceEmptyHint">尚未添加推理 API。</p>
           <div id="inferenceVendorList" class="api-vendor-list"></div>
-          <div id="chatMediaStatusPanel"></div>
-          <div id="contextWindowStatusPanel"></div>
+          <div id="inferenceDiagnostics" class="api-vendor-diagnostics" hidden>
+            <div class="api-vendor-diagnostics-main">
+              <div id="inferenceProbeStatus" class="inference-probe-status">
+                <div id="chatMediaStatusPanel"></div>
+                <span class="inference-probe-dot" aria-hidden="true">·</span>
+                <div id="contextWindowStatusPanel"></div>
+              </div>
+              <button type="button" id="inferenceProbeBtn" class="btn btn-secondary settings-mini-btn" data-i18n="inferenceProbe" data-i18n-title="inferenceProbeHint" title="同时检查媒体输入与上下文窗口。窗口优先用目录；没有时才会发一次极短对话，从错误或响应头读窗口。补全 JSON 一般不带窗口。">探测</button>
+            </div>
+            <details id="inferenceAdvancedDetails" class="settings-advanced">
+              <summary data-i18n="settingsDiagnosticsAdvanced">高级 / 检测</summary>
+              <div id="inferenceAutoCheckHost"></div>
+              <div id="chatMediaSettings"></div>
+            </details>
+          </div>
           <button type="button" class="api-add-btn" id="addInferenceBtn" data-i18n="addInferenceBtn">＋ 添加推理 API</button>
           <div id="inferenceEditor" class="api-vendor-editor" hidden>
-            <div class="provider-presets-row" id="inferencePresetRow" role="group" aria-label="快捷模板">
-              <button type="button" class="provider-preset-chip" data-preset="deepseek">DeepSeek</button>
-              <button type="button" class="provider-preset-chip" data-preset="openai">OpenAI</button>
-              <button type="button" class="provider-preset-chip" data-preset="openrouter">OpenRouter</button>
-              <button type="button" class="provider-preset-chip" data-preset="minimax">MiniMax</button>
-              <button type="button" class="provider-preset-chip" data-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+            <div class="api-editor-head">
+              <div class="api-nickname-field">
+                <label class="settings-label" for="providerNicknameInput" data-i18n="providerNickname">昵称</label>
+                <input type="text" id="providerNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
+              </div>
+              <div class="provider-presets-row" id="inferencePresetRow" role="group" aria-label="快捷模板">
+                <button type="button" class="provider-preset-chip" data-preset="deepseek">DeepSeek</button>
+                <button type="button" class="provider-preset-chip" data-preset="openai">OpenAI</button>
+                <button type="button" class="provider-preset-chip" data-preset="openrouter">OpenRouter</button>
+                <button type="button" class="provider-preset-chip" data-preset="minimax">MiniMax</button>
+                <button type="button" class="provider-preset-chip" data-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+              </div>
             </div>
-
-            <label class="settings-label" for="apiBaseInput">Base URL</label>
-            <input type="text" id="apiBaseInput" class="modal-input" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
-
-            <label class="settings-label" for="apiKeyInput">API Key</label>
-            <input type="password" id="apiKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" />
+            <div class="api-editor-creds">
+              <div>
+                <label class="settings-label" for="apiBaseInput">Base URL</label>
+                <input type="text" id="apiBaseInput" class="modal-input" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
+              </div>
+              <div>
+                <label class="settings-label" for="apiKeyInput">API Key</label>
+                <input type="password" id="apiKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" />
+              </div>
+            </div>
 
             <label class="settings-label" for="providerModelInput" data-i18n="settingsChatModel">模型</label>
             <div class="chat-model-input-row">
@@ -706,7 +719,6 @@
               <option value="openai/gpt-4o"></option>
               <option value="MiniMax-Text-01"></option>
             </datalist>
-            <details id="chatMediaSettings"></details>
             <p class="settings-hint" id="settingsApiHint" hidden></p>
             <div class="api-editor-actions">
               <button type="button" class="btn btn-secondary" id="cancelInferenceEditorBtn" data-i18n="cancel">取消</button>
@@ -721,19 +733,29 @@
           <div id="imageVendorList" class="api-vendor-list"></div>
           <button type="button" class="api-add-btn" id="addImageBtn" data-i18n="addImageBtn">＋ 添加生图 API</button>
           <div id="imageEditor" class="api-vendor-editor" hidden>
-            <div class="provider-presets-row" id="imagePresetRow" role="group" aria-label="生图模板">
-              <button type="button" class="provider-preset-chip" data-image-preset="openrouter">OpenRouter</button>
-              <button type="button" class="provider-preset-chip" data-image-preset="openai">OpenAI</button>
-              <button type="button" class="provider-preset-chip" data-image-preset="minimax">MiniMax</button>
-              <button type="button" class="provider-preset-chip" data-image-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+            <div class="api-editor-head">
+              <div class="api-nickname-field">
+                <label class="settings-label" for="imageNicknameInput" data-i18n="providerNickname">昵称</label>
+                <input type="text" id="imageNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
+              </div>
+              <div class="provider-presets-row" id="imagePresetRow" role="group" aria-label="生图模板">
+                <button type="button" class="provider-preset-chip" data-image-preset="openrouter">OpenRouter</button>
+                <button type="button" class="provider-preset-chip" data-image-preset="openai">OpenAI</button>
+                <button type="button" class="provider-preset-chip" data-image-preset="minimax">MiniMax</button>
+                <button type="button" class="provider-preset-chip" data-image-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+              </div>
             </div>
             <input type="checkbox" id="providerImageEnabledCheck" hidden />
             <div id="imageConfigFields" class="image-config-fields">
-              <div id="imageCustomApiFields" class="image-custom-api-fields">
-                <label class="settings-label" for="providerImageBaseInput">Base URL</label>
-                <input type="text" id="providerImageBaseInput" class="modal-input" placeholder="https://openrouter.ai/api/v1" autocomplete="off" />
-                <label class="settings-label" for="providerImageKeyInput">API Key</label>
-                <input type="password" id="providerImageKeyInput" class="modal-input" placeholder="sk-or-..." autocomplete="off" />
+              <div id="imageCustomApiFields" class="image-custom-api-fields api-editor-creds">
+                <div>
+                  <label class="settings-label" for="providerImageBaseInput">Base URL</label>
+                  <input type="text" id="providerImageBaseInput" class="modal-input" placeholder="https://openrouter.ai/api/v1" autocomplete="off" />
+                </div>
+                <div>
+                  <label class="settings-label" for="providerImageKeyInput">API Key</label>
+                  <input type="password" id="providerImageKeyInput" class="modal-input" placeholder="sk-or-..." autocomplete="off" />
+                </div>
               </div>
               <input type="hidden" id="providerImageProtocolInput" value="openrouter-image" />
               <label class="settings-label" for="providerImageModelInput" data-i18n="settingsImageModel">模型</label>
@@ -769,14 +791,26 @@
           <div id="sttVendorList" class="api-vendor-list"></div>
           <button type="button" class="api-add-btn" id="addSttBtn" data-i18n="addSttBtn">＋ 添加转写 API</button>
           <div id="sttEditor" class="api-vendor-editor" hidden>
-            <div class="provider-presets-row" id="sttPresetRow" role="group" aria-label="转写模板">
-              <button type="button" class="provider-preset-chip" data-stt-preset="openai">OpenAI</button>
-              <button type="button" class="provider-preset-chip" data-stt-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+            <div class="api-editor-head">
+              <div class="api-nickname-field">
+                <label class="settings-label" for="sttNicknameInput" data-i18n="providerNickname">昵称</label>
+                <input type="text" id="sttNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
+              </div>
+              <div class="provider-presets-row" id="sttPresetRow" role="group" aria-label="转写模板">
+                <button type="button" class="provider-preset-chip" data-stt-preset="openai">OpenAI</button>
+                <button type="button" class="provider-preset-chip" data-stt-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+              </div>
             </div>
-            <label class="settings-label" for="providerSttBaseInput">Base URL</label>
-            <input type="text" id="providerSttBaseInput" class="modal-input" placeholder="https://api.openai.com/v1" autocomplete="off" />
-            <label class="settings-label" for="providerSttKeyInput">API Key</label>
-            <input type="password" id="providerSttKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" />
+            <div class="api-editor-creds">
+              <div>
+                <label class="settings-label" for="providerSttBaseInput">Base URL</label>
+                <input type="text" id="providerSttBaseInput" class="modal-input" placeholder="https://api.openai.com/v1" autocomplete="off" />
+              </div>
+              <div>
+                <label class="settings-label" for="providerSttKeyInput">API Key</label>
+                <input type="password" id="providerSttKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" />
+              </div>
+            </div>
             <label class="settings-label" for="providerSttModelInput" data-i18n="settingsSttModel">模型</label>
             <div class="chat-model-input-row">
               <input type="text" id="providerSttModelInput" class="modal-input" placeholder="whisper-1" autocomplete="off" list="providerSttModelSuggestions" />
@@ -803,10 +837,16 @@
           <div id="webVendorList" class="api-vendor-list"></div>
           <button type="button" class="api-add-btn" id="addWebAcquireBtn" data-i18n="addWebAcquireBtn">＋ 添加搜索 / 抽取</button>
           <div id="webAcquireEditor" class="api-vendor-editor" hidden>
-            <div class="provider-presets-row" id="webVendorPresetRow" role="group" aria-label="搜索供应商">
-              <button type="button" class="provider-preset-chip" data-web-preset="tavily">Tavily</button>
-              <button type="button" class="provider-preset-chip" data-web-preset="brave">Brave</button>
-              <button type="button" class="provider-preset-chip" data-web-preset="firecrawl">Firecrawl</button>
+            <div class="api-editor-head">
+              <div class="api-nickname-field">
+                <label class="settings-label" for="webNicknameInput" data-i18n="providerNickname">昵称</label>
+                <input type="text" id="webNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
+              </div>
+              <div class="provider-presets-row" id="webVendorPresetRow" role="group" aria-label="搜索供应商">
+                <button type="button" class="provider-preset-chip" data-web-preset="tavily">Tavily</button>
+                <button type="button" class="provider-preset-chip" data-web-preset="brave">Brave</button>
+                <button type="button" class="provider-preset-chip" data-web-preset="firecrawl">Firecrawl</button>
+              </div>
             </div>
             <select id="webSearchProviderSelect" class="modal-input" hidden>
               <option value="tavily">Tavily</option>

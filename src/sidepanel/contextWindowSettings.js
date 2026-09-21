@@ -55,6 +55,37 @@ function formatWindow(n) {
   return Number.isFinite(value) && value >= 2048 ? value.toLocaleString() : '';
 }
 
+/** Compact card text: 256k, not a token-usage count. */
+export function formatWindowCompact(n) {
+  const value = Number(n);
+  if (!Number.isFinite(value) || value < 2048) return '';
+  if (value >= 1_000_000) {
+    const m = value / 1_000_000;
+    const text = Number.isInteger(m) ? String(m) : String(Math.round(m * 10) / 10);
+    return `${text}M`;
+  }
+  return `${Math.round(value / 1000)}k`;
+}
+
+export function contextWindowCompactLabel(status, t) {
+  if (status?.checking) return t('contextWindowChecking');
+  const view = contextWindowDisplay(status);
+  const shown = formatWindowCompact(view.window);
+  if (!shown) return t('contextWindowShortUnknown');
+  if (status?.source === 'measured') return t('contextWindowShortMeasured').replace('{n}', shown);
+  if (status?.source === 'user') return t('contextWindowShortUser').replace('{n}', shown);
+  if (status?.source === 'catalog') return t('contextWindowShortCatalog').replace('{n}', shown);
+  return t('contextWindowShortUnknown');
+}
+
+export function contextWindowSourceHint(status) {
+  if (status?.checking) return 'contextWindowCost';
+  if (status?.source === 'measured') return 'contextWindowHintMeasured';
+  if (status?.source === 'catalog') return 'contextWindowHintCatalog';
+  if (status?.source === 'user') return 'contextWindowHintUser';
+  return 'contextWindowHintUnknown';
+}
+
 /** Local status for the saved connection. Catalog windows never start a chat probe. */
 export function createContextWindowSettings({
   root = document,
@@ -69,7 +100,12 @@ export function createContextWindowSettings({
   let timer = null;
   let revision = 0;
   let automatic = true;
-  const visible = () => !!root.getElementById('agentSettingsModal')?.open && root.visibilityState !== 'hidden';
+  let busyListener = null;
+  const visible = () => {
+    if (!root.getElementById('agentSettingsModal')?.open || root.visibilityState === 'hidden') return false;
+    const host = root.getElementById('inferenceDiagnostics');
+    return !(host && host.hidden);
+  };
   const stop = () => { revision += 1; if (timer != null) unschedule(timer); timer = null; };
   const poll = () => { if (timer != null) unschedule(timer); if (visible()) timer = schedule(() => { timer = null; void refresh(); }, 2000); };
   const el = (id) => root.getElementById(id);
@@ -94,11 +130,14 @@ export function createContextWindowSettings({
     if (node.dataset) node.dataset[key] = value;
     else node.setAttribute?.(`data-${key}`, value);
   }
-  function paint(title, state = 'unknown') {
+  function setBusy(busy) {
+    if (typeof busyListener === 'function') busyListener(!!busy);
+  }
+  function paint(title, state = 'unknown', compact = '') {
     const status = el('contextWindowStatus');
     if (!status) return;
     status.replaceChildren();
-    status.className = 'capability-status';
+    status.className = 'capability-status is-compact';
     status.title = title || '';
     setData(status, 'state', state);
     status.setAttribute('aria-label', title || '');
@@ -108,11 +147,16 @@ export function createContextWindowSettings({
     setData(icon, 'state', state);
     icon.title = title || '';
     icon.setAttribute('aria-label', title || '');
-    status.append(icon);
+    const text = root.createElement('span');
+    text.className = 'capability-compact';
+    text.textContent = compact || title || '';
+    text.title = title || '';
+    status.append(icon, text);
   }
   function message(key, extra = '') {
-    paint(extra ? `${t(key)} · ${extra}` : t(key));
-    if (el('contextWindowRecheck')) el('contextWindowRecheck').disabled = true;
+    const title = extra ? `${t(key)} · ${extra}` : t(key);
+    paint(title, 'unknown', title);
+    setBusy(false);
   }
 
   async function refresh({ start = false, force = false } = {}) {
@@ -122,7 +166,10 @@ export function createContextWindowSettings({
       const provider = await matchesSaved();
       if (ownRevision !== revision || !visible()) return;
       if (!provider) { message('contextWindowSaveFirst'); return; }
-      if (start) await workspaceRpc('requestContextWindowCheck', { force });
+      if (start) {
+        setBusy(true);
+        await workspaceRpc('requestContextWindowCheck', { force });
+      }
       const status = await workspaceRpc('getContextWindowStatus', {});
       const latestProvider = await matchesSaved();
       if (ownRevision !== revision || !visible()) return;
@@ -144,18 +191,18 @@ export function createContextWindowSettings({
       const view = contextWindowDisplay(status);
       const shown = formatWindow(view.window);
       const label = t(view.label).replace('{n}', shown || '—');
+      const hint = t(contextWindowSourceHint(status));
       const err = !status.checking && !view.window && status.evidence?.kind
         ? t(contextWindowCheckErrorLabel(status.evidence.kind))
         : '';
-      paint(err ? `${label} · ${err}` : label, view.state);
-      if (el('contextWindowRecheck')) {
-        el('contextWindowRecheck').disabled = !!status.checking || status.source === 'catalog' || status.source === 'user';
-      }
+      const title = err ? `${label} · ${err} · ${hint}` : `${label} · ${hint}`;
+      paint(title, view.state, contextWindowCompactLabel(status, t));
+      setBusy(!!status.checking);
       if (status.checking) poll();
     } catch {
       if (ownRevision === revision && visible()) {
         message('contextWindowUnavailable');
-        if (el('contextWindowRecheck')) el('contextWindowRecheck').disabled = false;
+        setBusy(false);
       }
     }
   }
@@ -164,55 +211,45 @@ export function createContextWindowSettings({
     const panel = el('contextWindowStatusPanel');
     if (!panel) return;
     panel.replaceChildren();
-    const title = root.createElement('p');
-    title.className = 'settings-label';
-    title.textContent = t('contextWindowTitle');
-    title.title = t('contextWindowCost');
     const status = root.createElement('div');
     status.id = 'contextWindowStatus';
-    status.className = 'capability-status';
+    status.className = 'capability-status is-compact';
     status.setAttribute('aria-live', 'polite');
-    const recheck = root.createElement('button');
-    recheck.type = 'button';
-    recheck.id = 'contextWindowRecheck';
-    recheck.className = 'btn btn-secondary settings-mini-btn';
-    recheck.textContent = t('contextWindowRecheck');
-    recheck.title = t('contextWindowCost');
-    recheck.disabled = true;
-    recheck.addEventListener('click', () => {
-      recheck.disabled = true;
-      void refresh({ start: true, force: true });
-    });
-    const autoLabel = root.createElement('label');
-    autoLabel.className = 'settings-check-row';
-    autoLabel.title = t('contextWindowCost');
-    const auto = root.createElement('input');
-    auto.type = 'checkbox';
-    auto.id = 'contextWindowAutoCheck';
-    auto.checked = automatic;
-    auto.title = t('contextWindowCost');
-    const copy = root.createElement('span');
-    copy.textContent = t('contextWindowAutoCheck');
-    autoLabel.append(auto, copy);
-    auto.addEventListener('change', () => {
-      const enabled = auto.checked;
-      auto.disabled = true;
-      storage?.local?.set({ [AUTO_CHECK_KEY]: enabled }, () => {
-        auto.disabled = false;
-        if (globalThis.chrome?.runtime?.lastError) {
-          auto.checked = automatic;
-          message('contextWindowUnavailable');
-          return;
-        }
-        automatic = enabled;
-        void refresh({ start: enabled });
-      });
-    });
-    panel.append(title, status, recheck, autoLabel);
-    storage?.local?.get([AUTO_CHECK_KEY], (data) => {
-      automatic = data?.[AUTO_CHECK_KEY] !== false;
+    panel.append(status);
+    const autoHost = el('inferenceAutoCheckHost');
+    if (autoHost) {
+      el('contextWindowAutoCheck')?.closest?.('label')?.remove();
+      const autoLabel = root.createElement('label');
+      autoLabel.className = 'settings-check-row';
+      autoLabel.title = t('contextWindowCost');
+      const auto = root.createElement('input');
+      auto.type = 'checkbox';
+      auto.id = 'contextWindowAutoCheck';
       auto.checked = automatic;
-    });
+      auto.title = t('contextWindowCost');
+      const copy = root.createElement('span');
+      copy.textContent = t('contextWindowAutoCheck');
+      autoLabel.append(auto, copy);
+      auto.addEventListener('change', () => {
+        const enabled = auto.checked;
+        auto.disabled = true;
+        storage?.local?.set({ [AUTO_CHECK_KEY]: enabled }, () => {
+          auto.disabled = false;
+          if (globalThis.chrome?.runtime?.lastError) {
+            auto.checked = automatic;
+            message('contextWindowUnavailable');
+            return;
+          }
+          automatic = enabled;
+          void refresh({ start: enabled });
+        });
+      });
+      autoHost.append(autoLabel);
+      storage?.local?.get([AUTO_CHECK_KEY], (data) => {
+        automatic = data?.[AUTO_CHECK_KEY] !== false;
+        auto.checked = automatic;
+      });
+    }
   }
 
   for (const id of ['apiBaseInput', 'providerModelInput', 'apiKeyInput']) {
@@ -235,6 +272,8 @@ export function createContextWindowSettings({
   return {
     load() { mount(); void refresh(); },
     open() { void refresh({ start: true }); },
+    probe(opts = {}) { return refresh({ start: true, force: opts.force !== false }); },
+    setBusyListener(fn) { busyListener = typeof fn === 'function' ? fn : null; },
     sync() { stop(); message('contextWindowUnknown'); void refresh(); }
   };
 }

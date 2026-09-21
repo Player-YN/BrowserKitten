@@ -11,7 +11,7 @@ import {
 const target = { role: 'button', name: 'Save' };
 
 function workflow(steps, tabs = [{ id: 'main', title: 'Main', url: 'https://example.com/' }]) {
-  return { version: 1, tabs, steps };
+  return { version: 2, tabs, steps };
 }
 
 test('workflow data references may use declared inputs and earlier step outputs', () => {
@@ -62,7 +62,7 @@ test('workflow rejects duplicate ids and transient browser fields', () => {
   ])), { code: 'WORKFLOW_INVALID' });
 
   assert.throws(() => validateWorkflow({
-    version: 1,
+    version: 2,
     tabs: [{ id: 'main', title: 'Main', tabId: 42 }],
     steps: [],
   }, { partial: true }), /Unknown fields: tabId/);

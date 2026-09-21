@@ -299,6 +299,10 @@ export class SessionWorkspaceService {
   async interruptWorkflowRecording(params = {}) { await this._ready(); return this._workflows.interruptRecording(params); }
   async ingestWorkflowRecordingEvent(params = {}) { await this._ready(); return this._workflows.ingest(params); }
   async listWorkflowTabs() { return this._workflows.host('tabs'); }
+  async importWorkflowTable(params = {}) { await this._ready(); return this._workflows.importTable(params); }
+  async exportWorkflowTable(params = {}) { await this._ready(); return this._workflows.exportTable(params); }
+  async getWorkflowSchedule() { await this._ready(); return this._workflows.getSchedule(); }
+  async runDueWorkflows(params = {}) { await this._ready(); return this._workflows.runDue(params); }
 
   async listPersonalLibrary({ kind } = {}) { return (await this._library()).list({ kind }); }
   async getPersonalLibraryEntry({ entryId, revision } = {}) { return (await this._library()).get({ entryId, revision }); }
