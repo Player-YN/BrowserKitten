@@ -108,6 +108,7 @@ export function classifyContextKind(desc = {}, opts = {}) {
   if (hint === 'vector' || hint === 'svg') return 'vector';
   if (hint === 'link' || hint === 'file' || hint === 'url') return 'link';
   if (hint === 'table') return 'table';
+  if (hint === 'container' || hint === 'card' || hint === 'button') return 'container';
   if (hint === 'image' || hint === 'img' || hint === 'picture') {
     if (srcLooksVideo(desc.src) || srcLooksAudio(desc.src)) return 'video';
     return 'image';
@@ -451,14 +452,6 @@ function documentMediaAtPoint(doc, x, y) {
  */
 export function pierceAndSnap(doc, x, y) {
   const stack = collectHitStack(doc, x, y);
-  // Prefer a real media node at the point over a wrapping <a> (Twitter/X
-  // puts pointer-events:none on img so the hit target is the photo link).
-  const pageMedia = documentMediaAtPoint(doc, x, y);
-  if (pageMedia) {
-    const mediaSnap = asStrongSnap(pageMedia);
-    if (mediaSnap && mediaSnap.kind !== 'link') return mediaSnap;
-  }
-
   const strongOnStack = [];
   for (const el of stack) {
     if (isHostUi(el) || isPierceSkipElement(el)) continue;
@@ -483,6 +476,99 @@ export function pierceAndSnap(doc, x, y) {
   return null;
 }
 
+function usableHitStack(doc, x, y) {
+  return collectHitStack(doc, x, y).filter((el) => !isHostUi(el) && !isPierceSkipElement(el));
+}
+
+function closestUsable(el, selector) {
+  const hit = el?.closest?.(selector);
+  return hit && !isHostUi(hit) ? hit : null;
+}
+
+function cardAncestor(el) {
+  let node = el?.parentElement;
+  for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
+    if (isHostUi(node) || tagOf(node) === 'body') break;
+    const rect = nodeRect(node);
+    if (!rect || rect.width < 80 || rect.height < 36) continue;
+    const docEl = node.ownerDocument?.documentElement;
+    if (docEl?.clientWidth && docEl?.clientHeight && rect.width >= docEl.clientWidth * 0.9 && rect.height >= docEl.clientHeight * 0.5) continue;
+    const text = String(node.innerText || node.textContent || '').trim();
+    let links = 0;
+    let media = 0;
+    try {
+      links = node.querySelectorAll?.('a[href]').length || 0;
+      media = node.querySelectorAll?.('img, picture, video, svg').length || 0;
+    } catch {
+      /* no candidate */
+    }
+    if (['a', 'img', 'picture', 'svg', 'p', 'blockquote', 'li', 'dt', 'dd', 'figcaption'].includes(tagOf(node))) continue;
+    if ((media >= 1 && links >= 1 && text.length >= 12) || links >= 2 || (media >= 2 && text.length >= 12)) return node;
+  }
+  return null;
+}
+
+function addCandidate(out, seen, element, kind, scope, label) {
+  if (!element || seen.has(element) || isHostUi(element)) return;
+  const rect = nodeRect(element);
+  if (!rect || rect.width <= 0 || rect.height <= 0) return;
+  seen.add(element);
+  out.push({ element, kind, scope, label });
+}
+
+/**
+ * Small, related choices for one pointer location. This deliberately starts
+ * from the browser hit stack: media elsewhere on the page must not win a
+ * click just because its rectangle happens to include the point.
+ */
+export function selectionCandidatesAtPoint(doc, x, y) {
+  const stack = usableHitStack(doc, x, y);
+  const seed = stack[0];
+  if (!seed) return [];
+  const out = [];
+  const seen = new Set();
+  const relatedMedia = stack.find((el) => {
+    if (!['image', 'video', 'vector'].includes(kindFromElement(el))) return false;
+    return el === seed || seed.contains?.(el) || el.contains?.(seed);
+  });
+  const media = relatedMedia || mediaUnderPoint(seed, x, y) || closestUsable(seed, 'img, picture, video, audio, svg');
+  const link = closestUsable(seed, 'a[href], [role="link"]');
+  const cell = closestUsable(seed, 'td, th');
+  const table = closestUsable(seed, 'table');
+  const button = closestUsable(seed, 'button, [role="button"], input[type="button"], input[type="submit"]');
+  const paragraph = closestUsable(seed, 'p, blockquote, li, dt, dd, figcaption, h1, h2, h3, h4, h5, h6');
+  const card = cardAncestor(seed);
+
+  if (cell) {
+    if (media) addCandidate(out, seen, media, kindFromElement(media), 'media', kindFromElement(media) === 'vector' ? '图标' : '图片');
+    if (link) addCandidate(out, seen, link, 'link', 'link', '链接');
+    addCandidate(out, seen, cell, 'table', 'cell', '单元格');
+    const row = closestUsable(cell, 'tr');
+    addCandidate(out, seen, row, 'table', 'row', '这一行');
+    addCandidate(out, seen, table, 'table', 'table', '整张表');
+  } else if (button) {
+    const buttonMedia = media && (button.contains?.(media) || media === button) ? media : mediaUnderPoint(button, x, y);
+    if (buttonMedia) addCandidate(out, seen, buttonMedia, kindFromElement(buttonMedia), 'media', kindFromElement(buttonMedia) === 'vector' ? '图标' : '图片');
+    addCandidate(out, seen, button, 'container', 'button', '按钮');
+    addCandidate(out, seen, card, 'container', 'card', '整张卡片');
+  } else {
+    if (media) addCandidate(out, seen, media, kindFromElement(media), 'media', kindFromElement(media) === 'vector' ? '图标' : '图片');
+    if (link) addCandidate(out, seen, link, 'link', 'link', '链接');
+    addCandidate(out, seen, paragraph, 'text', 'paragraph', '这一段');
+    addCandidate(out, seen, card, 'container', 'card', '整张卡片');
+    if (!out.length) addCandidate(out, seen, seed, kindFromElement(seed), 'element', '文字');
+  }
+  const limit = cell ? 5 : 4;
+  return out.slice(0, limit).map((row, index) => ({ ...row, id: `${row.scope}:${index}` }));
+}
+
+/** Default is still a one-click pick; UI may select another returned candidate. */
+export function pierceAndSnapWithCandidates(doc, x, y) {
+  const candidates = selectionCandidatesAtPoint(doc, x, y);
+  const selected = candidates[0] || pierceAndSnap(doc, x, y);
+  return selected ? { ...selected, candidates } : null;
+}
+
 export function contextSrcOf(el) {
   if (!el) return '';
   if (tagOf(el) === 'picture') {
@@ -500,4 +586,19 @@ export function contextHrefOf(el) {
   if (tagOf(el) === 'a') return hrefOf(el);
   const a = el.closest?.('a[href]');
   return a ? hrefOf(a) : hrefOf(el);
+}
+
+export function contextDirectHrefOf(el) {
+  const a = tagOf(el) === 'a' ? el : el?.closest?.('a[href]');
+  return a ? hrefOf(a) : '';
+}
+
+export function contextAltOf(el) {
+  const media = tagOf(el) === 'img' ? el : el?.querySelector?.('img[alt]');
+  return String(media?.getAttribute?.('alt') || '').trim();
+}
+
+/** Preserve authored paragraph boundaries for captures; action matching keeps its own normalizer. */
+export function contextTextPreservingBlocks(el) {
+  return String(el?.innerText || el?.textContent || '').replace(/\r\n?/g, '\n');
 }

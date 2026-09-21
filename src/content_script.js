@@ -28,10 +28,17 @@
           const el = doc.elementFromPoint?.(x, y);
           return el ? { element: el, kind: 'text' } : null;
         },
+        pierceAndSnapWithCandidates: (doc, x, y) => {
+          const el = doc.elementFromPoint?.(x, y);
+          return el ? { element: el, kind: 'text', candidates: [] } : null;
+        },
         classifyContextKind: () => 'text',
         isClipboardTextPick: (desc) => String(desc?.kind || desc?.kindHint || 'text') === 'text',
         clipClipboardText: (s) => String(s || ''),
         contextSrcOf: (el) => String(el?.currentSrc || el?.src || ''),
+        contextDirectHrefOf: (el) => String(el?.closest?.('a[href]')?.href || el?.href || ''),
+        contextAltOf: () => '',
+        contextTextPreservingBlocks: (el) => String(el?.innerText || el?.textContent || ''),
         contextHrefOf: (el) => String(el?.href || ''),
         srcLooksImage: () => false
       };
@@ -47,6 +54,12 @@
     if (api?.pierceAndSnap) return api.pierceAndSnap(doc, x, y);
     const el = doc.elementFromPoint?.(x, y);
     return el ? { element: el, kind: 'text' } : null;
+  }
+
+  function pierceAndSnapWithCandidates(doc, x, y) {
+    const api = pick();
+    if (api?.pierceAndSnapWithCandidates) return api.pierceAndSnapWithCandidates(doc, x, y);
+    return pierceAndSnap(doc, x, y);
   }
 
   function classifyContextKind(desc, opts) {
@@ -80,6 +93,10 @@
     return String(el?.href || '');
   }
 
+  function contextDirectHrefOf(el) { return pick()?.contextDirectHrefOf?.(el) || contextHrefOf(el); }
+  function contextAltOf(el) { return pick()?.contextAltOf?.(el) || ''; }
+  function contextTextPreservingBlocks(el) { return pick()?.contextTextPreservingBlocks?.(el) || String(el?.innerText || el?.textContent || ''); }
+
   function srcLooksImage(src) {
     const api = pick();
     if (api?.srcLooksImage) return api.srcLooksImage(src);
@@ -109,6 +126,9 @@
   let hoveredElement = null;
   let selectedElements = []; // [{ element, selector, tag, text, src }]
   let linkOptBubble = null;
+  let scopeOptionBubble = null;
+  let hoveredCandidates = [];
+  let pickerLang = 'zh';
 
   let userCustomShortcut = 'Alt+S'; // Default custom key combo
 
@@ -117,12 +137,17 @@
       userCustomShortcut = result.custom_shortcut;
     }
   });
+  chrome.storage.local.get(['app_lang'], (result) => {
+    const value = String(result.app_lang || '');
+    if (value.toLowerCase().startsWith('en')) pickerLang = 'en';
+  });
 
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.custom_shortcut && changes.custom_shortcut.newValue) {
       userCustomShortcut = changes.custom_shortcut.newValue;
       showToast(`⚙️ 连点快捷键已更新为: ${userCustomShortcut}`);
     }
+    if (changes.app_lang?.newValue) pickerLang = String(changes.app_lang.newValue).toLowerCase().startsWith('en') ? 'en' : 'zh';
   });
 
   // Inject BrowserBot Global SDK for DeepSeek AI Agent Scripts (Content Script Isolated World)
@@ -585,22 +610,47 @@
     return selector;
   }
 
+  function locatorFingerprint(el, rawText, src, href) {
+    return {
+      tag: String(el?.tagName || '').toLowerCase(),
+      src: String(src || ''), href: String(href || ''),
+      text: String(rawText || '').replace(/\s+/g, ' ').trim().slice(0, 160)
+    };
+  }
+
+  function captureFacets(el, rawText) {
+    const media = [], links = [];
+    const addMedia = (node) => {
+      const src = contextSrcOf(node);
+      if (src && !media.some((row) => row.src === src)) media.push({ src, alt: contextAltOf(node), href: contextDirectHrefOf(node) });
+    };
+    const addLink = (node) => {
+      const href = contextDirectHrefOf(node);
+      if (href && !links.some((row) => row.href === href)) links.push({ href, text: cleanDOMText(node.innerText || node.textContent || '').slice(0, 160) });
+    };
+    addMedia(el); addLink(el);
+    try {
+      for (const node of Array.from(el.querySelectorAll?.('img, picture, video, svg') || []).slice(0, 8)) addMedia(node);
+      for (const node of Array.from(el.querySelectorAll?.('a[href]') || []).slice(0, 8)) addLink(node);
+    } catch { /* descendants are optional */ }
+    return { text: rawText, media, links };
+  }
+
   function handleMouseMove(e) {
     if (!pickerActive) return;
-    const snapped = pierceAndSnap(document, e.clientX, e.clientY);
+    if (e.target?.closest?.('.browserbot-scope-option-bubble')) return;
+    const snapped = pierceAndSnapWithCandidates(document, e.clientX, e.clientY);
     const element = snapped?.element || document.elementFromPoint(e.clientX, e.clientY);
     if (!element || element.classList.contains('browserbot-exit-float-btn')) return;
+    if (hoveredElement === element && scopeOptionBubble) return;
     if (hoveredElement && hoveredElement !== element) hoveredElement.classList.remove('browserbot-hovered');
     hoveredElement = element;
     if (!hoveredElement.classList.contains('browserbot-selected')) hoveredElement.classList.add('browserbot-hovered');
+    hoveredCandidates = snapped?.candidates || [];
+    showScopeOptionBubble(e, hoveredCandidates);
   }
 
-  function handleClick(e) {
-    if (!pickerActive) return;
-    if (e.target?.closest?.('.browserbot-link-opt-bubble')) return;
-    hideLinkOptionBubble();
-    const snapped = pierceAndSnap(document, e.clientX, e.clientY);
-    const element = snapped?.element;
+  function captureCandidate(element, snapped, e) {
     if (!element || element.classList.contains('browserbot-exit-float-btn')) return;
     e.preventDefault(); e.stopPropagation();
 
@@ -612,8 +662,9 @@
     } else {
       const href = contextHrefOf(element);
       const src = contextSrcOf(element);
-      const fullText = cleanDOMText(element.innerText || element.textContent || '');
-      const kind = snapped.kind || classifyContextKind({
+      const rawText = contextTextPreservingBlocks(element);
+      const fullText = cleanDOMText(rawText);
+      const kind = snapped?.kind || classifyContextKind({
         tag: element.tagName.toLowerCase(),
         src,
         href,
@@ -634,6 +685,7 @@
           extSend({
             action: 'clipboard_text_picked',
             text,
+            textRaw: rawText,
             url: window.location.href,
             pageTitle: document.title
           });
@@ -657,6 +709,9 @@
         src,
         href,
         kind,
+        scope: snapped?.scope || 'element',
+        facets: captureFacets(element, rawText),
+        locatorFingerprint: locatorFingerprint(element, rawText, src, href),
         /** Authorization anchor source: human wand click */
         source: 'user'
       });
@@ -667,9 +722,56 @@
     refreshHighlightClasses(); notifySidePanel();
   }
 
+  function handleClick(e) {
+    if (!pickerActive || e.target?.closest?.('.browserbot-link-opt-bubble')) return;
+    hideLinkOptionBubble();
+    const snapped = pierceAndSnapWithCandidates(document, e.clientX, e.clientY);
+    captureCandidate(snapped?.element, snapped, e);
+  }
+
   function hideLinkOptionBubble() {
     if (linkOptBubble && linkOptBubble.parentNode) linkOptBubble.remove();
     linkOptBubble = null;
+  }
+
+  function hideScopeOptionBubble() {
+    document.querySelectorAll('.browserbot-scope-preview').forEach((el) => el.classList.remove('browserbot-scope-preview'));
+    if (scopeOptionBubble?.parentNode) scopeOptionBubble.remove();
+    scopeOptionBubble = null;
+  }
+
+  function showScopeOptionBubble(e, candidates) {
+    hideScopeOptionBubble();
+    const choices = (candidates || []).filter((c) => c?.element && c.element !== hoveredElement);
+    if (!choices.length) return;
+    const bubble = document.createElement('div');
+    bubble.className = 'browserbot-link-opt-bubble browserbot-scope-option-bubble';
+    Object.assign(bubble.style, { position: 'fixed', left: `${Math.max(4, Math.min(window.innerWidth - 220, e.clientX + 8))}px`, top: `${Math.max(4, Math.min(window.innerHeight - 38, e.clientY + 8))}px`, zIndex: '999999', background: '#334155', color: '#fff', padding: '4px', borderRadius: '5px', display: 'flex', gap: '3px', pointerEvents: 'auto' });
+    for (const candidate of choices) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.textContent = scopeOptionLabel(candidate);
+      Object.assign(button.style, { border: 0, borderRadius: '3px', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: '11px', fontWeight: '700', padding: '3px 6px' });
+      button.addEventListener('click', (event) => {
+        event.preventDefault(); event.stopPropagation();
+        if (hoveredElement) hoveredElement.classList.remove('browserbot-hovered');
+        hoveredElement = candidate.element;
+        hoveredElement.classList.add('browserbot-hovered');
+        captureCandidate(candidate.element, candidate, event);
+        hideScopeOptionBubble();
+      });
+      button.addEventListener('mouseenter', () => candidate.element.classList.add('browserbot-scope-preview'));
+      button.addEventListener('mouseleave', () => candidate.element.classList.remove('browserbot-scope-preview'));
+      button.addEventListener('focus', () => candidate.element.classList.add('browserbot-scope-preview'));
+      button.addEventListener('blur', () => candidate.element.classList.remove('browserbot-scope-preview'));
+      bubble.appendChild(button);
+    }
+    bubble.addEventListener('mousedown', (event) => { event.preventDefault(); event.stopPropagation(); });
+    document.body.appendChild(bubble); scopeOptionBubble = bubble;
+  }
+
+  function scopeOptionLabel(candidate) {
+    if (pickerLang !== 'en') return candidate.label || '选择范围';
+    return ({ cell: 'Cell', row: 'This row', table: 'Whole table', media: 'Image', link: 'Link', paragraph: 'This paragraph', card: 'Whole card', button: 'Button', element: 'Text' })[candidate.scope] || 'Select';
   }
 
   function styleLinkOptChip(el, extra = {}) {
@@ -902,6 +1004,9 @@
         src: item.src,
         href: item.href || '',
         kind: item.kind || classifySelectionKind(item),
+        scope: item.scope || 'element',
+        facets: item.facets || undefined,
+        locatorFingerprint: item.locatorFingerprint || undefined,
         source: item.source || 'user'
       })),
       userCount: selectedElements.filter((i) => (i.source || 'user') === 'user').length,
@@ -1047,6 +1152,7 @@
   }
 
   function startPicker() {
+    if (workflowRecorder.active) { showToast('请先暂停录制 / Pause recording first'); return; }
     void pickReady;
     pickerActive = true; document.body.classList.add('browserbot-picking-mode');
     document.addEventListener('mousemove', handleMouseMove, true);
@@ -1060,6 +1166,7 @@
   }
   function stopPicker() {
     pickerActive = false; document.body.classList.remove('browserbot-picking-mode');
+    hideScopeOptionBubble();
     if (hoveredElement) { hoveredElement.classList.remove('browserbot-hovered'); hoveredElement = null; }
     document.removeEventListener('mousemove', handleMouseMove, true);
     document.removeEventListener('click', handleClick, true);
@@ -1189,6 +1296,25 @@
 
   function findElementForItem(item) {
     if (!item) return null;
+    const fingerprint = item.locatorFingerprint || item.locator?.fingerprint;
+    if (fingerprint) {
+      const selector = String(item.selector || item.locator?.css || '').trim();
+      const candidate = isLiveElement(item.element) ? item.element : null;
+      if (!selector && !candidate) return null;
+      try {
+        const el = candidate || document.querySelector(selector);
+        if (!isLiveElement(el)) return null;
+        const text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        const src = String(contextSrcOf(el) || '');
+        const href = String(contextHrefOf(el) || '');
+        const has = (key) => Object.prototype.hasOwnProperty.call(fingerprint, key);
+        const same = (!has('tag') || String(el.tagName || '').toLowerCase() === String(fingerprint.tag).toLowerCase()) &&
+          (!has('src') || src === String(fingerprint.src)) &&
+          (!has('href') || href === String(fingerprint.href)) &&
+          (!has('text') || text === String(fingerprint.text));
+        return same ? el : null;
+      } catch { return null; }
+    }
     if (isLiveElement(item.element)) return item.element;
     const wantSrc = srcIdentity(item.src || item.preview?.src || '');
     if (wantSrc) {
@@ -1600,7 +1726,9 @@
   }
 
   function tableElToMatrix(table) {
-    const rows = Array.from(table.querySelectorAll('tr'));
+    const tag = String(table?.tagName || '').toLowerCase();
+    if (tag === 'td' || tag === 'th') return [[String(table.innerText || table.textContent || '').replace(/\u00a0/g, ' ').trim()]];
+    const rows = tag === 'tr' ? [table] : Array.from(table.querySelectorAll('tr'));
     return rows.map((tr) =>
       Array.from(tr.querySelectorAll('th,td')).map((cell) =>
         String(cell.innerText || cell.textContent || '')
@@ -1616,7 +1744,7 @@
         const el = item.element;
         if (!el) return null;
         const tag = String(el.tagName || item.tag || '').toLowerCase();
-        if (tag === 'table') return el;
+        if (item.scope === 'cell' || item.scope === 'row' || tag === 'table') return el;
         return el.closest?.('table') || el.querySelector?.('table') || null;
       })
       .filter(Boolean);
@@ -3871,14 +3999,23 @@ ${fragment}
     return out;
   }
 
-  function takeActionSnapshot() {
-    const els = collectActionInteractive();
+  function takeActionSnapshot(workflowTarget, workflowObserve = false) {
+    let els = collectActionInteractive();
+    if (workflowTarget) {
+      let candidates = [];
+      try { candidates = Array.from(document.querySelectorAll(workflowTarget.css || (workflowTarget.id ? '[id]' : workflowTarget.testId ? '[data-testid]' : workflowTarget.tag || ACTION_INTERACTIVE_SEL))); } catch { /* invalid selector produces no match */ }
+      els = candidates.filter(el => !isActionChrome(el) && Object.entries(workflowTarget).every(([key, value]) => {
+        if (!value) return true;
+        const row = { ...workflowLocator(el), css: workflowTarget.css || generateSelector(el), frameUrl: location.href };
+        return String(row[key] || '') === value;
+      })).slice(0, 81);
+    }
     pawActionEls.clear();
     const controls = [];
     els.forEach((el, i) => {
       const ref = 'a' + (i + 1);
       pawActionEls.set(ref, el);
-      controls.push(summarizeActionControl(el, ref));
+      controls.push({ ...summarizeActionControl(el, ref), ...(workflowTarget ? { ...workflowLocator(el), css: workflowTarget.css || generateSelector(el), value: workflowSensitive(el) ? '***' : String(getElementValue(el) ?? '').slice(0, 20000), text: String(el.innerText || el.textContent || '').slice(0, 4000) } : {}) });
     });
     let canvasCount = 0;
     try { canvasCount = document.querySelectorAll('canvas').length; } catch (_) {}
@@ -3903,6 +4040,7 @@ ${fragment}
       frameUrl: location.href,
       title: document.title,
       count: controls.length,
+      ...(workflowObserve ? { text: String(document.body?.innerText || '').slice(0, 100000) } : {}),
       controls,
       canvasCount,
       mediaElements
@@ -4244,7 +4382,7 @@ ${fragment}
 
     if (op === 'wait') return waitActionCondition(request);
 
-    if (op === 'snapshot') return takeActionSnapshot();
+    if (op === 'snapshot') return takeActionSnapshot(request.workflowTarget, request.workflowObserve);
 
     if (op === 'pointer') {
       const x = Number(request.x);
@@ -4319,7 +4457,10 @@ ${fragment}
     }
 
     if (op === 'scroll') {
-      scrollActionTarget(el);
+      if (request.deltaY != null) {
+        if (!Number.isFinite(request.deltaY) || Math.abs(request.deltaY) > 100000) return { ok: false, code: 'BAD_INPUT', error: 'Invalid scroll distance.' };
+        el.scrollBy({ top: request.deltaY, behavior: 'instant' });
+      } else scrollActionTarget(el);
       return { ok: true, op, after: actionAfter(el, afterExtra) };
     }
 
@@ -4720,11 +4861,21 @@ ${fragment}
   async function captureWorkspaceItem(request) {
     const selector = String(request?.selector || '').trim();
     const wantSrc = String(request?.src || '').trim();
+    const fingerprint = request?.locatorFingerprint || request?.locator?.fingerprint;
     let el = null;
     if (selector) {
       try { el = document.querySelector(selector); } catch (error) { /* try src */ }
     }
-    if (!isLiveElement(el) || (wantSrc && srcIdentity(el.currentSrc || el.src) !== srcIdentity(wantSrc))) {
+    if (fingerprint) {
+      if (!isLiveElement(el)) return { ok: false, code: 'STALE_SELECTION', error: 'captured element is no longer available' };
+      const actual = locatorFingerprint(el, contextTextPreservingBlocks(el), contextSrcOf(el), contextHrefOf(el));
+      const has = (key) => Object.prototype.hasOwnProperty.call(fingerprint, key);
+      const exact = (!has('tag') || actual.tag === String(fingerprint.tag).toLowerCase()) &&
+        (!has('src') || actual.src === String(fingerprint.src)) &&
+        (!has('href') || actual.href === String(fingerprint.href)) &&
+        (!has('text') || actual.text === String(fingerprint.text));
+      if (!exact) return { ok: false, code: 'STALE_SELECTION', error: 'captured element identity changed' };
+    } else if (!isLiveElement(el) || (wantSrc && srcIdentity(el.currentSrc || el.src) !== srcIdentity(wantSrc))) {
       const bySrc = findElementForItem({ src: wantSrc, selector });
       if (bySrc) el = bySrc;
     }
@@ -4781,8 +4932,88 @@ ${fragment}
     };
   }
 
+  // Explicit, trusted-user recording. No password/OTP/payment values cross the bus.
+  const workflowRecorder = { active: false, id: null, pending: null, timer: null, inflight: new Set() };
+  function workflowSensitive(el) {
+    return el?.type === 'password' || /password|passwd|token|secret|one.?time|otp|cvv|cvc|card|cc-|payment|api.?key/i.test([el?.name, el?.id, el?.autocomplete, el?.getAttribute?.('aria-label')].join(' '));
+  }
+  function workflowLocator(el) {
+    const out = { tag: String(el.tagName || '').toLowerCase(), role: actionRole(el), name: actionAccessibleName(el) || '', type: actionControlType(el) || '' };
+    if (el.getAttribute('data-testid')) out.testId = el.getAttribute('data-testid');
+    else if (el.id) out.id = el.id;
+    else if (!out.name) out.css = generateSelector(el);
+    const region = actionRegion(el); if (region) out.region = region;
+    return out;
+  }
+  function workflowEmit(event) {
+    if (!workflowRecorder.active) return;
+    const delivery = chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'workflow_record_event', recordingId: workflowRecorder.id, event });
+    workflowRecorder.inflight.add(delivery);
+    delivery.catch(() => {}).finally(() => workflowRecorder.inflight.delete(delivery));
+    return delivery;
+  }
+  function flushWorkflowInput() {
+    clearTimeout(workflowRecorder.timer);
+    if (workflowRecorder.pending) workflowEmit(workflowRecorder.pending);
+    workflowRecorder.pending = null;
+  }
+  function configureWorkflowRecording(config) {
+    if (workflowRecorder.active) flushWorkflowInput();
+    workflowRecorder.active = config?.status === 'recording'; workflowRecorder.id = config?.id || null;
+    if (workflowRecorder.active && pickerActive) { stopPicker(); notifyPickerState(); }
+  }
+  document.addEventListener('input', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
+    const el = event.target;
+    if (workflowSensitive(el)) { workflowEmit({ type: 'sensitive' }); return; }
+    if (el.type === 'file' || el.isContentEditable) { workflowEmit({ type: 'unsupported' }); return; }
+    const next = { type: el.tagName === 'SELECT' ? 'select' : 'fill', target: workflowLocator(el), value: String(el.value ?? '') };
+    if (workflowRecorder.pending && JSON.stringify(workflowRecorder.pending.target) !== JSON.stringify(next.target)) flushWorkflowInput();
+    workflowRecorder.pending = next;
+    clearTimeout(workflowRecorder.timer); workflowRecorder.timer = setTimeout(flushWorkflowInput, 400);
+  }, true);
+  document.addEventListener('change', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
+    if (event.target.type === 'file') workflowEmit({ type: 'unsupported' });
+    else if (workflowSensitive(event.target)) workflowEmit({ type: 'sensitive' });
+    else if (workflowRecorder.pending) flushWorkflowInput();
+    else if (event.target.tagName === 'SELECT') workflowEmit({ type: 'select', target: workflowLocator(event.target), value: String(event.target.value ?? '') });
+  }, true);
+  document.addEventListener('click', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
+    flushWorkflowInput();
+    const el = event.target.closest?.(ACTION_INTERACTIVE_SEL) || event.target;
+    if (workflowSensitive(el)) { workflowEmit({ type: 'sensitive' }); return; }
+    // Text-field focus is represented by the ensuing fill, not an extra click.
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) && !['checkbox','radio','button','submit'].includes(el.type)) return;
+    workflowEmit({ type: 'click', target: workflowLocator(el) });
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target) || workflowSensitive(event.target)) return;
+    if (!['Enter','Tab','Escape','ArrowDown','ArrowUp','ArrowLeft','ArrowRight'].includes(event.key)) return;
+    flushWorkflowInput(); workflowEmit({ type: 'press', key: event.key, target: workflowLocator(event.target) });
+  }, true);
+  let workflowScroll = 0;
+  document.addEventListener('wheel', event => {
+    if (!workflowRecorder.active || !event.isTrusted || isActionChrome(event.target)) return;
+    workflowScroll += event.deltaY;
+    clearTimeout(workflowRecorder.scrollTimer);
+    workflowRecorder.scrollTimer = setTimeout(() => { workflowEmit({ type: 'scroll', deltaY: Math.round(workflowScroll), target: workflowLocator(document.scrollingElement || document.body) }); workflowScroll = 0; }, 200);
+  }, { capture: true, passive: true });
+  for (const type of ['drop', 'dragstart']) document.addEventListener(type, event => { if (workflowRecorder.active && event.isTrusted) workflowEmit({ type: 'unsupported' }); }, true);
+  window.addEventListener('pagehide', flushWorkflowInput);
+  chrome.runtime.sendMessage({ target: 'browserbot-background', action: 'workflow_record_status' }).then(result => configureWorkflowRecording(result?.recording)).catch(() => {});
+
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'ping') sendResponse({ status: 'pong', active: pickerActive });
+    if (request.action === 'workflow_recording_config') { configureWorkflowRecording(request.recording); sendResponse({ ok: true }); }
+    else if (request.action === 'workflow_probe') { sendResponse(takeActionSnapshot(request.target || {})); }
+    else if (request.action === 'workflow_record_flush') { flushWorkflowInput(); clearTimeout(workflowRecorder.scrollTimer); if (workflowScroll) { workflowEmit({ type: 'scroll', deltaY: Math.round(workflowScroll), target: workflowLocator(document.scrollingElement || document.body) }); workflowScroll = 0; } Promise.all([...workflowRecorder.inflight]).then(() => sendResponse({ ok: true }), error => sendResponse({ ok: false, error: error?.message || String(error) })); return true; }
+    else if (request.action === 'workflow_highlight') {
+      const snap = takeActionSnapshot(request.target);
+      if (snap.controls.length !== 1) sendResponse({ ok: false, code: 'WORKFLOW_AMBIGUOUS', error: 'Target must match exactly one element.' });
+      else { const el = pawActionEls.get(snap.controls[0].ref); const old = el.style.outline; el.style.outline = '3px solid #fb923c'; el.scrollIntoView({ block: 'center' }); setTimeout(() => { el.style.outline = old; }, 1500); sendResponse({ ok: true }); }
+    }
+    else if (request.action === 'ping') sendResponse({ status: 'pong', active: pickerActive });
     else if (request.action === 'cancel_run' || request.action === 'browserbot_cancel_run') {
       // Stop path: dismiss in-page submit confirm and any pending waits
       try {
@@ -4884,6 +5115,9 @@ ${fragment}
             href: raw.href || '',
             text: raw.text || ''
           }),
+          scope: raw.scope || 'element',
+          facets: raw.facets,
+          locatorFingerprint: raw.locatorFingerprint || raw.locator?.fingerprint,
           source: 'restore',
           displayLabel: String(raw.displayLabel || '').trim(),
           labelKind: raw.labelKind || '',

@@ -95,6 +95,7 @@ export function actionHashInput(op, request, control, extra = {}) {
     ref: extra.ref || request.ref || control?.ref || '',
     name: control?.name || request.name || request.label || '',
     key: request.key,
+    deltaY: request.deltaY,
     url: control?.frameUrl || extra.frameUrl || '',
     frameUrl: control?.frameUrl || extra.frameUrl || '',
     tabId: extra.tabId ?? request.tabId,
@@ -296,7 +297,7 @@ async function sendPageActionToFrame(tabId, frameId, payload, expected = null) {
   }
 }
 
-async function ensurePageActionScripts(tabId) {
+export async function ensurePageActionScripts(tabId) {
   const frames = await listPageActionFrames(tabId);
   const missing = [];
   for (const fr of frames) {
@@ -561,7 +562,7 @@ async function readLivePage(tabId) {
   return { url: tab.url || '', title: String(tab.title || ''), documentId };
 }
 
-async function snapshotPageActionFrames(tabId, { scope = 'all' } = {}) {
+async function snapshotPageActionFrames(tabId, { scope = 'all', workflowTarget, workflowObserve = false } = {}) {
   const root = await readDocumentTarget(chrome, tabId, 0);
   await ensurePageActionScripts(tabId);
   const listed = await listPageActionFrames(tabId);
@@ -570,17 +571,19 @@ async function snapshotPageActionFrames(tabId, { scope = 'all' } = {}) {
   const controls = [];
   const framesOut = [];
   const mediaElements = [];
+  const workflowTexts = [];
   let canvasCount = 0;
   for (const fr of frames) {
     try {
       const target = await readDocumentTarget(chrome, tabId, fr.frameId, fr);
-      const raw = await sendPageActionToFrame(tabId, fr.frameId, { op: 'snapshot' }, target);
+      const raw = await sendPageActionToFrame(tabId, fr.frameId, { op: 'snapshot', ...(workflowTarget ? { workflowTarget } : {}), ...(workflowObserve ? { workflowObserve: true } : {}) }, target);
       if (!raw || raw.ok === false) continue;
       const list = prefixFrameRefs(raw.controls, fr.frameId, {
         url: raw.frameUrl || target.url || fr.url || '',
         documentId: target.documentId
       });
       controls.push(...list);
+      if (workflowObserve && raw.text) workflowTexts.push(String(raw.text));
       canvasCount += Number(raw.canvasCount) || 0;
       for (const media of (Array.isArray(raw.mediaElements) ? raw.mediaElements : []).slice(0, 6)) {
         if (mediaElements.length < 6) mediaElements.push({ ...media, frameId: fr.frameId, documentId: target.documentId });
@@ -588,6 +591,7 @@ async function snapshotPageActionFrames(tabId, { scope = 'all' } = {}) {
       framesOut.push({ ...target, title: raw.title || '', count: list.length, canvasCount: Number(raw.canvasCount) || 0 });
     } catch (error) {
       if (error?.code === 'TARGET_CHANGED') throw error;
+      if (workflowObserve && (!workflowTarget?.frameUrl || fr.url === workflowTarget.frameUrl)) throw targetError('WORKFLOW_FRAME_UNAVAILABLE', 'A frame could not be observed reliably.');
       // Unreachable subframes are omitted, never assigned usable references.
     }
   }
@@ -605,6 +609,7 @@ async function snapshotPageActionFrames(tabId, { scope = 'all' } = {}) {
     documentId: root.documentId,
     count: capped.length,
     controls: capped,
+    ...(workflowObserve ? { text: workflowTexts.join('\n').slice(0, 200000) } : {}),
     frames: framesOut,
     canvasCount,
     mediaElements,
@@ -976,7 +981,7 @@ async function executeWorkspacePageAction(request) {
 
   if (op === 'snapshot') {
     const snap = await snapshotPageActionFrames(tabId, {
-      scope: String(request.observe || '').toLowerCase() === 'top' ? 'top' : 'all'
+      scope: String(request.observe || '').toLowerCase() === 'top' ? 'top' : 'all', workflowTarget: request.workflowTarget, workflowObserve: request.workflowObserve
     });
     return maybeAttachScreenshot(snap, request, tabId);
   }
@@ -1117,6 +1122,7 @@ async function executeWorkspacePageAction(request) {
     name: request?.name || request?.label,
     value: request?.value,
     key: request?.key,
+    deltaY: request?.deltaY,
     text: request?.text,
     ms: request?.ms
   };

@@ -205,19 +205,32 @@ function persistBytes(store, key, bytes, mimeType, source) {
  * Offscreen → background → content_script captureWorkspaceItem (page cookies / canvas).
  */
 export async function captureItemFromPage(item) {
-  const tabId = item?.capture?.source?.tabId;
-  const selector = item?.capture?.locator?.css || item?.capture?.selector;
+  const capture = item?.capture || {};
+  const source = capture.source || {};
+  const tabId = source.tabId ?? capture.tabId;
+  const selector = capture.locator?.css || capture.selector;
   if (tabId == null || tabId === '' || !selector) return null;
   const chromeRef = globalThis.chrome;
   if (!chromeRef?.runtime?.sendMessage) return null;
   try {
-    const src = item?.capture?.src || item?.capture?.preview?.src || '';
+    const src = capture.src || capture.preview?.src || '';
+    // Frame 0 is an identity, not an absent option: background must never
+    // broadcast this fragile capture to every content-script frame.
+    const frameId = Number.isFinite(Number(source.frameId ?? capture.frameId))
+      ? Number(source.frameId ?? capture.frameId)
+      : 0;
+    const documentId = String(source.documentId ?? capture.documentId ?? '');
+    const locatorFingerprint = capture.locatorFingerprint || capture.locator?.fingerprint || null;
     const res = await chromeRef.runtime.sendMessage({
       target: 'browserbot-background',
       action: 'workspace_capture_fragile',
       tabId,
       selector,
       src,
+      frameId,
+      ...(documentId ? { documentId } : {}),
+      ...(locatorFingerprint ? { locatorFingerprint } : {}),
+      locator: capture.locator || { css: selector },
       captureBytes: true
     });
     return res && res.ok ? res : null;

@@ -4,13 +4,23 @@
 
 Production UI entry remains **`src/sidepanel.html`** → **`src/sidepanel.js`** (orchestrator).
 
+## 个人工具与 Workflow
+
+顶部两个快捷位置默认打开「工具」与「Workflow」；固定后显示条目名称，点击先收集参数再运行。旁边的「⋯」始终打开个人库，可取消固定或替换常用项。Tool 是保存的本地脚本，运行走 runner RPC，不发模型请求；Workflow 区分「Agent 任务」和「自动化」：前者走普通模型对话；后者由 `workflowUi.js` 录制、编辑、审阅和监控，通过确定性运行 RPC 执行。自动化可在没有 Key 时直接制作。所有新库项都必须从 draft 经用户点击「添加／更新」发布；正式版本在 draft 修改、试运行或失败时继续可用。
+
+快捷入口统一使用 density 高度与圆角 token：点选为黑白反色主按钮，截图、工具、Workflow 和个人库为描边按钮；橙色用于焦点与运行提示。固定长名称省略显示，完整名称保留在 tooltip 和 accessible name。宽度不超过 360px 时常用项另起一行，选区摘要和固定／清空控制独立排布；入口网格由 `sidepanel.css` 统一维护。
+
+`personalLibraryUi.js` 只渲染和收集参数，不保存定义、执行脚本或发布版本。它通过注入的 `getPins/setPins` 维护最多两个常用项 ID，并由注入的 `run/create/revert/remove/import/export` 回调进入 sidepanel 编排。`collectPersonalLibraryInput(entry, { document, t })` 是个人库正式条目的参数弹窗入口，支持 runtime 的 JSON Schema 子集（string/number/integer/boolean/enum），取消返回 `null`；service 仍是最终校验者。
+
+草稿状态卡独立于普通对话草稿栏：按当前 session 查询持久 draft，显示制作中／草稿就绪、可审查定义、刷新、试运行及明确发布。独立运行卡显示输出与停止，按 session 隔离；脚本终止事件不收束旧 Agent 对话。接收 draft/published 事件只能刷新或清理卡，不能自动发布。运行 Tool 前关闭库 modal，避免宿主审批卡被遮住。
+
 ## CSS load order
 
 Linked from `sidepanel.html` (do not reorder without reason):
 
 | Order | File | Role |
 |------:|------|------|
-| 1 | `css/tokens.css` | Theme tokens (black+rose / 汉白玉+amber) |
+| 1 | `css/tokens.css` | Theme tokens (Quiet Black / Quiet Light; see ../../Design.md) |
 | 2 | `css/layout.css` | Height chain, chrome shrink, task-stream scrollport, **container queries** |
 | 3 | `css/motion.css` | Ambient, send/stop rings, reduced-motion |
 | 4 | `sidepanel.css` | Components / surfaces leftovers |
@@ -22,7 +32,7 @@ Linked from `sidepanel.html` (do not reorder without reason):
 | Query / flag | Behavior |
 |--------------|----------|
 | `@container panel (max-width: 340px)` | Hide `.page-url` and `#turnJumpRail`, stack `.composer-meta` / `.sel-toolbar`, hide `.brand-sub`; disclosure drops page/access chips; live rows hide unless sticky |
-| `@container panel (max-width: 280px)` | Visually hide status label, hide composer hint, chip short label (`Guarded`/`Full`); live disclosure keeps one current line; fold line wraps |
+| `@container panel (max-width: 280px)` | Visually hide status label, hide composer hint, live disclosure keeps one current line; fold line wraps |
 | `data-density="compact"` on `.panel` | JS mirror when panel width &lt; 320 (`density.js` ResizeObserver); same density tokens as mid-narrow |
 
 Prefer container queries over viewport media for side-panel chrome (width is the panel, not the OS window). Density tokens live in `css/tokens.css` (`--density-*`).
@@ -57,7 +67,7 @@ src/sidepanel/
   botStatusUi.js     # hidden announcer; nextStatusCopy meta only when no nextAction
   turnDisclosureUi.js # per-turn instrument under think; fold / hydrate / exclusive open
   contextUsageUi.js  # composer Context ring + hover usage popover (estimate vs api)
-  accessPolicyUi.js  # Guarded / Full Access chip + one-time risk dialog
+  accessPolicyUi.js  # topbar access shield + one-time Full Access risk dialog
   approvalUi.js      # host delete/ambiguous approval; payment wait has no approve button
   tabLeaseUi.js      # TAB_LEASED / NEED_EXPLICIT_TAB human copy (no new-profile flow)
   README.md
@@ -116,3 +126,30 @@ Durable task cards（`taskStatus.js`）≠ 对话流里的 live `.task-card`（�
 - `task/events.js` (agent stream → DOM)
 - `drafts/card.js`
 - Optional `a11y.css` if focus/dialog rules grow further
+
+
+## Selector：页面内容入口
+
+Selector 同时服务直接工具与 Bot 引用。点选负责对象识别、来源与高亮；下载、复制、导出继续走确定性工具；SelectionGroup / WebItem 负责保存资料。用户无需先点选即可发起任务。
+
+- 顶部保留点选、截图和内容摘要；抽屉按对象、直接操作、文字剪贴板呈现，末尾「收集到」管理采集目标资料组。无内容时不显示资料组入口，也不展开空抽屉。
+- 输入框旁「对话参考」管理 sessionBindings，状态只计实际绑定的资料组。切换采集目标不改变引用；引用不代表网页操作授权。内部 ID、RPC 和存储名称不随展示名称迁移。
+- 点文字先收集到扩展剪贴板，点击条目才复制到系统剪贴板；两步反馈分别是「已收集」和「已复制」。
+- 点选后保留 2 秒短暂展开，悬停打开/关闭仍为 40/480ms；固定展开保持原义。浮到 body 的资料组、导出菜单与键盘焦点属于抽屉交互，期间不自动收起。折叠内容不进入键盘焦点序列。
+- 推荐提示属于 Agent 请求，明确提示点击会发送；直接工具按钮不发送对话。推荐触发和现有模型调用策略保持不变。
+
+## Composer and access controls
+
+- `#attachmentPreviewBar` lives **inside `.composer-inner`**, before `.composer-input-row`. Moving the composer between `#homeComposerSlot` and the footer must move previews with it. Attachments never occupy a sibling row outside the composer. Multiple previews may scroll within a 120px limit so they cannot consume the conversation viewport.
+- Uploaded/captured images show thumbnails. A pasted screenshot retains its existing inline screenshot mention and pending attachment; insert that mention **before** rendering previews to avoid duplicating the image below it. Removing an attachment still only changes the outgoing pending list.
+- `#accessPolicyChip` is a compact topbar shield: check mark for Guarded, highlighted exclamation for Full Access. Tooltip and accessible name include mode, session scope and policy explanation. Settings, confirmation dialog and host policy behavior remain unchanged.
+- Composer controls show model, Chat references and artifacts. The reference button shows the bound collection count; its tooltip and `#composerAiming` accessible description report the real binding state. The unbound state has no animated call-to-action border.
+- Collection destinations appear only when the selection summary has content; their tooltip and accessible description explain first-pick auto-creation. Active conversations use a neutral border; running status remains in the existing execution indicators.
+
+Selection drawer copy stays in tooltips and accessible labels: no visible gray explanatory paragraphs or “Selected” / “Collect into” prefixes. Counts, item names, collection picker and action labels remain visible.
+
+## 顺序自动化
+
+`workflowUi.js` 不执行页面动作或持有存储。录制状态独立于编辑 modal；开始运行会切到执行会话并关闭 modal，让宿主审批可见。草稿编辑、固定工具版本、步骤检查与恢复边界见 [Workflow v1](../../docs/WORKFLOW_V1.md)。运行记录不是聊天消息，刷新事件不能自动恢复或发布。
+
+Workflow 状态消费既有 `session_workspace_event` 中的 `workflow-run` / `workflow-recording`，按记录 ID 和 revision 防止串任务与旧响应回退。初次打开及焦点/可见性恢复时补读，取消持续轮询；进度更新只替换监控区域，不重绘可编辑草稿。

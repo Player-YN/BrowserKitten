@@ -79,6 +79,25 @@ function clipboardPinTextKey(text) {
     .trim();
 }
 
+/** A source makes an otherwise identical clipboard quote a distinct capture. */
+function clipboardSourceKey(source) {
+  if (!source || typeof source !== 'object') return '';
+  const tabId = source.tabId != null ? String(source.tabId) : '';
+  const frameId = source.frameId != null ? String(source.frameId) : '';
+  const documentId = String(source.documentId || '');
+  const url = String(source.url || '');
+  // `{ clipboard: true }` was the legacy marker, not a provenance record.
+  if (!tabId && !frameId && !documentId && !url) return '';
+  return `${tabId}|${frameId}|${documentId}|${url}`;
+}
+
+function clipboardItemKey(text, source) {
+  const body = clipboardPinTextKey(text);
+  if (!body) return '';
+  const provenance = clipboardSourceKey(source);
+  return provenance ? `${body}\u0000${provenance}` : body;
+}
+
 /**
  * Pin text snippets into the clipboard group. Dedupes identical text.
  * @returns {{ group: object, added: object[] }}
@@ -86,25 +105,34 @@ function clipboardPinTextKey(text) {
 export function pinClipboardItems(store, rawItems, sessionId = '') {
   const g = ensureClipboardGroup(store, sessionId);
   const existing = listGroupItems(store, g.groupId);
-  const seen = new Set(existing.map((it) => clipboardPinTextKey(it.capture?.text || it.capture?.preview?.textSnippet)));
+  const seen = new Set(existing.map((it) =>
+    clipboardItemKey(it.capture?.textRaw || it.capture?.text || it.capture?.preview?.textSnippet, it.capture?.source)
+  ));
   const added = [];
   const list = Array.isArray(rawItems) ? rawItems : [];
   for (const raw of list) {
     let text = '';
+    let textRaw = '';
     let kindHint = 'text';
+    let source = null;
     if (typeof raw === 'string') text = raw;
     else if (raw && typeof raw === 'object') {
-      text = raw.text != null ? String(raw.text) : String(raw.content || raw.body || '');
+      textRaw = raw.textRaw != null ? String(raw.textRaw) : '';
+      text = textRaw || (raw.text != null ? String(raw.text) : String(raw.content || raw.body || ''));
       if (raw.kind) kindHint = String(raw.kind);
+      if (raw.source && typeof raw.source === 'object') source = raw.source;
     }
-    const key = clipboardPinTextKey(text);
+    const key = clipboardItemKey(text, source);
     if (!key || seen.has(key)) continue;
     seen.add(key);
+    const savedText = clipClipboardText(text);
     added.push(
       addWebItem(store, g.groupId, {
-        text: clipClipboardText(text),
+        // Preserve the authored body in text for existing copy/export consumers.
+        text: savedText,
+        ...(textRaw && textRaw !== savedText ? { textRaw: clipClipboardText(textRaw) } : {}),
         kindHint,
-        source: { clipboard: true }
+        source: { clipboard: true, ...(source || {}) }
       })
     );
   }
@@ -309,12 +337,15 @@ export function addWebItem(store, groupId, capture = {}) {
  */
 export function selectionIdentityKey(capture = {}) {
   const tabId = capture.source?.tabId ?? capture.tabId ?? '';
+  // Legacy captures predate frame/document identity and are main-frame entries.
+  const frameId = capture.source?.frameId ?? capture.frameId ?? 0;
+  const documentId = capture.source?.documentId ?? capture.documentId ?? '';
   const css = capture.locator?.css || capture.selector || capture.css || '';
   const src = capture.src || capture.preview?.src || '';
   const href = capture.href || '';
   const kind = capture.kindHint || capture.kind || '';
   const text = String(capture.text || capture.preview?.textSnippet || '').slice(0, 120);
-  return `${tabId}|${kind}|${css}|${src}|${href}|${text}`;
+  return `${tabId}|${frameId}|${documentId}|${kind}|${css}|${src}|${href}|${text}`;
 }
 
 /**

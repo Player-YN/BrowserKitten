@@ -231,10 +231,14 @@ export async function sendMessage(store, input) {
     }
   }
   const taskInstructionText = formatTaskInstructions(taskContext);
+  // This is persisted by the service when it creates a Personal Library
+  // session. It is never accepted from a UI RPC/sendMessage parameter.
+  const libraryInstructionText = String(session?.personalLibraryInstructions || '');
   const system = [
     buildSessionAgentInstructions({
       skillInstructions: skillText
     }),
+    libraryInstructionText,
     taskInstructionText
   ]
     .filter(Boolean)

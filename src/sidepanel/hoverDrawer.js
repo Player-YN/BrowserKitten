@@ -30,6 +30,7 @@ let activeId = null;
  *   exclusive: boolean,
  *   group: string,
  *   canOpen?: () => boolean,
+ *   hasInteraction?: () => boolean,
  *   openNow?: () => void
  * }} DrawerHost
  */
@@ -71,7 +72,8 @@ function isInsideRoot(node, root) {
  *   onClose?: () => void,
  *   exclusive?: boolean,
  *   group?: string,
- *   canOpen?: () => boolean
+ *   canOpen?: () => boolean,
+ *   interactionRoots?: Array<HTMLElement|null>
  * }} opts
  */
 export function registerHoverDrawer(id, opts) {
@@ -81,6 +83,16 @@ export function registerHoverDrawer(id, opts) {
   const body = opts.body || el.querySelector('[data-drawer-body]') || el;
   const exclusive = opts.exclusive !== false;
   const group = opts.group || 'default';
+  // Menus may be portaled to document.body; they still belong to this drawer.
+  const extraRoots = (opts.interactionRoots || []).filter(Boolean);
+  const focusAware = Array.isArray(opts.interactionRoots);
+  const roots = () => [el, ...extraRoots.filter((root) => !root.hidden)];
+  const containsInteraction = (node) => roots().some((root) => isInsideRoot(node, root));
+  const hasKeyboardFocus = () => containsInteraction(document.activeElement) &&
+    document.activeElement?.matches?.(':focus-visible');
+  const hasInteraction = () => focusAware && (
+    extraRoots.some((root) => !root.hidden) || hasKeyboardFocus()
+  );
 
   const state = {
     pinned: false,
@@ -92,7 +104,8 @@ export function registerHoverDrawer(id, opts) {
     onClose: opts.onClose,
     exclusive,
     group,
-    canOpen: opts.canOpen
+    canOpen: opts.canOpen,
+    hasInteraction
   };
   hosts.set(id, state);
   wireHoverResync();
@@ -138,7 +151,7 @@ export function registerHoverDrawer(id, opts) {
   };
 
   const isHeldOpen = (st) =>
-    !!st && (st.pinned || (st.holdUntil != null && Date.now() < st.holdUntil));
+    !!st && (st.pinned || st.hasInteraction?.() || (st.holdUntil != null && Date.now() < st.holdUntil));
 
   const scheduleClose = () => {
     const st = hosts.get(id);
@@ -161,7 +174,7 @@ export function registerHoverDrawer(id, opts) {
     if (!canHover()) return;
     const next = /** @type {Node|null} */ (e.relatedTarget);
     // Still inside this drawer root (incl. nested clip / tools) → keep open
-    if (isInsideRoot(next, el)) {
+    if (containsInteraction(next)) {
       clearTimers(id);
       return;
     }
@@ -192,9 +205,33 @@ export function registerHoverDrawer(id, opts) {
 
   // ROOT-ONLY hover — do not attach leave on trigger separately (causes collapse
   // when moving from toolbar into expand body).
-  el.addEventListener('pointerenter', onEnter);
-  el.addEventListener('pointerleave', onLeave);
-  el.addEventListener('pointermove', onMove);
+  const eventRoots = [el, ...extraRoots];
+  for (const root of eventRoots) {
+    root.addEventListener('pointerenter', onEnter);
+    root.addEventListener('pointerleave', onLeave);
+    root.addEventListener('pointermove', onMove);
+  }
+  const onFocusIn = () => {
+    if (!hasKeyboardFocus()) return;
+    clearTimers(id);
+    openNow();
+  };
+  // Run after click handlers have closed/reparented a menu; restart the usual
+  // close grace period without changing the user's persistent pin preference.
+  const onInteractionClick = () => queueMicrotask(() => {
+    const st = hosts.get(id);
+    if (!st) return;
+    st.hovering = roots().some((root) => root.matches(':hover'));
+    if (!st.hovering) scheduleClose();
+  });
+  const onFocusOut = onInteractionClick;
+  if (focusAware) {
+    for (const root of eventRoots) {
+      root.addEventListener('focusin', onFocusIn);
+      root.addEventListener('focusout', onFocusOut);
+    }
+    document.addEventListener('click', onInteractionClick, true);
+  }
 
   // Touch: tap trigger toggles
   const onClick = (e) => {
@@ -240,9 +277,16 @@ export function registerHoverDrawer(id, opts) {
   el.setAttribute('aria-expanded', 'false');
 
   return () => {
-    el.removeEventListener('pointerenter', onEnter);
-    el.removeEventListener('pointerleave', onLeave);
-    el.removeEventListener('pointermove', onMove);
+    clearTimers(id);
+    if (state.holdTimer) window.clearTimeout(state.holdTimer);
+    for (const root of eventRoots) {
+      root.removeEventListener('pointerenter', onEnter);
+      root.removeEventListener('pointerleave', onLeave);
+      root.removeEventListener('pointermove', onMove);
+      root.removeEventListener('focusin', onFocusIn);
+      root.removeEventListener('focusout', onFocusOut);
+    }
+    document.removeEventListener('click', onInteractionClick, true);
     trigger.removeEventListener('click', onClick);
     hosts.delete(id);
   };
@@ -305,6 +349,7 @@ export function closeDrawer(id, opts = {}) {
   const st = hosts.get(id);
   if (!st) return;
   if (st.pinned && !opts.force) return;
+  if (!opts.force && st.hasInteraction?.()) return;
   if (!opts.force && st.holdUntil && Date.now() < st.holdUntil) return;
   const wasOpen = st.el.classList.contains('is-drawer-open') || activeId === id;
   clearTimers(id);

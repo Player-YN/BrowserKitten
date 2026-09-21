@@ -91,6 +91,7 @@ button, textarea, select, input {
 
 /* Selection expand body: collapsed by default, hover slides open */
 .sel-expand-body {
+  visibility: hidden;
   max-height: 0;
   opacity: 0;
   overflow: hidden;
@@ -107,6 +108,7 @@ button, textarea, select, input {
 }
 .selection-bar.is-drawer-open .sel-expand-body,
 .sel-expand-body.is-drawer-body-open {
+  visibility: visible;
   flex: 1 1 auto;
   min-height: 0;
   max-height: min(70vh, 560px);
@@ -115,13 +117,58 @@ button, textarea, select, input {
   transform: translateY(0);
   pointer-events: auto;
 }
-/* Empty bar must never show a tall expand shell */
-.selection-bar.is-empty.is-drawer-open .sel-expand-body {
-  max-height: 0 !important;
-  height: 0 !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-  transform: translateY(-4px);
+/* An empty drawer has no content after its collection destination is hidden. */
+.selection-bar.is-empty .sel-expand-body {
+  display: none;
+}
+.suggestion-note {
+  flex: 0 0 auto;
+  margin: 4px 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.suggestion-note {
+  text-align: center;
+}
+.capture-destination {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.capture-destination[hidden] {
+  display: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+.selection-bar.is-empty .capture-destination {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.capture-destination .group-select {
+  flex: 1 1 auto;
+  max-width: none;
+}
+.capture-destination .group-select-trigger {
+  justify-content: flex-start;
+  height: auto;
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.capture-destination .group-select-label {
+  flex: 1;
+}
+.capture-destination .group-select-caret {
+  margin-left: auto;
 }
 
 /* Drafts list slide */
@@ -145,7 +192,7 @@ button, textarea, select, input {
 /* —— Chips (upper): content height, scroll only when exceeds cap —— */
 /* Row ~36px: dual-pane chips max is one row less; clipboard one row more (sum unchanged). */
 .selection-bar.is-drawer-open .sel-chips {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   min-height: 0;
   max-height: calc(5 * 34px);
   overflow-x: hidden;
@@ -450,27 +497,37 @@ body[data-theme='light'] .topbar {
 /* .brand-sub defined above (Browser Kitten under Browser Kitten) */
 
 .topbar-right {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .access-policy-chip {
-  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
-  background: color-mix(in srgb, var(--surface, var(--bg-elevated)) 88%, transparent);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.2;
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
   flex: 0 0 auto;
-  white-space: nowrap;
+}
+.access-policy-chip:hover {
+  background: var(--bg-soft);
+  border-color: var(--border);
 }
 .access-policy-chip[data-mode='full'] {
-  border-color: color-mix(in srgb, var(--rose) 40%, transparent);
+  background: color-mix(in srgb, var(--rose) 10%, transparent);
   color: var(--rose);
+}
+.access-policy-chip[data-mode='guarded'] .access-full-mark,
+.access-policy-chip[data-mode='full'] .access-guard-mark {
+  display: none;
 }
 .approval-live-body {
   padding: 8px 12px 12px;
@@ -653,7 +710,7 @@ body[data-theme='light'] .topbar {
   transition: border-color 0.2s, box-shadow 0.2s, padding 0.15s;
 }
 
-/* Empty (not picking): only the 点选 button — no hollow card */
+/* Empty: quick entrances only, without an empty collection card. */
 .selection-bar.is-empty {
   padding: 4px 6px;
   background: transparent;
@@ -664,6 +721,9 @@ body[data-theme='light'] .topbar {
 
 .selection-bar.is-empty .sel-toolbar {
   margin-bottom: 0;
+}
+.selection-bar.is-empty .sel-toolbar-actions {
+  display: none;
 }
 
 .selection-bar.is-empty:not(.is-picking) .sel-chips {
@@ -1125,8 +1185,8 @@ body[data-theme='light'] .topbar {
 
 .sel-toolbar {
   display: grid;
-  grid-template-columns: auto auto auto minmax(0, 1fr);
-  grid-template-areas: 'pick shot pin group';
+  grid-template-columns: auto auto minmax(48px, 1fr) minmax(84px, 1.25fr) auto;
+  grid-template-areas: 'pick shot tools workflows library';
   align-items: center;
   gap: 6px 6px;
   margin-bottom: 0;
@@ -1135,8 +1195,8 @@ body[data-theme='light'] .topbar {
 }
 .selection-bar:not(.is-empty) .sel-toolbar {
   grid-template-areas:
-    'pick shot pin group'
-    'summary summary summary actions';
+    'pick shot tools workflows library'
+    'summary summary summary pin actions';
   margin-bottom: 8px;
 }
 .sel-toolbar .pick-btn {
@@ -1145,11 +1205,54 @@ body[data-theme='light'] .topbar {
 .sel-toolbar .shot-btn {
   grid-area: shot;
 }
+.library-entry-btn { grid-area: tools; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#personalWorkflowsBtn { grid-area: workflows; }
+#personalLibraryManageBtn { grid-area: library; width: var(--density-pick-h); padding: 0; font-size: 20px; line-height: 1; }
+.personal-library-dialog { width: min(94vw, 520px); max-height: min(82vh, 720px); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0; color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
+.personal-library-dialog::backdrop { background: rgba(0,0,0,.55); }
+.personal-library-head,.personal-library-tabs { display:flex; align-items:center; gap:8px; padding:12px 14px; }
+.personal-library-head { justify-content:space-between; border-bottom:1px solid var(--border); }
+.personal-library-head h2 { font-size:15px; margin:0; }
+.personal-library-tabs { flex-wrap:wrap; }
+.personal-library-head button,.personal-library-tabs button,.personal-library-create,.personal-library-card button { border:1px solid var(--border-strong); border-radius:var(--radius-xs); padding:7px 9px; background:var(--surface-2); color:inherit; cursor:pointer; font:inherit; font-size:12px; }
+.personal-library-tabs [aria-selected="true"] { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.personal-library-tabs #personalLibraryImport,.personal-library-tabs #personalLibraryExport { margin-left:auto; }
+.personal-library-tabs #personalLibraryExport { margin-left:0; }
+.personal-library-list { display:grid; gap:8px; padding:10px 14px; overflow:auto; max-height:50vh; }
+.personal-library-card { border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; display:grid; gap:8px; }
+.personal-library-card-head { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+.personal-library-card-title { font-weight:700; font-size:13px; }
+.personal-library-card-actions { display:flex; flex-wrap:wrap; gap:5px; }
+.personal-library-empty { padding:22px 4px; text-align:center; color:var(--text-muted); }
+.personal-library-create { margin:0 14px 14px; background:var(--ink); color:var(--paper); }
+.workflow-dialog { width:min(96vw,680px); }
+.workflow-body { display:grid; gap:12px; padding:14px; max-height:min(72vh,680px); overflow:auto; }
+.workflow-body label { display:grid; gap:4px; min-width:0; font-size:11px; color:var(--text-muted); }
+.workflow-body input,.workflow-body select,.workflow-body textarea { box-sizing:border-box; width:100%; min-width:0; border:1px solid var(--border); border-radius:var(--radius-xs); padding:7px; background:var(--surface-2); color:var(--text); font:inherit; }
+.workflow-body textarea { min-height:56px; resize:vertical; font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.workflow-tabs,.workflow-step,.workflow-run,.workflow-recording,.workflow-body fieldset { display:grid; gap:8px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); }
+.workflow-step.is-selected { border-color:var(--accent); }
+.workflow-tab-row { display:grid; grid-template-columns:minmax(72px,.7fr) minmax(0,1fr) minmax(0,1.5fr) minmax(72px,.7fr) auto; gap:6px; align-items:end; }
+.workflow-step-grid { display:grid; grid-template-columns:minmax(78px,.7fr) minmax(78px,.8fr) minmax(0,2fr); gap:6px; align-items:end; }
+.workflow-actions,.workflow-footer,.workflow-section-head,.workflow-recording { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.workflow-section-head { justify-content:space-between; margin-bottom:7px; }
+.workflow-body button { border:1px solid var(--border); border-radius:var(--radius-xs); padding:6px 8px; background:var(--surface-2); color:inherit; cursor:pointer; font:inherit; font-size:11px; }
+.workflow-body button.primary { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.workflow-body button:disabled { opacity:.55; cursor:default; }
+.workflow-footer { position:sticky; bottom:-14px; padding:10px 0; background:var(--surface); }
+.workflow-run pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; }
+.workflow-chooser { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.workflow-chooser button { min-height:70px; }
+.workflow-status-bar { margin:8px 12px; padding:9px 10px; border:1px solid var(--accent); border-radius:var(--radius-sm); background:var(--surface); display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:11px; }
+.workflow-status-bar[hidden] { display:none; }
+.workflow-status-bar strong { flex:1 1 120px; overflow-wrap:anywhere; }
+.workflow-status-bar button,.workflow-binding-dialog button { border:1px solid var(--border); border-radius:var(--radius-xs); padding:6px 8px; background:var(--surface-2); color:inherit; }
+.workflow-binding-dialog form { padding:16px; display:grid; gap:10px; }
+.workflow-binding-dialog label { display:grid; gap:4px; }
+.workflow-binding-dialog select { width:100%; min-width:0; padding:7px; background:var(--surface-2); color:inherit; border:1px solid var(--border); border-radius:var(--radius-xs); }
+@container panel (max-width:360px) { .workflow-step-grid,.workflow-tab-row { grid-template-columns:1fr; } .workflow-dialog { width:98vw; } }
 .sel-toolbar .sel-pin-btn {
   grid-area: pin;
-}
-.sel-toolbar .group-select {
-  grid-area: group;
 }
 .sel-toolbar .sel-summary {
   grid-area: summary;
@@ -1168,7 +1271,7 @@ body[data-theme='light'] .topbar {
   height: var(--density-pick-h, 34px);
   padding: 0 var(--density-pick-pad-x, 12px);
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--ink);
   color: var(--paper);
   font-size: var(--density-pick-fs, 13px);
@@ -1215,8 +1318,9 @@ body[data-theme='light'] .topbar {
   min-width: 3.2em;
 }
 
-/* Same-tier quick action as 点选 (screenshot) */
-.shot-btn {
+/* Secondary quick entrances share the screenshot button's visual contract. */
+.shot-btn,
+.library-entry-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1225,7 +1329,7 @@ body[data-theme='light'] .topbar {
   height: var(--density-pick-h, 34px);
   padding: 0 var(--density-pick-pad-x, 12px);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   color: var(--text);
   font-size: var(--density-pick-fs, 13px);
@@ -1238,13 +1342,15 @@ body[data-theme='light'] .topbar {
     transform var(--dur-1, 100ms),
     box-shadow var(--dur-2, 150ms);
 }
-.shot-btn:hover {
+.shot-btn:hover,
+.library-entry-btn:hover {
   border-color: var(--ink);
   background: var(--surface-2);
   box-shadow: none;
   transform: translateY(-1px);
 }
-.shot-btn:active {
+.shot-btn:active,
+.library-entry-btn:active {
   transform: scale(0.96);
 }
 .shot-btn .shot-icon {
@@ -1253,6 +1359,31 @@ body[data-theme='light'] .topbar {
 }
 .selection-bar.is-empty .shot-btn {
   box-shadow: none;
+}
+.library-entry-btn {
+  display: block;
+  min-width: 0;
+  padding-inline: 8px;
+}
+.shot-btn:focus-visible,
+.library-entry-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.sel-toolbar .sel-pin-btn { justify-self: end; }
+@container panel (max-width: 380px) {
+  .sel-toolbar { grid-template-columns: auto auto minmax(44px, 1fr) minmax(72px, 1.25fr) auto; gap: 4px; }
+  .sel-toolbar .pick-btn, .sel-toolbar .shot-btn { min-width: 60px; padding-inline: 7px; }
+  .sel-toolbar .library-entry-btn { padding-inline: 5px; font-size: 12px; }
+}
+@container panel (max-width: 360px) {
+  .sel-toolbar, .selection-bar:not(.is-empty) .sel-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-areas: 'pick shot .' 'tools workflows library';
+  }
+  .selection-bar:not(.is-empty) .sel-toolbar {
+    grid-template-areas: 'pick shot .' 'tools workflows library' 'summary pin actions';
+  }
 }
 
 .sel-summary {
@@ -2371,22 +2502,10 @@ body[data-theme='light'] .topbar {
 
 .session-thread.is-active,
 .task-card.is-active {
-  border: 1.5px solid transparent;
-  background:
-    linear-gradient(var(--bg-elevated), var(--bg-elevated)) padding-box,
-    linear-gradient(
-      120deg,
-      var(--accent),
-      var(--accent-2),
-      var(--blue-mid),
-      var(--accent-2),
-      var(--accent)
-    ) border-box;
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
-  background-size: 100% 100%, 300% 300%;
-  animation: fade-up 0.35s ease both, gradient-border 3.5s linear infinite;
-  box-shadow: 0 4px 20px var(--accent-soft);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  box-shadow: none;
+  animation: fade-up 0.35s ease both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3791,7 +3910,7 @@ body[data-theme='light'] .topbar {
 .composer-float-row {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 0 2px;
   min-height: 28px;
@@ -4330,60 +4449,16 @@ body[data-theme='light'] .topbar {
 .model-select-item.is-active {
   color: var(--accent);
 }
-@property --bind-orbit {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
 .session-bind-add-btn.composer-bubble {
-  position: relative;
-  isolation: isolate;
-  overflow: visible;
-  border-style: dashed;
-  background: transparent;
-}
-.session-bind-add-btn.composer-bubble:not(.has-bound) {
-  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
-  color: var(--text);
-}
-.session-bind-add-btn.composer-bubble:not(.has-bound)::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  z-index: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(
-    from var(--bind-orbit),
-    transparent 0deg 292deg,
-    color-mix(in srgb, var(--accent) 15%, transparent) 312deg,
-    var(--accent) 338deg,
-    color-mix(in srgb, var(--accent) 28%, white) 350deg,
-    var(--accent) 358deg,
-    transparent 360deg
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  animation: bind-orbit-spin 2.4s linear infinite;
-}
-.session-bind-add-btn.composer-bubble.has-bound {
   border-style: solid;
   border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+.session-bind-add-btn.composer-bubble.has-bound {
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
   color: var(--text);
-}
-.session-bind-add-btn.composer-bubble.has-bound::before {
-  content: none;
-  animation: none;
-}
-@keyframes bind-orbit-spin {
-  to {
-    --bind-orbit: 360deg;
-  }
 }
 
 .bind-group-hint {
@@ -4467,11 +4542,6 @@ body[data-theme='light'] .topbar {
   .bind-group-hint-card {
     animation: none;
   }
-  .session-bind-add-btn.composer-bubble:not(.has-bound)::before {
-    animation: none;
-    opacity: 0.7;
-    --bind-orbit: 210deg;
-  }
 }
 
 .composer-field {
@@ -4512,7 +4582,8 @@ body[data-theme='light'] .topbar {
 }
 .composer-inner {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   padding: 10px 10px 10px 14px;
   border: 1px solid var(--border-strong);
@@ -4520,6 +4591,13 @@ body[data-theme='light'] .topbar {
   background: var(--bg-elevated);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.composer-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 /* Single focus ring on the shell only — never a nested ring on #input */
@@ -4534,8 +4612,6 @@ body[data-theme='light'] .topbar {
 }
 
 /* Kill any nested focus UI inside the composer shell (global :focus-visible, UA outline) */
-.composer-inner :focus,
-.composer-inner :focus-visible,
 .composer-inner #input,
 .composer-inner #input:focus,
 .composer-inner #input:focus-visible {
@@ -5329,11 +5405,6 @@ body[data-theme='light'] .topbar {
   50% { opacity: 0.55; }
 }
 
-@keyframes gradient-border {
-  0% { background-position: 0% 50%, 0% 50%; }
-  50% { background-position: 0% 50%, 100% 50%; }
-  100% { background-position: 0% 50%, 0% 50%; }
-}
 
 @keyframes sheet-up {
   from { transform: translateY(16px); opacity: 0; }
@@ -5380,27 +5451,67 @@ body[data-theme='light'] .topbar {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 0 12px 6px;
+  min-width: 0;
+  max-height: 120px;
+  overflow-y: auto;
 }
 .attachment-preview-bar[hidden] { display: none !important; }
 .attachment-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 999px;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 9px;
   background: var(--bg-soft);
   border: 1px solid var(--border);
   font-size: 11px;
-  max-width: 140px;
+  min-width: 0;
+  max-width: min(200px, 100%);
+}
+.attachment-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  flex: 0 0 auto;
+}
+.attachment-label {
+  padding-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .attachment-chip button {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
   border: none;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--text-muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
+}
+.attachment-chip button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.attachment-chip button:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.composer-mention[data-kind="screenshot"] {
+  height: 32px;
+  gap: 5px;
+  padding-left: 3px;
+}
+.composer-mention-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  object-fit: contain;
 }
 
 .file-drop-overlay {
@@ -5536,24 +5647,7 @@ body[data-theme="light"] .sel-chip[data-kind="text"] {
 .task-card:not(.is-active) {
   background: var(--bg-elevated);
 }
-.session-thread.is-active,
-.task-card.is-active {
-  /* Keep flow border after later theme resets of .session-thread background */
-  border: 1.5px solid transparent;
-  background:
-    linear-gradient(var(--bg-elevated), var(--bg-elevated)) padding-box,
-    linear-gradient(
-      120deg,
-      var(--accent),
-      var(--accent-2),
-      var(--blue-mid),
-      var(--accent-2),
-      var(--accent)
-    ) border-box;
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
-  background-size: 100% 100%, 300% 300%;
-}
+
 .msg.assistant {
   background: var(--bg-soft);
 }
@@ -5567,10 +5661,10 @@ body[data-theme="light"] .more-sheet {
   background: #fff;
 }
 .composer {
-  background: rgba(15, 23, 42, 0.96);
+  background: var(--bg-panel);
 }
 body[data-theme="light"] .composer {
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--bg-panel);
 }
 .composer-inner {
   background: var(--bg-elevated);
@@ -7696,7 +7790,7 @@ body[data-theme="light"] .settings-advanced > summary {
 }
 
 
-/* ── Group Select (capture target) — same tier as shot-btn ── */
+/* Collection destination in the drawer footer. */
 .group-select{
   position:relative;
   min-width:0;
@@ -8849,3 +8943,19 @@ body[data-theme='light'] .session-edge-fab{
   color: var(--danger);
   border-color: var(--danger);
 }
+
+/* Library surfaces share the chat scrollport; expanded code never consumes the whole sidebar. */
+.library-draft-card { flex: 0 0 auto; margin: 10px 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font-size: 12px; }
+.library-draft-card[hidden] { display: none; }
+.library-draft-card strong { display: block; overflow-wrap: anywhere; }
+.library-draft-card details { margin-block: 8px; }
+.library-draft-card pre, .personal-library-card pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.library-draft-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.library-draft-card button, .library-parameter-dialog button { border: 1px solid var(--border); background: var(--surface-2); color: inherit; border-radius: 8px; padding: 6px 9px; cursor: pointer; }
+.library-draft-card button:disabled { opacity: .5; cursor: default; }
+.library-parameter-dialog form { padding: 16px; display: grid; gap: 12px; }
+.library-parameter-dialog label { display: grid; gap: 4px; }
+.library-parameter-dialog input, .library-parameter-dialog select { width: 100%; min-width: 0; background: var(--surface-2); color: inherit; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+.library-parameter-dialog input[type=checkbox] { width: auto; justify-self: start; }
+.personal-library-dialog button:not(:disabled):hover, .library-draft-card button:not(:disabled):hover { border-color: var(--ink); }
+.personal-library-dialog button:focus-visible, .library-draft-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

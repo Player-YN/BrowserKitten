@@ -6,6 +6,8 @@ Chrome MV3 **unpacked** 扩展：把已登录浏览器当成可编程层（live-
 
 产品入口与本地验证：[README.md](README.md)。
 
+侧栏 UI 的视觉与交互规范：[Design.md](Design.md)。新增界面复用其 token、按钮层级与响应式规则。
+
 ## 文档怎么读
 
 | 文件 | 写什么 | 什么时候打开 |

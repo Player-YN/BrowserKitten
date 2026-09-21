@@ -13,7 +13,6 @@
  */
 .panel > .topbar,
 .panel > .composer,
-.panel > .attachment-preview-bar,
 .panel > .panel-scroll {
   position: relative;
   z-index: 1;
@@ -230,6 +229,8 @@ select:focus-visible {
   .skill-save-btn,
   .skill-quick-script-btn,
   .pick-btn,
+  .shot-btn,
+  .library-entry-btn,
   .send-btn,
   .stop-btn,
   .sel-expand-body,

@@ -1,3 +1,4 @@
+import { WorkflowService } from '../workflow/service.js';
 /**
  * Product Session Workspace Service — unified sendMessage path.
  * Durable store (IDB / memory-backend) — not pure ephemeral Maps.
@@ -109,6 +110,14 @@ import { clearActiveTaskId, getActiveTaskId, setActiveTaskId } from '../sessionW
 import { appendSessionAudit, readSessionAudit } from '../sessionWorkspace/sessionAudit.js';
 import { persistableCapabilityHint } from '../sessionWorkspace/artifactCapability.js';
 import { ARTIFACT_CHUNK_SIZE, DOWNLOAD_INLINE_MAX } from '../sessionWorkspace/artifactDownload.js';
+import { openPersonalLibraryStore } from '../sessionWorkspace/personalLibraryStore.js';
+import { runPersonalLibraryTool } from './personalLibraryRunner.js';
+import { libraryError, validatePersonalLibraryDefinition, validatePersonalLibraryInput, personalLibraryManifestPatch, requireLibraryRevision } from './personalLibraryContract.js';
+import {
+  PERSONAL_LIBRARY_DRAFT_PATH,
+  personalLibraryCreationInstructions,
+  personalLibraryWorkflowRunContent
+} from './personalLibraryCreationInstructions.js';
 
 export class SessionWorkspaceService {
   /**
@@ -138,6 +147,12 @@ export class SessionWorkspaceService {
     this._listenRuntime = opts.listenRuntime || createListenRuntime();
     this.mediaChecks = opts.mediaChecks || new MediaCapabilityChecks();
     this.contextWindowChecks = opts.contextWindowChecks || new ContextWindowChecks();
+    // Deliberately lazy: ordinary workspace tests and boot do not require IDB.
+    this._personalLibraryStore = opts.personalLibraryStore || null;
+    this._personalLibraryStoreOptions = opts.personalLibraryStoreOptions || null;
+    this._personalLibraryRunner = opts.personalLibraryRunner || runPersonalLibraryTool;
+    this._workflowHost = opts.workflowHost || null;
+    this._workflows = new WorkflowService(this);
     this._ensurePolicyAdapters();
     const recovered = recoverInterruptedTasks(store);
     this._startupPersist = recovered.length ? this._persist() : Promise.resolve();
@@ -260,6 +275,220 @@ export class SessionWorkspaceService {
     await this._startupPersist;
   }
 
+  async _library() {
+    if (this._personalLibraryStore) return this._personalLibraryStore;
+    if (!this._personalLibraryOpening) {
+      this._personalLibraryOpening = openPersonalLibraryStore(this._personalLibraryStoreOptions || {})
+        .then(store => (this._personalLibraryStore = store))
+        .finally(() => { this._personalLibraryOpening = null; });
+    }
+    return this._personalLibraryOpening;
+  }
+
+  async createWorkflowDraft(params = {}) { await this._ready(); return this._workflows.createDraft(params); }
+  async updateWorkflowDraft(params = {}) { await this._ready(); return this._workflows.updateDraft(params); }
+  async startWorkflowRun(params = {}) { await this._ready(); return this._workflows.start(params); }
+  async getWorkflowRun(params = {}) { await this._ready(); return this._workflows.get(params); }
+  async listWorkflowRuns(params = {}) { await this._ready(); return this._workflows.list(params); }
+  async resumeWorkflowRun(params = {}) { await this._ready(); return this._workflows.resume(params); }
+  async pauseWorkflowRun(params = {}) { await this._ready(); return this._workflows.pause(params); }
+  async validateWorkflowTarget(params = {}) { await this._ready(); return this._workflows.validateTarget(params); }
+  async startWorkflowRecording(params = {}) { await this._ready(); return this._workflows.startRecording(params); }
+  async controlWorkflowRecording(params = {}) { await this._ready(); return this._workflows.controlRecording(params); }
+  async getWorkflowRecording(params = {}) { await this._ready(); return this._workflows.recording(params); }
+  async interruptWorkflowRecording(params = {}) { await this._ready(); return this._workflows.interruptRecording(params); }
+  async ingestWorkflowRecordingEvent(params = {}) { await this._ready(); return this._workflows.ingest(params); }
+  async listWorkflowTabs() { return this._workflows.host('tabs'); }
+
+  async listPersonalLibrary({ kind } = {}) { return (await this._library()).list({ kind }); }
+  async getPersonalLibraryEntry({ entryId, revision } = {}) { return (await this._library()).get({ entryId, revision }); }
+  async listPersonalLibraryRevisions({ entryId } = {}) {
+    return { revisions: await (await this._library()).listRevisions({ entryId }) };
+  }
+
+  async getPersonalLibraryDraft({ draftId } = {}) {
+    if (!draftId) throw libraryError('LIBRARY_BAD_INPUT', 'draftId is required.');
+    const draft = await (await this._library()).getDraft({ draftId });
+    if (!draft) throw libraryError('LIBRARY_NOT_FOUND', 'Draft not found.');
+    return { draft, sessionId: draft.sessionId || null };
+  }
+
+  async getPersonalLibraryDraftBySession({ sessionId } = {}) {
+    if (!sessionId) return { draft: null, sessionId: null };
+    const drafts = await (await this._library()).listDrafts({ sessionId: String(sessionId) });
+    return { draft: drafts[0] || null, sessionId: String(sessionId) };
+  }
+
+  async startLibraryCreation({ kind, entryId, lang } = {}) {
+    await this._ready();
+    const library = await this._library();
+    const existing = entryId ? await library.get({ entryId }) : null;
+    if (entryId && !existing) throw libraryError('LIBRARY_NOT_FOUND', 'Library entry not found.');
+    const normalizedKind = existing?.kind || kind;
+    if (!['tool', 'workflow'].includes(normalizedKind)) throw libraryError('LIBRARY_BAD_INPUT', 'kind must be tool or workflow.');
+    const english = String(lang || '').startsWith('en');
+    const title = existing ? (english ? `Edit ${existing.name}` : `修改 ${existing.name}`)
+      : (english ? `Create ${normalizedKind}` : `创建${normalizedKind === 'tool' ? '工具' : 'Workflow'}`);
+    const session = this.runtime.createSession({ title });
+    const draft = await library.createDraft(existing
+      ? { sessionId: session.sessionId, baseEntryId: existing.entryId, baseRevision: existing.revision }
+      : { sessionId: session.sessionId, kind: normalizedKind, parameters: {} });
+    this.runtime.store.put('sessions', session.sessionId, {
+      ...session,
+      personalLibraryInstructions: personalLibraryCreationInstructions({ kind: normalizedKind, draftId: draft.draftId, entry: existing })
+    });
+    if (existing) {
+      const { kind, name, description, parameters, runtimeVersion, code, instructions, workflow } = existing;
+      const manifest = { draftId: draft.draftId, kind, name, description, parameters, runtimeVersion,
+        ...(kind === 'tool' ? { code } : workflow ? { workflow } : { instructions }) };
+      createSessionGuestFs(this.runtime.store, { sessionId: session.sessionId }).writeFile(
+        PERSONAL_LIBRARY_DRAFT_PATH, JSON.stringify(manifest, null, 2), { mimeType: 'application/json' });
+    }
+    await this._persist();
+    const content = existing
+      ? (english ? `I want to update ${existing.name}. Please help me refine it.` : `我想修改“${existing.name}”，请先帮我梳理需求。`)
+      : (english ? `I want to create a ${normalizedKind}. Please help me define it.` : `我想创建一个${normalizedKind === 'tool' ? '工具' : '工作流'}，请先和我确认需求。`);
+    this._broadcastUiEvent({ type: 'personal-library-draft', sessionId: session.sessionId, draft });
+    return { sessionId: session.sessionId, draftId: draft.draftId, draft, content, title };
+  }
+
+  async refreshLibraryDraft({ draftId } = {}) {
+    await this._ready();
+    const { draft, sessionId } = await this.getPersonalLibraryDraft({ draftId });
+    if (!this.runtime.store.has('sessions', sessionId)) throw libraryError('LIBRARY_NOT_FOUND', 'The creation conversation was deleted.');
+    if (this._activeBySession.has(sessionId)) throw libraryError('SESSION_BUSY', 'Wait for the current execution before reviewing the draft.');
+    await this.runtime.store.hydrateSessionBlobs?.(sessionId);
+    const fs = createSessionGuestFs(this.runtime.store, { sessionId });
+    if (!fs.exists(PERSONAL_LIBRARY_DRAFT_PATH)) throw libraryError('LIBRARY_DRAFT_NOT_READY', 'The agent has not written a draft yet.');
+    const bytes = fs.readFileBytes(PERSONAL_LIBRARY_DRAFT_PATH);
+    if (bytes.byteLength > 1024 * 1024) throw libraryError('LIBRARY_BAD_DRAFT', 'Draft is too large.');
+    let manifest;
+    try { manifest = JSON.parse(new TextDecoder().decode(bytes)); }
+    catch { throw libraryError('LIBRARY_BAD_DRAFT', 'Draft must be valid JSON.'); }
+    const patch = personalLibraryManifestPatch(manifest, draft);
+    const changed = Object.entries(patch).some(([key, value]) => JSON.stringify(value) !== JSON.stringify(draft[key]));
+    const saved = changed ? await (await this._library()).updateDraft({ draftId, patch, expectedRevision: draft.revision }) : draft;
+    this._broadcastUiEvent({ type: 'personal-library-draft', sessionId, draft: saved });
+    return { draft: saved, validation: { ok: true } };
+  }
+
+  async publishLibraryDraft({ draftId, expectedRevision } = {}) {
+    const { draft } = await this.getPersonalLibraryDraft({ draftId });
+    requireLibraryRevision(expectedRevision, draft.revision);
+    if (!this.runtime.store.has('sessions', draft.sessionId)) throw libraryError('LIBRARY_NOT_FOUND', 'The creation conversation was deleted.');
+    validatePersonalLibraryDefinition(draft);
+    // Publish only the reviewed snapshot, never an unreviewed newer file.
+    const entry = await (await this._library()).publishDraft({ draftId, expectedRevision });
+    this._broadcastUiEvent({ type: 'personal-library-published', sessionId: draft.sessionId, draftId, entry });
+    return entry;
+  }
+
+  async deletePersonalLibraryEntry(params = {}) { return (await this._library()).deleteEntry(params); }
+  async revertPersonalLibraryRevision(params = {}) { return (await this._library()).revertRevision(params); }
+  async exportPersonalLibrary() { return (await this._library()).exportBundle(); }
+  async importPersonalLibrary({ bundle, conflict } = {}) { return (await this._library()).importBundle(bundle, { conflict }); }
+
+  async _prepareLibraryWorkflow(entry, { input = {}, activeTab = null, lang } = {}) {
+    await this._ready();
+    validatePersonalLibraryDefinition(entry);
+    if (entry.workflow) throw libraryError('WORKFLOW_INVALID', 'Use the deterministic workflow runner for automations.');
+    const parameters = validatePersonalLibraryInput(entry.parameters, input);
+    const english = String(lang || '').startsWith('en');
+    const title = english ? `Run ${entry.name}` : `运行 ${entry.name}`;
+    const session = this.runtime.createSession({ title });
+    this.runtime.store.put('sessions', session.sessionId, {
+      ...session, personalLibraryInstructions: personalLibraryWorkflowRunContent(entry, parameters)
+    });
+    await this._persist();
+    return { kind: 'workflow', sessionId: session.sessionId, entryId: entry.entryId, revision: entry.revision,
+      activeTab, title, content: english ? `Run ${entry.name}.` : `运行“${entry.name}”。` };
+  }
+
+  async startLibraryWorkflow({ entryId, ...options } = {}) {
+    const entry = await this.getPersonalLibraryEntry({ entryId });
+    if (!entry || entry.kind !== 'workflow') throw libraryError('LIBRARY_NOT_FOUND', 'Workflow not found.');
+    return this._prepareLibraryWorkflow(entry, options);
+  }
+
+  async runLibraryDraft({ draftId, expectedRevision, ...options } = {}) {
+    const { draft, sessionId } = await this.getPersonalLibraryDraft({ draftId });
+    requireLibraryRevision(expectedRevision, draft.revision);
+    validatePersonalLibraryDefinition(draft);
+    if (!this.runtime.store.has('sessions', sessionId)) throw libraryError('LIBRARY_NOT_FOUND', 'The creation conversation was deleted.');
+    if (draft.workflow) return this.startWorkflowRun({ draftId, expectedRevision, ...options });
+    if (draft.kind === 'workflow') return this._prepareLibraryWorkflow(draft, options);
+    return this._runLibraryTool(draft, { ...options, sessionId, testDraftId: draftId });
+  }
+
+  async runPersonalLibraryTool({ entryId, ...options } = {}) {
+    const entry = await this.getPersonalLibraryEntry({ entryId });
+    if (!entry || entry.kind !== 'tool') throw libraryError('LIBRARY_NOT_FOUND', 'Tool not found.');
+    return this._runLibraryTool(entry, options);
+  }
+
+  async _runLibraryTool(entry, { input = {}, activeTab = null, sessionId = 'default', testDraftId } = {}) {
+    await this._ready();
+    validatePersonalLibraryDefinition(entry);
+    const parameters = validatePersonalLibraryInput(entry.parameters, input);
+    this.ensureSession(sessionId);
+    // No await between checking and reserving: competing runs cannot both start.
+    if (this._activeBySession.has(sessionId)) throw libraryError('SESSION_BUSY', 'This session already has an active execution.');
+    const controller = new AbortController();
+    let settleSlot;
+    const finished = new Promise(resolve => { settleSlot = resolve; });
+    const execution = this.runtime.beginExecution(sessionId, { abortSignal: controller.signal });
+    this._activeBySession.set(sessionId, { controller, executionId: execution.executionId, sessionId, finished });
+    this._activeByExecution.set(execution.executionId, controller);
+    this._broadcastUiEvent({ type: 'execution-start', sessionId, executionId: execution.executionId, executionKind: 'personal-tool', libraryEntryId: entry.entryId });
+    let status = 'failed';
+    let fs;
+    try {
+      await this.runtime.store.hydrateSessionBlobs?.(sessionId);
+      controller.signal.throwIfAborted();
+      fs = createSessionGuestFs(this.runtime.store, { sessionId, executionId: execution.executionId });
+      const output = await this._personalLibraryRunner(entry, {
+        store: this.runtime.store, fs, sessionId, controller, activeTab,
+        hostSys: (op, params, context) => this._gatedSys(op, {
+          ...(params && typeof params === 'object' ? params : {}),
+          defaultTabId: params?.defaultTabId ?? params?.tabId ?? activeTab?.tabId ?? activeTab?.id
+        }, context, sessionId, controller.signal), input: parameters
+      });
+      status = controller.signal.aborted ? 'aborted' : output.ok ? 'settled' : 'failed';
+      if (testDraftId) fs.writeFile('/artifacts/library-test-result.json', JSON.stringify({
+        draftId: testDraftId, revision: entry.revision, at: Date.now(), status, ...output
+      }, null, 2), { mimeType: 'application/json' });
+      if (output.artifacts?.length) this._broadcastUiEvent({ type: 'artifact_shelf_updated', sessionId });
+      return { ...output, ok: status === 'settled', sessionId, executionId: execution.executionId, entryId: entry.entryId, revision: entry.revision };
+    } catch (error) {
+      status = controller.signal.aborted ? 'aborted' : 'failed';
+      if (testDraftId && fs) fs.writeFile('/artifacts/library-test-result.json', JSON.stringify({
+        draftId: testDraftId, revision: entry.revision, at: Date.now(), status, error: error?.message || String(error)
+      }), { mimeType: 'application/json' });
+      throw error;
+    } finally {
+      // Revoke dispatch before releasing ownership; status is captured first.
+      controller.abort();
+      try {
+        await Promise.allSettled([
+          this._releaseTabLeases(sessionId, execution.executionId),
+          this._cleanupExecutionPolicy(sessionId, execution.executionId)
+        ]);
+        this.runtime.settleExecution(execution, status);
+        try { await this._persist(); }
+        catch (error) {
+          status = 'failed';
+          this.runtime.settleExecution(execution, status);
+          throw error;
+        }
+      } finally {
+        this._activeByExecution.delete(execution.executionId);
+        if (this._activeBySession.get(sessionId)?.controller === controller) this._activeBySession.delete(sessionId);
+        settleSlot();
+        this._broadcastUiEvent({ type: 'execution-end', sessionId, executionId: execution.executionId, status, executionKind: 'personal-tool', libraryEntryId: entry.entryId });
+      }
+    }
+  }
+
   _withTaskLock(fn) {
     const run = this._taskMutationQueue.catch(() => {}).then(fn);
     this._taskMutationQueue = run.catch(() => {});
@@ -379,7 +608,7 @@ export class SessionWorkspaceService {
         try {
           const row = appendSessionAudit(this.runtime.store, sid, event);
           if (row && row.type !== 'execution-start') {
-            void this._persist?.();
+            void this._persist().catch(() => { /* audit is best-effort; operation commits are awaited separately */ });
           }
         } catch {
           /* audit must not fail the turn */
@@ -818,6 +1047,8 @@ export class SessionWorkspaceService {
     return gatedDispatch(
       {
         channel: 'sys',
+        operationId: context?.operationId,
+        requestId: context?.requestId,
         op,
         sysOp: op,
         sessionId,
@@ -1205,6 +1436,7 @@ export class SessionWorkspaceService {
                 ? itemHandle(labeled.labelKind, labeled.labelN)
                 : '',
               text: capture.text || preview?.textSnippet || '',
+              textRaw: capture.textRaw || '',
               src: capture.src || preview?.src || '',
               href: capture.href || capture.url || '',
               title: capture.title || source.title || '',
@@ -1214,7 +1446,22 @@ export class SessionWorkspaceService {
               tabId: source.tabId ?? capture.tabId,
               url: capture.url || source.url || capture.href || '',
               pageUrl: capture.url || capture.href || source.url || '',
-              preview
+              preview,
+              scope: capture.scope || '',
+              facets: capture.facets || undefined,
+              locatorFingerprint: capture.locatorFingerprint || capture.locator?.fingerprint || undefined,
+              locator: capture.locator || undefined,
+              source: {
+                clipboard: source.clipboard === true,
+                tabId: source.tabId ?? capture.tabId,
+                frameId: source.frameId ?? capture.frameId ?? 0,
+                documentId: source.documentId ?? capture.documentId ?? '',
+                url: source.url || capture.url || '',
+                origin: source.origin || '',
+                pageTitle: source.pageTitle || capture.title || ''
+              },
+              frameId: source.frameId ?? capture.frameId ?? 0,
+              documentId: source.documentId ?? capture.documentId ?? ''
             };
           })
           .filter(Boolean);
@@ -1495,6 +1742,8 @@ export class SessionWorkspaceService {
   async syncTabSelection({
     sessionId = 'default',
     tabId,
+    frameId = 0,
+    documentId = '',
     url,
     origin,
     pageTitle,
@@ -1519,19 +1768,31 @@ export class SessionWorkspaceService {
     const members = /** @type {string[]} */ (
       this.runtime.store.get('groupMembers', groupId) || []
     );
-    /** @type {Map<string, string>} identityKey → webItemId for this tab */
+    const currentFrameId = Number.isFinite(Number(frameId)) ? Number(frameId) : 0;
+    const currentDocumentId = String(documentId || '');
+    const sameFrame = (capture = {}) =>
+      String(capture.source?.tabId ?? capture.tabId ?? '') === String(tabId ?? '') &&
+      Number(capture.source?.frameId ?? capture.frameId ?? 0) === currentFrameId;
+    // A navigation gives the frame a new document identity. Keep captures from
+    // its old document rather than treating an empty new selection as deletion.
+    const sameDocument = (capture = {}) =>
+      String(capture.source?.documentId ?? capture.documentId ?? '') === currentDocumentId;
+    /** @type {Map<string, string>} identityKey → webItemId for this document */
     const byKey = new Map();
     for (const id of members) {
       const item = this.runtime.store.get('items', id);
       if (!item) continue;
       if (isPageItem(item)) continue;
-      if (String(item.capture?.source?.tabId ?? '') !== String(tabId ?? '')) continue;
-      const key = item.identityKey || selectionIdentityKey(item.capture || {});
+      if (!sameFrame(item.capture) || !sameDocument(item.capture)) continue;
+      // Recompute instead of trusting a persisted key: captures created before
+      // frame/document identity used the old key shape, but still represent the
+      // main frame of this legacy document and must update in place.
+      const key = selectionIdentityKey(item.capture || {});
       byKey.set(key, id);
     }
 
     const seenKeys = new Set();
-    const clipboardTexts = [];
+    const clipboardItems = [];
     for (const raw of elements || []) {
       if (
         isClipboardTextPick({
@@ -1543,14 +1804,25 @@ export class SessionWorkspaceService {
           kindHint: raw.kind || raw.kindHint || ''
         })
       ) {
-        const snippet = String(raw.text || raw.textSnippet || '').trim();
-        if (snippet) clipboardTexts.push(snippet);
+        const text = String(raw.textRaw || raw.facets?.text || raw.text || raw.textSnippet || '');
+        if (text.trim()) {
+          clipboardItems.push({
+            text,
+            ...(raw.textRaw || raw.facets?.text ? { textRaw: text } : {}),
+            kind: raw.kind || raw.kindHint || 'text',
+            source: { tabId, frameId: currentFrameId, documentId: currentDocumentId, url, pageTitle }
+          });
+        }
         continue;
       }
       const capture = {
-        source: { tabId, url, origin, pageTitle },
-        locator: { css: raw.selector || raw.css || '' },
+        source: { tabId, frameId: currentFrameId, documentId: currentDocumentId, url, origin, pageTitle },
+        locator: {
+          css: raw.selector || raw.css || '',
+          ...(raw.locatorFingerprint ? { fingerprint: raw.locatorFingerprint, strict: true } : {})
+        },
         text: raw.text || raw.textSnippet || '',
+        textRaw: raw.textRaw || raw.facets?.text || '',
         src: raw.src || undefined,
         preview: {
           tagName: raw.tag || raw.tagName || '',
@@ -1559,7 +1831,10 @@ export class SessionWorkspaceService {
         },
         kindHint: raw.kind || raw.kindHint || undefined,
         href: raw.href || undefined,
-        selector: raw.selector
+        selector: raw.selector,
+        scope: raw.scope || undefined,
+        facets: raw.facets || undefined,
+        locatorFingerprint: raw.locatorFingerprint || undefined
       };
       const key = selectionIdentityKey(capture);
       capture.identityKey = key;
@@ -1593,7 +1868,7 @@ export class SessionWorkspaceService {
       }
     }
     gcUnreachableWebItems(this.runtime.store);
-    if (clipboardTexts.length) pinClipboardItems(this.runtime.store, clipboardTexts, sessionId);
+    if (clipboardItems.length) pinClipboardItems(this.runtime.store, clipboardItems, sessionId);
 
     await this._persist();
     return this.getWorkspaceState({ sessionId });

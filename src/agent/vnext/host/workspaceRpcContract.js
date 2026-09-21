@@ -1,14 +1,19 @@
 /** Explicit transport contract. Adding a service method does NOT expose it over RPC. */
 const reads = [
+  'getWorkflowRun', 'listWorkflowRuns', 'getWorkflowRecording', 'listWorkflowTabs',
   'getChatMediaStatus',
   'getContextWindowStatus',
   'listSessions', 'getSession', 'getActiveExecution', 'listTasks', 'getTask',
   'getWorkspaceState', 'getAccessPolicy', 'getPendingApproval', 'listJournal', 'listJournalAnomalies',
   'exportJournal', 'listSkills', 'getSkillDetail', 'listArtifacts', 'readArtifact',
   'readArtifactPreview', 'downloadArtifact', 'readArtifactChunk',
-  'getStorageStats', 'estimateStorage', 'readOutput', 'getTaskResult'
+  'getStorageStats', 'estimateStorage', 'readOutput', 'getTaskResult',
+  'listPersonalLibrary', 'getPersonalLibraryEntry', 'getPersonalLibraryDraft', 'getPersonalLibraryDraftBySession',
+  'listPersonalLibraryRevisions', 'exportPersonalLibrary'
 ];
 const writes = [
+  'createWorkflowDraft', 'updateWorkflowDraft', 'startWorkflowRun', 'resumeWorkflowRun', 'pauseWorkflowRun',
+  'validateWorkflowTarget', 'startWorkflowRecording', 'controlWorkflowRecording',
   'requestChatMediaCheck',
   'requestContextWindowCheck',
   'updateTask', 'renameSession', 'pruneSessions', 'allocateLabel', 'bindGroups',
@@ -20,7 +25,10 @@ const writes = [
   'createArtifact', 'rewriteGuestMedia', 'revertArtifact', 'updateArtifact',
   'deleteArtifact', 'deleteSession', 'sweepOrphans', 'applyStoragePressure',
   'setActiveWorkbook', 'setActiveHtml', 'createBlankArtifact', 'createSheetArtifact',
-  'suggestSelectionActions'
+  'suggestSelectionActions',
+  'startLibraryCreation', 'refreshLibraryDraft', 'runLibraryDraft', 'publishLibraryDraft',
+  'runPersonalLibraryTool', 'startLibraryWorkflow', 'deletePersonalLibraryEntry',
+  'revertPersonalLibraryRevision', 'importPersonalLibrary'
 ];
 const previewMethods = new Set([
   'readArtifact', 'readArtifactPreview', 'downloadArtifact', 'readArtifactChunk',
@@ -32,6 +40,8 @@ for (const method of writes) descriptors[method] = Object.freeze({ retrySafe: fa
 for (const method of ['getTaskSchedule', 'getBrowserRuntimeState']) {
   descriptors[method] = Object.freeze({ retrySafe: true, internal: true });
 }
+descriptors.interruptWorkflowRecording = Object.freeze({ retrySafe: false, internal: true });
+descriptors.ingestWorkflowRecordingEvent = Object.freeze({ retrySafe: false, internal: true });
 descriptors.runDueTasks = Object.freeze({ retrySafe: false, internal: true });
 export const WORKSPACE_RPC_METHODS = Object.freeze(descriptors);
 

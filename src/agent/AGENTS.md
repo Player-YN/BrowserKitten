@@ -185,3 +185,12 @@ BYOK：`llm.js` → `browserbot_providers`。推理 / 生图 / 转写各有独�
 ## Session 意图状态（已停用注入）
 
 `intentState.js` 与 `/context/intent.md` 仍保留在磁盘上，产品路径不再提取、不再注入。不要恢复每条消息的独立意图请求。
+
+
+## 自定义工具与 Workflow
+
+个人库独立于 Session Workspace，数据在 `browserbot-personal-library-v1`，实现 `sessionWorkspace/personalLibraryStore.js`。同库事务原子发布/回退/导入，生产存储失败拒绝写入，不回退内存。完整定义和历史不受聊天删除影响；格式及运行时版本显式校验。
+
+制作走普通新会话，service 保存制作合同到 session，每轮追加到系统指令。模型只写 `/artifacts/library-draft.json`；UI `refreshLibraryDraft` 读取并验证身份/参数，`publishLibraryDraft` 要求用户已看过的 revision。不能把 publish 暴露给模型、guest sys 或 preview。
+
+工具走 `personalLibraryRunner.js` 的 QuickJS + `fs/sys`，不调模型；service 登记执行槽位并复用 `_gatedSys`、取消、journal 与租约清理。文字 Workflow（Agent 任务）将发布快照放入新会话指导，再走 sendMessage。结构化 Workflow（自动化）由 `workflow/service.js` / `engine.js` 无模型顺序执行，复用原有门与执行槽位。WorkflowRun 及录制记录存于个人库 schema 2，定义和运行分离，旧 schema 1 可读。每次派发前持久化 attempt；恢复必须由用户触发，未知副作用不能盲重放。它们都不是 durable task 或后台调度。详见 [Workflow v1](../../docs/WORKFLOW_V1.md)。详见 [个人库合同](../../docs/PERSONAL_LIBRARY.md)。

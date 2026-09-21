@@ -44,8 +44,7 @@ body {
 
 .topbar,
 .listen-grant-bar,
-.composer,
-.attachment-preview-bar {
+.composer {
   flex-shrink: 0;
   position: relative;
   z-index: 2;
@@ -251,8 +250,7 @@ body {
   position: relative;
   z-index: 3;
 }
-.panel.is-home-working .composer,
-.panel.is-home-working .attachment-preview-bar {
+.panel.is-home-working .composer {
   position: relative;
   z-index: 4;
 }
@@ -289,9 +287,6 @@ body {
   opacity: 0.75;
 }
 
-.panel.is-home-empty .attachment-preview-bar:not([hidden]) {
-  margin: 0 0 8px;
-}
 
 /* Shared names for first-message dock motion (View Transitions) */
 .panel.is-home-empty .composer,
@@ -570,14 +565,6 @@ body {
     max-width: 100%;
   }
 
-  .selection-bar .sel-toolbar,
-  .selection-bar:not(.is-empty) .sel-toolbar {
-    grid-template-columns: auto auto auto minmax(0, 1fr);
-    grid-template-areas:
-      'pick shot pin group'
-      'summary summary summary actions';
-  }
-
   .sel-label {
     display: none;
   }
@@ -645,16 +632,6 @@ body {
     font-size: 11px;
   }
 
-  .access-policy-chip {
-    font-size: 0;
-    min-height: 28px;
-    padding: 3px 7px;
-  }
-  .access-policy-chip::before {
-    content: attr(data-short);
-    font-size: 11px;
-    font-weight: 650;
-  }
 
   .context-usage-popover {
     width: min(260px, calc(100vw - 12px));

@@ -40,6 +40,7 @@ export function canonicalPayload(input = {}) {
     ref: input.ref || '',
     name: input.name || input.label || '',
     key: input.key || '',
+    ...(input.deltaY != null ? { deltaY: input.deltaY } : {}),
     url: input.frameUrl || input.url || '',
     frameUrl: input.frameUrl || '',
     method: input.method || '',

@@ -7,7 +7,7 @@ import {
   STORAGE_ACTIVE_PROVIDER_ID,
   STORAGE_PROVIDERS
 } from './brand.js';
-import { handleWorkspacePageAction, invalidatePageActionTarget } from './agent/vnext/host/pageActionHost.js';
+import { handleWorkspacePageAction, invalidatePageActionTarget, ensurePageActionScripts } from './agent/vnext/host/pageActionHost.js';
 import { dropListenGrantsForTab } from './agent/vnext/host/tabListen.js';
 import { assertWorkspaceRpc, workspaceSenderRole } from './agent/vnext/host/workspaceRpcContract.js';
 import { createWorkspaceRpcTransport } from './agent/vnext/host/workspaceRpcTransport.js';
@@ -23,6 +23,7 @@ import { bindAccessPolicyChromeListener, readEffectiveAccessPolicy, writeAccessP
 import { configureTabLeasePersistence, readTabLease, removeTabLease } from './agent/vnext/host/tabLease.js';
 import { releaseBrowserExecution, reconcileBrowserExecutions } from './agent/vnext/host/browserExecution.js';
 import { createTaskScheduler, resolveTaskPage } from './agent/vnext/host/taskScheduler.js';
+import { createWorkflowHost } from './agent/vnext/host/workflowHost.js';
 import {
   isBrowserBotPageUrl,
   isLockableWorkPageUrl,
@@ -83,6 +84,14 @@ const forwardWorkspaceRpc = createWorkspaceRpcTransport({
   ensureRuntime: ensureBrowserBotOffscreen,
   send: payload => chrome.runtime.sendMessage(payload)
 });
+const workflowHost = createWorkflowHost({
+  chromeLike: chrome,
+  rpc: forwardWorkspaceRpc,
+  ensureContentScripts: tabId => ensurePageActionScripts(tabId)
+});
+// storage.session may outlive the worker. Loading immediately forces any stale
+// active capture into paused before a page can submit another event.
+void workflowHost.load().catch(error => console.warn('[workflow] host recovery failed', error));
 
 // Settings events wake discovery even if no workspace is open. Cache writes do not retrigger it.
 let mediaSettingsTimer;
@@ -1089,6 +1098,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
   if (request?.action === 'session_workspace_event' && senderRole !== 'offscreen') return false;
+  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_workflow_host') {
+    if (!isBrowserBotOffscreenSender(sender)) {
+      sendResponse({ ok: false, code: 'SYS_DENIED', error: 'Workflow host requires the offscreen runtime.' });
+      return false;
+    }
+    workflowHost.handle(request.op, request)
+      .then(result => sendResponse({ ok: true, result }))
+      .catch(error => sendResponse({ ok: false, code: error?.code || 'WORKFLOW_HOST', error: error?.message || String(error) }));
+    return true;
+  }
+  if (request?.action === 'workflow_record_status') {
+    workflowHost.status(sender)
+      .then(result => sendResponse({ ok: true, ...result }))
+      .catch(error => sendResponse({ ok: false, code: error?.code || 'WORKFLOW_HOST', error: error?.message || String(error) }));
+    return true;
+  }
+  if (request?.action === 'workflow_record_event') {
+    workflowHost.recordMessage(request, sender)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ ok: false, code: error?.code || 'WORKFLOW_HOST', error: error?.message || String(error) }));
+    return true;
+  }
   if (['storage_local_get', 'storage_local_set', 'storage_session_get', 'storage_session_set',
         'workspace_get_llm_settings', 'workspace_policy_get', 'workspace_policy_set',
         'workspace_ticket_put', 'workspace_ticket_drop'].includes(request?.action) &&
@@ -1356,12 +1387,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_capture_fragile') {
+    const frameId = Number.isFinite(Number(request.frameId)) ? Number(request.frameId) : 0;
+    const sendOptions = { frameId };
+    if (request.documentId) sendOptions.documentId = String(request.documentId);
     chrome.tabs.sendMessage(Number(request.tabId), {
       action: 'workspace_capture_item',
       selector: request.selector || null,
       src: request.src || null,
+      frameId,
+      ...(request.documentId ? { documentId: String(request.documentId) } : {}),
+      ...(request.locatorFingerprint ? { locatorFingerprint: request.locatorFingerprint } : {}),
+      ...(request.locator ? { locator: request.locator } : {}),
       captureBytes: request.captureBytes === true
-    }).then((result) => sendResponse(result || { ok: false, error: 'empty capture result' }))
+    }, sendOptions).then((result) => sendResponse(result || { ok: false, error: 'empty capture result' }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
     return true;
   }
@@ -1790,6 +1828,17 @@ watchMentionableOpenTabs();
 
 for (const event of ['onBeforeNavigate', 'onCommitted', 'onHistoryStateUpdated', 'onReferenceFragmentUpdated']) {
   chrome.webNavigation?.[event]?.addListener(details => invalidatePageActionTarget(details.tabId));
+}
+chrome.tabs.onCreated?.addListener(tab => {
+  void workflowHost.tabCreated(tab).catch(error => console.warn('[workflow] new tab record failed', error));
+});
+chrome.tabs.onActivated?.addListener(info => {
+  void workflowHost.activated(info).catch(error => console.warn('[workflow] focus record failed', error));
+});
+for (const event of ['onCommitted', 'onHistoryStateUpdated']) {
+  chrome.webNavigation?.[event]?.addListener(details => {
+    void workflowHost.navigation(details).catch(error => console.warn('[workflow] navigation record failed', error));
+  });
 }
 chrome.tabs.onReplaced?.addListener((_added, removed) => {
   invalidatePageActionTarget(removed);

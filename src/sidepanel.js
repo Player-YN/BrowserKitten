@@ -100,7 +100,6 @@ import {
   countAimedItems,
   createExecutionStatus,
   disclosureMode,
-  formatAimingText,
   projectStatusForSessionStash,
   shouldKeepApprovalVisible
 } from './sidepanel/executionStatus.js';
@@ -108,6 +107,8 @@ import { createBotStatusUi } from './sidepanel/botStatusUi.js';
 import { createTurnDisclosureUi } from './sidepanel/turnDisclosureUi.js';
 import { createContextUsageUi, projectContextUsage } from './sidepanel/contextUsageUi.js';
 import { createAccessPolicyUi } from './sidepanel/accessPolicyUi.js';
+import { createPersonalLibraryUi, collectPersonalLibraryInput } from './sidepanel/personalLibraryUi.js';
+import { createWorkflowUi } from './sidepanel/workflowUi.js';
 import { createApprovalUi } from './sidepanel/approvalUi.js';
 import { approvalBelongsToSession } from './sidepanel/sessionIsolation.js';
 import { buildZipStore } from './agent/vnext/sessionWorkspace/pptxExport.js';
@@ -652,6 +653,7 @@ function initSidePanel() {
   loadSavedPreferences();
   loadPersistentSessions();
   safe('setupCoreEventListeners', setupCoreEventListeners);
+  safe('setupPersonalLibrary', setupPersonalLibrary);
   safe('setupAgentSettingsModal', setupAgentSettingsModal);
   safe('setupTrajectoryExportModal', setupTrajectoryExportModal);
   safe('setupSkillsSettings', setupSkillsSettings);
@@ -732,12 +734,8 @@ function setupHoverDrawers() {
       body: $('selExpandBody') || selectionBar.querySelector('[data-drawer-body]'),
       group: 'selection',
       exclusive: true,
-      // Progressive: only expand when there is selection chrome or clipboard pins
-      canOpen: () => {
-        const hasClip = getClipboardPins().length > 0;
-        const hasSel = (selectedElementsSummary || []).length > 0;
-        return hasSel || hasClip;
-      },
+      // Collection management remains reachable even before the first pick.
+      interactionRoots: [$('groupSelectMenu'), $('clipExportMenu')],
       onOpen: () => {
         selectionBar.classList.add('is-drawer-open');
         selectionBar.setAttribute('aria-expanded', 'true');
@@ -751,6 +749,7 @@ function setupHoverDrawers() {
         selectionBar.classList.remove('is-drawer-open');
         selectionBar.setAttribute('aria-expanded', 'false');
         clipDrawerOpen = false;
+        setGroupSelectOpen(false);
         closeExportMenu();
         const clipEl = $('clipDrawer');
         clipEl?.classList.remove('is-drawer-open');
@@ -1008,6 +1007,9 @@ function applyI18n() {
   updatePickerButtonState(isPickerActive);
   setStatus(isAgentRunning ? 'running' : 'ready');
   syncReasoningSwitch();
+  personalLibraryUi?.render();
+  renderPersonalLibraryDraft();
+  renderPersonalLibraryRun();
   restartComposerTypewriter();
   taskStatusUi.render();
   refreshBotChrome();
@@ -1019,7 +1021,7 @@ let composerTypewriterTimer = 0;
 function composerTypeLines() {
   const lines = I18N[currentLang]?.composerTypeLines;
   if (Array.isArray(lines) && lines.length) return lines.map((s) => String(s));
-  const one = I18N[currentLang]?.inputPlaceholder || '选中，说要什么';
+  const one = I18N[currentLang]?.inputPlaceholder || '说说要完成什么，也可用 @ 引用网页内容';
   return [one];
 }
 
@@ -1430,11 +1432,11 @@ function renderMentionPalette(query, range) {
         'aria-label',
         expanded
           ? en
-            ? 'Collapse group'
-            : '收起组'
+            ? 'Collapse collection'
+            : '收起资料组'
           : en
-            ? 'Expand group'
-            : '展开组'
+            ? 'Expand collection'
+            : '展开资料组'
       );
       chevron.disabled = items.length === 0;
       chevron.innerHTML =
@@ -1456,7 +1458,7 @@ function renderMentionPalette(query, range) {
       gBtn.setAttribute('aria-selected', gIndex === mentionPaletteIndex ? 'true' : 'false');
       const gLabel = document.createElement('span');
       gLabel.className = 'mention-palette-label';
-      gLabel.textContent = group?.label || (en ? 'Group' : '组');
+      gLabel.textContent = group?.label || (en ? 'Collection' : '资料组');
       const gMeta = document.createElement('span');
       gMeta.className = 'mention-palette-meta';
       gMeta.textContent = String(group?.itemCount || items.length || 0);
@@ -1481,7 +1483,7 @@ function renderMentionPalette(query, range) {
       if (!items.length) {
         const vacant = document.createElement('div');
         vacant.className = 'mention-palette-empty';
-        vacant.textContent = en ? 'Empty group' : '组内还没有元素';
+        vacant.textContent = en ? 'Empty collection' : '资料组内还没有内容';
         sub.appendChild(vacant);
       } else {
         for (const c of items) {
@@ -1665,6 +1667,14 @@ function createMentionToken(candidate) {
       : candidate.kind === 'link'
         ? String(candidate.label || 'link')
         : `@${candidate.label}`;
+  if (candidate.kind === 'screenshot' && candidate.dataUrl) {
+    const thumb = document.createElement('img');
+    thumb.className = 'composer-mention-thumb';
+    thumb.src = candidate.dataUrl;
+    thumb.alt = '';
+    thumb.draggable = false;
+    chip.prepend(thumb);
+  }
   if (candidate.kind === 'link' && candidate.url) chip.title = String(candidate.url);
   if (candidate.kind === 'artifact' && candidate.id) {
     chip.title = currentLang === 'en' ? 'Open workspace file' : '打开工作区文件';
@@ -1790,7 +1800,8 @@ function insertPastedScreenshotChip(att) {
       kind: 'screenshot',
       id: `shot:${att.labelN || att.handle || label}`,
       label,
-      handle: att.handle || ''
+      handle: att.handle || '',
+      dataUrl: att.dataUrl
     })
   ]);
 }
@@ -2075,11 +2086,9 @@ function botStatusContext(extra = {}) {
 function refreshBotChrome() {
   const el = $('composerAiming');
   if (el) {
-    const n = currentAimedCount();
-    el.textContent = formatAimingText(n, currentLang);
-    el.title = currentLang === 'en'
-      ? 'Full page is reachable. Aimed items are priority context, not a permission gate.'
-      : '整页可访问。瞄准项是优先上下文，不是权限门。';
+    const n = new Set(workspaceGroupState.boundGroupIds || []).size;
+    el.textContent = n ? t('referenceCount').replace('{n}', String(n)) : t('referenceNone');
+    el.title = t('referenceHint');
   }
   botStatusUi.apply({ type: 'aiming', count: currentAimedCount() }, botStatusContext());
   accessPolicyUi.renderChip?.();
@@ -2760,7 +2769,7 @@ function selectionCountsFrom(elements) {
     const href = String(el.href || '').trim();
     const hasPageHref = /^https?:/i.test(href) && !hrefLooksDownloadable(href);
     if (k === 'page') { /* counted below */ }
-    else if (k === 'text') text += 1;
+    else if (k === 'text' || k === 'container') text += 1;
     else if (k === 'image') {
       images += 1;
       if (hasPageHref) links += 1;
@@ -2809,7 +2818,7 @@ function clipboardGroupFromState(state = workspaceGroupState) {
 
 function groupDisplayName(group) {
   if (isClipboardGroup(group) || group?.kind === CLIPBOARD_GROUP_KIND) {
-    return currentLang === 'en' ? 'Clipboard' : '剪切板';
+    return currentLang === 'en' ? 'Clipboard' : '剪贴板';
   }
   return String(group?.name || '').trim();
 }
@@ -2830,6 +2839,8 @@ function getClipboardPins() {
       .map((it) => ({
         id: String(it.webItemId || it.id || ''),
         text: String(it.text || it.preview?.textSnippet || ''),
+        textRaw: String(it.textRaw || it.facets?.text || it.text || ''),
+        source: it.source || it.capture?.source || {},
         kind: it.kindHint || it.kind || 'text',
         pinned: true
       }))
@@ -2839,14 +2850,21 @@ function getClipboardPins() {
   return listClipboardItemsFromStore();
 }
 
+function clipboardUiKey(item = {}) {
+  const source = item.source && typeof item.source === 'object' ? item.source : {};
+  const scoped = source.tabId != null || source.frameId != null || source.url || source.documentId;
+  const body = String(item.textRaw || item.text || '').replace(/\s+/g, ' ').trim();
+  return `${body}|${scoped ? `${source.tabId ?? ''}:${source.frameId ?? ''}:${source.documentId || ''}:${source.url || ''}` : ''}`;
+}
+
 function pinTextsToClipboard(texts, { openDrawer = true, toast = true } = {}) {
   const toPin = (Array.isArray(texts) ? texts : [texts])
     .map((x) => (typeof x === 'string' ? { text: x } : x))
     .filter((x) => x && String(x.text || '').trim())
     .map((x) => ({ ...x, text: clipClipboardText(String(x.text)) })); // full text; host max only if MV3 would OOM
   if (!toPin.length) return [];
-  const existing = new Set(getClipboardPins().map((p) => p.text));
-  const fresh = toPin.filter((x) => !existing.has(String(x.text).trim()));
+  const existing = new Set(getClipboardPins().map(clipboardUiKey));
+  const fresh = toPin.filter((x) => !existing.has(clipboardUiKey(x)));
   if (!fresh.length) {
     if (toast) showQuickToast(t('toastClipDup'));
     if (openDrawer && getClipboardPins().length) {
@@ -2858,6 +2876,7 @@ function pinTextsToClipboard(texts, { openDrawer = true, toast = true } = {}) {
       }
       renderClipboardUI();
       renderQuickTools();
+      holdDrawerOpen('selection', 2000);
     }
     return [];
   }
@@ -2867,6 +2886,8 @@ function pinTextsToClipboard(texts, { openDrawer = true, toast = true } = {}) {
     const extras = fresh.map((f, i) => ({
       webItemId: f.id || `clip_tmp_${Date.now()}_${i}`,
       text: f.text,
+      textRaw: f.textRaw || f.text,
+      source: f.source || { clipboard: true },
       kindHint: f.kind || 'text',
       kind: f.kind || 'text'
     }));
@@ -2903,6 +2924,7 @@ function pinTextsToClipboard(texts, { openDrawer = true, toast = true } = {}) {
   }
   renderClipboardUI();
   renderQuickTools();
+  if (openDrawer) holdDrawerOpen('selection', 2000);
   return fresh;
 }
 
@@ -3081,6 +3103,7 @@ function renderClipboardUI() {
 }
 
 function renderQuickTools() {
+  updateSelectionSummary();
   const selExtra = $('selExtra');
   const quickTools = $('quickTools');
   const toolDlImg = $('toolDlImg');
@@ -3111,6 +3134,7 @@ function renderQuickTools() {
   setTool('toolDlSvg', nSvg);
   setTool('toolCoverLink', nCover);
   quickTools.hidden = !showHarvest;
+  if ($('directToolsLabel')) $('directToolsLabel').hidden = !showHarvest;
   const badgeImg = $('badgeImg');
   const badgeClip = $('badgeClip');
   if (badgeImg) badgeImg.textContent = String(nImg);
@@ -3232,36 +3256,28 @@ function exportClipboard(fmt) {
   showQuickToast(t('toastExportDone').replace('{fmt}', fmtLabel).replace('{n}', String(n)));
 }
 
-function renderSelectionUI() {
-  const skipChipRebuild = !!skipSelectionChipRebuild;
-  const elements = selectedElementsSummary || [];
+function updateSelectionSummary(elements = selectedElementsSummary || []) {
   const { text: nText, images: nImg, tables: nTable, links: nLink, vectors: nVec, videos: nVid, pages: nPage } =
     selectionCountsFrom(elements);
   const chipEmpty = elements.every((el) => !isSelectionChipKind(classifyElementKind(el)));
   const selectionBar = $('selectionBar');
   const selSummary = $('selSummary');
   const clearSelBtn = $('clearSelBtn');
-  const selChips = $('selChips');
   const hasClip = getClipboardPins().length > 0;
-  // Text goes to the clipboard drawer, not the chip row. Collapse only when
-  // there are no visual chips and no clipboard pins.
+  // Text lives in Clipboard, but its count remains visible in the collapsed summary.
   const barren = chipEmpty && !hasClip;
+  // A collection is only a destination for content already present in this drawer.
+  // Existing (including empty) collections must not make an otherwise empty picker
+  // surface look active.
+  const captureDestination = $('captureDestination');
+  if (captureDestination) captureDestination.hidden = barren;
+  if (barren && typeof setGroupSelectOpen === 'function') setGroupSelectOpen(false);
   if (selectionBar) {
     selectionBar.classList.toggle('is-empty', barren);
     selectionBar.classList.toggle('is-sel-empty', chipEmpty);
   }
-  if (selSummary) selSummary.hidden = chipEmpty;
+  if (selSummary) selSummary.hidden = barren;
   if (clearSelBtn) clearSelBtn.hidden = chipEmpty;
-  // Nothing to show → force-collapse expand (no empty giant panel)
-  if (barren && selectionBar?.classList.contains('is-drawer-open')) {
-    const pin = $('pinSelBtn');
-    if (!pin?.classList.contains('is-pinned')) {
-      selectionBar.classList.remove('is-drawer-open');
-      selectionBar.setAttribute('aria-expanded', 'false');
-      clipDrawerOpen = false;
-      $('selExpandBody')?.classList.remove('is-drawer-body-open');
-    }
-  }
   const pinSelBtn = $('pinSelBtn');
   if (pinSelBtn) {
     // Show pin when there is selection chrome or clipboard content to keep expanded
@@ -3273,23 +3289,8 @@ function renderSelectionUI() {
     pinSelBtn.setAttribute('data-title-unpinned', t('pinSel'));
     pinSelBtn.setAttribute('data-title-pinned', t('pinSelActive'));
   }
-  // Welcome suggestions: guide-only when empty; else 3s-after-pick debounce
-  try {
-    scheduleSelectionSuggestions();
-  } catch (_) {}
-  // First selection → work surface (dock composer, hide hero logo) like post-send
-  try {
-    syncHomeWorkSurfaceLayout();
-  } catch (_) {}
-  // Visual chips or a clipboard pin: keep the panel awake after the last click
-  if (!chipEmpty || hasClip || nText > 0) {
-    try {
-      holdDrawerOpen('selection', 2000);
-    } catch (_) {}
-  }
-
   [
-    ['text', 0, 'countText'],
+    ['text', getClipboardPins().length, 'countText'],
     ['image', nImg, 'countImage'],
     ['table', nTable, 'countTable'],
     ['link', nLink, 'countLink'],
@@ -3305,6 +3306,28 @@ function renderSelectionUI() {
       el.classList.toggle('has-count', n > 0);
     }
   });
+  return { chipEmpty, hasClip, nText };
+}
+
+function renderSelectionUI() {
+  const skipChipRebuild = !!skipSelectionChipRebuild;
+  const elements = selectedElementsSummary || [];
+  const { chipEmpty, hasClip, nText } = updateSelectionSummary(elements);
+  const selChips = $('selChips');
+  // Welcome suggestions: guide-only when empty; else 3s-after-pick debounce
+  try {
+    scheduleSelectionSuggestions();
+  } catch (_) {}
+  // First selection → work surface (dock composer, hide hero logo) like post-send
+  try {
+    syncHomeWorkSurfaceLayout();
+  } catch (_) {}
+  // Visual chips or a clipboard pin: keep the panel awake after the last click
+  if (!chipEmpty || hasClip || nText > 0) {
+    try {
+      holdDrawerOpen('selection', 2000);
+    } catch (_) {}
+  }
 
   if (!selChips) {
     renderQuickTools();
@@ -3521,7 +3544,9 @@ async function revealCapturedElement(item) {
 
     const tab = await chrome.tabs.get(tabId);
     const currentUrl = tab?.url || '';
-    const needNav = !!(wantUrl && !pageViewsMatch(currentUrl, wantUrl));
+    const frameId = Number.isInteger(item.frameId ?? item.source?.frameId) ? (item.frameId ?? item.source?.frameId) : 0;
+    const documentId = String(item.documentId || item.source?.documentId || '');
+    const needNav = frameId === 0 && !!(wantUrl && !pageViewsMatch(currentUrl, wantUrl));
     if (needNav) {
       await chrome.tabs.update(tabId, { active: true, url: wantUrl });
     } else {
@@ -3540,9 +3565,10 @@ async function revealCapturedElement(item) {
       src: item.src || item.preview?.src || '',
       text: item.text || item.preview?.textSnippet || '',
       tag: item.tag || item.tagName || item.preview?.tagName || '',
+      locatorFingerprint: item.locatorFingerprint || item.locator?.fingerprint,
       localIndex: item.localIndex
     };
-    const res = await chrome.tabs.sendMessage(tabId, payload);
+    const res = await chrome.tabs.sendMessage(tabId, payload, { frameId, ...(documentId ? { documentId } : {}) });
     if (res?.status === 'not_found') {
       showQuickToast(
         currentLang === 'en'
@@ -3581,7 +3607,7 @@ function updatePickerButtonState(active) {
     pickBtn.setAttribute('aria-pressed', isPickerActive ? 'true' : 'false');
     const pickLabel = isPickerActive ? t('pickBtnActive') : t('pickBtn');
     pickBtn.setAttribute('aria-label', pickLabel);
-    pickBtn.title = pickLabel;
+    pickBtn.title = t('pickHint');
   }
   if (pickBtnLabel) pickBtnLabel.textContent = isPickerActive ? t('pickBtnActive') : t('pickBtn');
   if (selectionBar) selectionBar.classList.toggle('is-picking', isPickerActive);
@@ -3980,10 +4006,11 @@ function syncHomeWorkSurfaceLayout() {
       }
     }
   } else {
-    // —— Return to Logo home ——
+    // Close only when clearing the last capture, not while opening empty collection controls.
+    const wasWorking = panel.classList.contains('is-home-working');
     panel.classList.remove('is-home-working');
     // Clearing page selection must not tear down leftover clipboard.
-    if (getClipboardPins().length === 0) {
+    if (wasWorking && getClipboardPins().length === 0) {
       try {
         setDrawerPinned('selection', false);
         closeDrawer('selection', { force: true });
@@ -4121,6 +4148,7 @@ function showWelcome() {
     <div class="home-center" id="homeCenter">
       <div class="home-mark home-mark-hero" aria-hidden="true"></div>
       <div class="home-composer-slot" id="homeComposerSlot"></div>
+      <p class="suggestion-note" data-i18n="suggestionSendHint">${escapeHtml(t('suggestionSendHint'))}</p>
       <div class="hint-chips" id="hintChips"></div>
     </div>
   `;
@@ -4262,6 +4290,8 @@ function renderHintChips(items) {
     btn.type = 'button';
     btn.className = 'hint-chip';
     btn.textContent = item.label;
+    btn.title = t('suggestionSendHint');
+    btn.setAttribute('aria-label', `${item.label} · ${t('suggestionSendHint')}`);
     btn.setAttribute('data-prompt', item.prompt);
     btn.addEventListener('click', () => {
       if (isCurrentSessionRunning()) return;
@@ -5423,6 +5453,7 @@ function createNewSession() {
   renderHistoryList();
   void taskStatusUi.refresh();
   void refreshArtifactShelf();
+  void refreshPersonalLibraryDraft().catch(() => {});
   void refreshWorkspaceGroupState();
   applyContextUsage({});
   sheetSelState = emptySheetSel(id);
@@ -5453,8 +5484,8 @@ async function deleteSessionById(sessionId, sessionName) {
   const label = String(sessionName || '').trim() || doomedId;
   const ok = await confirmInApp(
     currentLang === 'en'
-      ? `Delete task “${label}”? Messages and workspace files will be removed. Selection groups are kept.`
-      : `删除任务「${label}」？消息和工作区文件将被清除，Selection Group 会保留。`,
+      ? `Delete task “${label}”? Messages and workspace files will be removed. Collections are kept.`
+      : `删除任务「${label}」？消息和工作区文件将被清除，资料组会保留。`,
     currentLang === 'en' ? 'Delete task' : '删除任务',
     { danger: true }
   );
@@ -5516,7 +5547,7 @@ function switchSession(sessionId) {
   activeSessionId = sessionId;
   loadLiveFromSession(sessionId);
   void taskStatusUi.refresh();
-  void hydrateActiveSessionThread().then(() => {
+  const hydration = hydrateActiveSessionThread().then(() => {
     if (getWorkspaceSessionId() !== sessionId) return;
     hideForeignSessionThreads(sessionId);
     restoreClarifyForSession(sessionId);
@@ -5550,6 +5581,8 @@ function switchSession(sessionId) {
     if (liveTask?.body) rebindHistoryThinkBlocks(liveTask.body);
   }
   restoreClarifyForSession(sessionId);
+  void libraryAction(refreshPersonalLibraryDraft);
+  return hydration;
 }
 
 function openMoreSheet() {
@@ -5971,36 +6004,28 @@ function renderAttachmentPreviews() {
       att.labelKind && att.labelN
         ? formatItemLabel(att.labelKind, att.labelN, itemLabelLang())
         : att.name;
-    const src = String(att.source || '').toLowerCase();
-    const isShotChip =
-      att.isImage &&
-      (att.labelKind === 'screenshot' ||
-        src === 'paste' ||
-        src === 'screenshot' ||
-        src === 'hotkey' ||
-        src === 'button');
-    if (isShotChip) {
-      chip.className = 'sel-chip has-remove';
-      chip.dataset.kind = 'image';
-      chip.innerHTML = `<span class="thumb" aria-hidden="true"></span><span class="label">${escapeHtml(truncateUi(shown, 18))}</span><button type="button" class="chip-x" aria-label="remove">×</button>`;
-      const thumb = chip.querySelector('.thumb');
-      if (thumb && att.dataUrl) {
-        thumb.style.backgroundImage = `url("${att.dataUrl}")`;
-        thumb.style.backgroundSize = 'cover';
-        thumb.style.backgroundPosition = 'center';
-      }
-      chip.querySelector('.chip-x').addEventListener('click', () => {
-        pendingAttachments.splice(i, 1);
-        renderAttachmentPreviews();
-      });
-    } else {
-      chip.className = 'attachment-chip';
-      chip.innerHTML = `<span>${att.isImage ? '🖼️' : '📄'} ${escapeHtml(truncateUi(shown, 18))}</span><button type="button" aria-label="remove">×</button>`;
-      chip.querySelector('button').addEventListener('click', () => {
-        pendingAttachments.splice(i, 1);
-        renderAttachmentPreviews();
-      });
+    chip.className = 'attachment-chip';
+    chip.title = shown || '';
+    if (att.isImage && att.dataUrl) {
+      const thumb = document.createElement('img');
+      thumb.className = 'attachment-thumb';
+      thumb.src = att.dataUrl;
+      thumb.alt = '';
+      chip.appendChild(thumb);
     }
+    const label = document.createElement('span');
+    label.className = 'attachment-label';
+    label.textContent = shown || '';
+    chip.appendChild(label);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', currentLang === 'en' ? `Remove ${shown}` : `移除 ${shown}`);
+    remove.addEventListener('click', () => {
+      pendingAttachments.splice(i, 1);
+      renderAttachmentPreviews();
+    });
+    chip.appendChild(remove);
     bar.appendChild(chip);
   });
 }
@@ -6820,6 +6845,25 @@ function handleSessionWorkspaceEvent(request) {
   const ev = request.event || request;
   const sid = String(ev.sessionId || request.sessionId || '');
   const foreground = getWorkspaceSessionId();
+  if (ev.type === 'workflow-run' || ev.type === 'workflow-recording') {
+    workflowUi?.handleEvent?.(ev);
+    return true;
+  }
+
+  // Deterministic scripts have their own output card. Do not seal or rewrite
+  // the previous Agent turn when a script finishes in the same conversation.
+  if (['personal-tool', 'workflow'].includes(ev.executionKind) && ['execution-start', 'execution-end'].includes(ev.type)) {
+    const running = ev.type === 'execution-start';
+    uiState(sid).running = running;
+    uiState(sid).executionId = running ? ev.executionId : null;
+    if (sid === foreground) {
+      currentWorkspaceTaskId = running ? ev.executionId : null;
+      setAgentRunningUi(running);
+      if (!running) approvalUi.hide(sid);
+    }
+    renderSessionRailList();
+    return true;
+  }
 
   if (!sid || sid === foreground) {
     botStatusUi.apply(ev, botStatusContext({ task: ev.task }));
@@ -6838,6 +6882,12 @@ function handleSessionWorkspaceEvent(request) {
   }
 
   if (taskStatusUi.handleWorkspaceEvent(ev)) return true;
+
+  if (ev?.type === 'personal-library-draft' || ev?.type === 'personal-library-published') {
+    void libraryAction(() => personalLibraryUi?.refresh());
+    if (sid === foreground) void libraryAction(refreshPersonalLibraryDraft);
+    return true;
+  }
 
   if (ev?.type === 'session-title') {
     applySessionTitle(ev.title || ev.sessionTitle, sid || foreground);
@@ -7750,8 +7800,207 @@ function submitCustomPrompt(promptText) {
   const promptInput = composerEl();
   if (promptInput) {
     setComposerPlainText(promptText, promptInput);
-    submitUserPrompt();
+    return submitUserPrompt();
   }
+}
+
+let personalLibraryUi = null;
+let workflowUi = null;
+let personalLibraryDraft = null;
+let personalLibraryDraftSequence = 0;
+const personalLibraryRuns = new Map();
+
+function renderPersonalLibraryDraft() {
+  const draft = personalLibraryDraft;
+  const card = $('personalLibraryDraftCard');
+  if (!card) return;
+  card.hidden = !draft;
+  if (!draft) return;
+  const code = String(draft.kind === 'tool' ? draft.code || '' : draft.workflow ? JSON.stringify(draft.workflow, null, 2) : draft.instructions || '');
+  const ready = Boolean(draft.name?.trim() && code.trim());
+  $('personalLibraryDraftName').textContent = draft.name || t('libraryDraft');
+  $('personalLibraryDraftStatus').textContent = `${t(ready ? 'libraryReady' : 'libraryMaking')} · v${draft.revision}`;
+  $('personalLibraryDraftCode').textContent = [draft.description, code].filter(Boolean).join('\n\n');
+  $('personalLibraryDraftPublish').textContent = t(draft.baseEntryId ? 'libraryUpdate' : 'libraryAdd');
+  $('personalLibraryDraftPublish').disabled = !ready;
+  $('personalLibraryDraftRun').disabled = !ready;
+  $('personalLibraryDraftRefresh').textContent = draft.workflow?.version === 1 ? t('libraryEdit') : t('libraryRefresh');
+}
+
+function renderPersonalLibraryRun() {
+  const state = personalLibraryRuns.get(getWorkspaceSessionId());
+  const card = $('personalLibraryRunCard');
+  if (!card) return;
+  card.hidden = !state;
+  if (!state) return;
+  $('personalLibraryRunName').textContent = state.name;
+  $('personalLibraryRunOutput').textContent = state.running ? t('libraryRunning') : state.text;
+  $('personalLibraryRunStop').hidden = !state.running;
+  $('personalLibraryRunDismiss').hidden = state.running;
+}
+
+async function refreshPersonalLibraryDraft() {
+  const sequence = ++personalLibraryDraftSequence;
+  const sessionId = getWorkspaceSessionId();
+  personalLibraryDraft = null; renderPersonalLibraryDraft(); renderPersonalLibraryRun();
+  const result = await workspaceRpc('getPersonalLibraryDraftBySession', { sessionId });
+  if (sequence !== personalLibraryDraftSequence || sessionId !== getWorkspaceSessionId()) return null;
+  personalLibraryDraft = result?.draft || null;
+  renderPersonalLibraryDraft();
+  return personalLibraryDraft;
+}
+
+function libraryAction(fn) {
+  return Promise.resolve().then(fn).catch(error => showQuickToast(String(error?.message || error)));
+}
+
+function libraryResultText(result) {
+  return [result?.ok === false ? result.error || t('libraryFailed') : t('libraryDone'),
+    result?.stdout, result?.stderr,
+    result?.result == null ? '' : typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2),
+    result?.artifacts?.length ? `${t('libraryOutputs')}: ${result.artifacts.map(row => row.name).join(', ')}` : ''
+  ].filter(Boolean).join('\n');
+}
+
+async function runLibraryScript(entry, input, draft = false) {
+  const sessionId = draft ? entry.sessionId : getWorkspaceSessionId();
+  const existing = personalLibraryRuns.get(sessionId);
+  if (existing?.running) throw new Error(t('libraryBusy'));
+  const state = { name: entry.name, running: true, text: '', sessionId };
+  personalLibraryRuns.set(sessionId, state); renderPersonalLibraryRun();
+  $('personalLibraryRunCard')?.scrollIntoView?.({ block: 'nearest' });
+  try {
+    const activeTab = await activeTabContext();
+    const result = await workspaceRpc(draft ? 'runLibraryDraft' : 'runPersonalLibraryTool', {
+      ...(draft ? { draftId: entry.draftId, expectedRevision: entry.revision } : { entryId: entry.entryId }),
+      input, sessionId, activeTab
+    });
+    state.text = libraryResultText(result);
+  } catch (error) {
+    state.text = String(error?.message || error);
+  } finally { state.running = false; renderPersonalLibraryRun(); }
+}
+
+async function startLibraryWorkflowUi(entry, input, draft = false) {
+  const result = await workspaceRpc(draft ? 'runLibraryDraft' : 'startLibraryWorkflow', {
+    ...(draft ? { draftId: entry.draftId, expectedRevision: entry.revision } : { entryId: entry.entryId }),
+    input, activeTab: await activeTabContext(), lang: currentLang
+  });
+  await adoptLibrarySession(result.sessionId, result.title || entry.name);
+  return submitCustomPrompt(result.content);
+}
+
+function setupPersonalLibrary() {
+  const startAgentWorkflowCreation = async entry => {
+    const made = await workspaceRpc('startLibraryCreation', { kind: 'workflow', entryId: entry?.entryId, lang: currentLang });
+    await adoptLibrarySession(made.sessionId, made.title);
+    personalLibraryDraft = made.draft; renderPersonalLibraryDraft();
+    return submitCustomPrompt(made.content);
+  };
+  workflowUi = typeof createWorkflowUi === 'function' ? createWorkflowUi({
+    $, rpc: workspaceRpc, getLang: () => currentLang,
+    getActiveTab: activeTabContext,
+    prompt: (title, initial) => promptInApp(title, initial, initial),
+    toast: showQuickToast,
+    onError: error => showQuickToast(String(error?.message || error)),
+    onCreateAgent: () => startAgentWorkflowCreation(),
+    onRunSession: (sessionId, name) => adoptLibrarySession(sessionId, name),
+    onPublished: () => personalLibraryUi?.refresh()
+  }) : {
+    chooseCreate: () => startAgentWorkflowCreation(),
+    open: ({ published } = {}) => startAgentWorkflowCreation(published),
+    runPublished: (published, input) => startLibraryWorkflowUi(published, input)
+  };
+  personalLibraryUi = createPersonalLibraryUi({
+    $, rpc: workspaceRpc, t,
+    onError: error => showQuickToast(String(error?.message || error)),
+    getPins: async () => (await chrome.storage.local.get('browserbot_library_shortcuts')).browserbot_library_shortcuts || [],
+    setPins: ids => chrome.storage.local.set({ browserbot_library_shortcuts: ids }),
+    workflowLabel: () => currentLang === 'en' ? 'Automation' : '自动化',
+    agentTaskLabel: () => currentLang === 'en' ? 'Agent task' : 'Agent 任务',
+    create: async (kind, entry = null) => {
+      personalLibraryUi.close();
+      if (kind === 'workflow' && entry?.workflow?.version === 1) return workflowUi.open({ published: entry });
+      if (kind === 'workflow' && !entry) return workflowUi.chooseCreate();
+      if (kind === 'workflow') return startAgentWorkflowCreation(entry);
+      const made = await workspaceRpc('startLibraryCreation', { kind, entryId: entry?.entryId, lang: currentLang });
+      await adoptLibrarySession(made.sessionId, made.title);
+      personalLibraryDraft = made.draft; renderPersonalLibraryDraft();
+      return submitCustomPrompt(made.content);
+    },
+    run: (entry, input) => entry.kind === 'workflow' ? (entry.workflow?.version === 1 ? workflowUi.runPublished(entry, input) : startLibraryWorkflowUi(entry, input)) : runLibraryScript(entry, input),
+    remove: async entry => {
+      // Removing a personal definition also removes its history: explicit UI confirmation.
+      personalLibraryUi.close();
+      const confirmed = await confirmInApp(t('libraryDeleteConfirm').replace('{name}', entry.name));
+      if (!confirmed) return personalLibraryUi.open(entry.kind);
+      await workspaceRpc('deletePersonalLibraryEntry', { entryId: entry.entryId, expectedRevision: entry.revision });
+      await personalLibraryUi.open(entry.kind);
+    },
+    revert: async entry => {
+      const { revisions } = await workspaceRpc('listPersonalLibraryRevisions', { entryId: entry.entryId });
+      const choices = revisions.filter(row => row.revision !== entry.revision);
+      if (!choices.length) throw new Error(t('libraryNoHistory'));
+      personalLibraryUi.close();
+      const title = `${t('libraryRevert')} · ${choices.map(row => `v${row.revision}`).join(', ')}`;
+      const picked = await promptInApp(title, String(choices[0].revision), String(choices[0].revision), value => choices.some(row => String(row.revision) === String(value)) ? '' : t('libraryChooseVersion'));
+      if (picked) await workspaceRpc('revertPersonalLibraryRevision', { entryId: entry.entryId, revision: Number(picked), expectedRevision: entry.revision });
+      await personalLibraryUi.open(entry.kind);
+    },
+    export: async () => {
+      const bundle = await workspaceRpc('exportPersonalLibrary', {});
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob); const link = document.createElement('a');
+      link.href = url; link.download = 'browser-kitten-library.json'; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    import: async file => {
+      if (!file) return;
+      if (file.size > 8 * 1024 * 1024) throw new Error(t('libraryImportSize'));
+      const result = await workspaceRpc('importPersonalLibrary', { bundle: JSON.parse(await file.text()) });
+      showQuickToast(`${t('libraryImported')}: ${result.imported.length} · ${t('librarySkipped')}: ${result.skipped.length}`);
+      await personalLibraryUi.refresh();
+    }
+  });
+  void personalLibraryUi.wire();
+  void libraryAction(() => workflowUi.restore?.());
+  $('personalLibraryDraftRefresh')?.addEventListener('click', () => libraryAction(async () => {
+    const draft = personalLibraryDraft; if (!draft) return;
+    if (draft.workflow?.version === 1) return workflowUi.openDraft(draft);
+    const { draft: refreshed } = await workspaceRpc('refreshLibraryDraft', { draftId: draft.draftId });
+    if (getWorkspaceSessionId() === draft.sessionId) { personalLibraryDraft = refreshed; renderPersonalLibraryDraft(); }
+  }));
+  $('personalLibraryDraftRun')?.addEventListener('click', () => libraryAction(async () => {
+    const draft = personalLibraryDraft; if (!draft) return;
+    if (draft.workflow?.version === 1) return workflowUi.openDraft(draft);
+    const input = await collectPersonalLibraryInput(draft, { t });
+    if (input === null) return;
+    if (draft.kind === 'workflow') await startLibraryWorkflowUi(draft, input, true);
+    else await runLibraryScript(draft, input, true);
+  }));
+  $('personalLibraryDraftPublish')?.addEventListener('click', () => libraryAction(async () => {
+    const draft = personalLibraryDraft; if (!draft) return;
+    await workspaceRpc('publishLibraryDraft', { draftId: draft.draftId, expectedRevision: draft.revision });
+    if (personalLibraryDraft?.draftId === draft.draftId) { personalLibraryDraft = null; renderPersonalLibraryDraft(); }
+    await personalLibraryUi.refresh();
+  }));
+  $('personalLibraryRunStop')?.addEventListener('click', () => libraryAction(async () => {
+    const state = personalLibraryRuns.get(getWorkspaceSessionId());
+    if (state?.running) await workspaceRpc('abortCurrentExecution', { sessionId: state.sessionId });
+  }));
+  $('personalLibraryRunDismiss')?.addEventListener('click', () => { personalLibraryRuns.delete(getWorkspaceSessionId()); renderPersonalLibraryRun(); });
+  void libraryAction(refreshPersonalLibraryDraft);
+}
+
+async function adoptLibrarySession(sessionId, name) {
+  if (!sessionId) throw new Error(t('libraryFailed'));
+  if (!sessions.some(session => session.id === sessionId)) sessions.push({ id: sessionId, name, messages: [] });
+  await switchSession(sessionId);
+}
+
+async function activeTabContext() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id ? { tabId: tab.id, url: tab.url || '' } : undefined;
 }
 
 function setupCoreEventListeners() {
@@ -8148,7 +8397,7 @@ function setupCoreEventListeners() {
     }
     if (request?.action === 'clipboard_text_picked') {
       const text = clipClipboardText(String(request.text || ''));
-      if (text.trim()) pinTextsToClipboard([{ text, kind: 'text' }], { openDrawer: true, toast: true });
+      if (text.trim()) pinTextsToClipboard([{ text, textRaw: String(request.textRaw || text), kind: 'text', source: { clipboard: true, tabId: sender?.tab?.id, frameId: sender?.frameId ?? 0, documentId: sender?.documentId || '', url: request.url || sender?.tab?.url || '', pageTitle: request.pageTitle || sender?.tab?.title || '' } }], { openDrawer: true, toast: true });
       sendResponse?.({ ok: true });
       return true;
     }
@@ -9047,8 +9296,8 @@ async function refreshWorkspaceGroupState() {
 }
 
 /**
- * Top toolbar: active Group for capture (where new selections go).
- * Composer meta: one Group bubble opens an upward bind list (no stacking chips).
+ * Drawer footer: collection receiving new picks.
+ * Composer: collections referenced by this chat (independent from capture destination).
  */
 function renderWorkspaceGroupControls() {
   const allGroups = Array.isArray(workspaceGroupState.groups) ? workspaceGroupState.groups : [];
@@ -9058,6 +9307,10 @@ function renderWorkspaceGroupControls() {
   const activeId = workspaceGroupState.activeGroupId || null;
   const preferNone = !activeId;
   const activeGroup = groups.find((g) => g.groupId === activeId) || null;
+  if ($('captureGroupHelp')) $('captureGroupHelp').hidden = !!activeGroup;
+  if ($('groupSelectTrigger')) $('groupSelectTrigger').title = activeGroup
+    ? t('captureGroupTitle')
+    : `${t('captureGroupTitle')} · ${t('captureAutoCreate')}`;
 
   // Hidden native select mirror
   const activeSelect = $('activeGroupSelect');
@@ -9065,7 +9318,7 @@ function renderWorkspaceGroupControls() {
     activeSelect.innerHTML = '';
     const none = document.createElement('option');
     none.value = '';
-    none.textContent = currentLang === 'en' ? 'No group' : '未选择组';
+    none.textContent = t('noCaptureGroup');
     none.selected = preferNone;
     activeSelect.appendChild(none);
     for (const group of groups) {
@@ -9081,7 +9334,7 @@ function renderWorkspaceGroupControls() {
   const labelEl = $('groupSelectLabel');
   if (labelEl) {
     if (preferNone || !activeGroup) {
-      labelEl.textContent = currentLang === 'en' ? 'No group' : '未选择组';
+      labelEl.textContent = t('noCaptureGroup');
     } else {
       const n = activeGroup.itemCount || 0;
       labelEl.textContent = n > 0 ? `${activeGroup.name} · ${n}` : activeGroup.name;
@@ -9099,7 +9352,7 @@ function renderWorkspaceGroupControls() {
     noneRow.setAttribute('role', 'option');
     noneRow.setAttribute('aria-selected', preferNone ? 'true' : 'false');
     noneRow.dataset.groupId = '';
-    noneRow.innerHTML = `<span class="group-select-item-name">${currentLang === 'en' ? 'No group' : '未选择组'}</span>`;
+    noneRow.innerHTML = `<span class="group-select-item-name">${t('noCaptureGroup')}</span>`;
     noneRow.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -9118,7 +9371,7 @@ function renderWorkspaceGroupControls() {
       const ren = document.createElement('button');
       ren.type = 'button';
       ren.className = 'group-select-item-rename';
-      ren.title = currentLang === 'en' ? 'Rename group' : '重命名组';
+      ren.title = currentLang === 'en' ? 'Rename collection' : '重命名资料组';
       ren.setAttribute('aria-label', currentLang === 'en' ? `Rename ${group.name}` : `重命名 ${group.name}`);
       ren.innerHTML =
         '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
@@ -9141,7 +9394,7 @@ function renderWorkspaceGroupControls() {
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'group-select-item-del';
-      del.title = currentLang === 'en' ? 'Delete group' : '删除组';
+      del.title = currentLang === 'en' ? 'Delete collection' : '删除资料组';
       del.setAttribute('aria-label', currentLang === 'en' ? `Delete ${group.name}` : `删除 ${group.name}`);
       del.textContent = '×';
       del.addEventListener('click', (e) => {
@@ -9169,7 +9422,7 @@ function renderWorkspaceGroupControls() {
     const n = bound.size;
     bindBtn.textContent = n > 0 ? `${t('bindGroupLabel')} · ${n}` : t('bindGroupLabel');
     bindBtn.classList.toggle('has-bound', n > 0);
-    bindBtn.title = t('bindGroupTitle');
+    bindBtn.title = `${t('bindGroupTitle')} · ${n > 0 ? t('referenceCount').replace('{n}', String(n)) : t('referenceNone')}`;
   }
   syncBindGroupHint();
 
@@ -9182,7 +9435,7 @@ function renderWorkspaceGroupControls() {
     if (!allGroups.length) {
       const empty = document.createElement('div');
       empty.className = 'session-bind-add-empty';
-      empty.textContent = currentLang === 'en' ? 'No groups yet' : '还没有 Group';
+      empty.textContent = currentLang === 'en' ? 'No collections yet' : '还没有资料组';
       listEl.appendChild(empty);
     } else {
       const clip = allGroups.filter((g) => isClipboardGroup(g) || g.kind === CLIPBOARD_GROUP_KIND);
@@ -9276,7 +9529,7 @@ async function createCaptureGroup() {
   }
   const defaultName = nextGroupName(existingGroupNames());
   const name = await promptInApp(
-    currentLang === 'en' ? 'New group name' : '新建 Group 名称',
+    currentLang === 'en' ? 'New collection name' : '新建资料组名称',
     defaultName,
     defaultName,
     (val) => groupNameConflict(val)
@@ -9307,7 +9560,7 @@ async function createCaptureGroup() {
 async function renameGroupById(groupId, currentName) {
   if (!groupId) return;
   const name = await promptInApp(
-    currentLang === 'en' ? 'Rename group' : '重命名 Group',
+    currentLang === 'en' ? 'Rename collection' : '重命名资料组',
     currentName || '',
     currentName || '',
     (val) => groupNameConflict(val, groupId)
@@ -9345,9 +9598,9 @@ async function deleteGroupById(groupId, name) {
   if (rec && (isClipboardGroup(rec) || rec.kind === CLIPBOARD_GROUP_KIND)) return;
   const ok = await confirmInApp(
     currentLang === 'en'
-      ? `Delete group “${name || groupId}”? This cannot be undone.`
-      : `删除 Group「${name || groupId}」？此操作无法撤销。`,
-    currentLang === 'en' ? 'Delete group' : '删除 Group',
+      ? `Delete collection “${name || groupId}”? This cannot be undone.`
+      : `删除资料组「${name || groupId}」？此操作无法撤销。`,
+    currentLang === 'en' ? 'Delete collection' : '删除资料组',
     { danger: true }
   );
   if (!ok) return;
@@ -9672,7 +9925,7 @@ function wireSessionContextBar() {
 async function syncTabSelectionToWorkspace(request, sender) {
   const tabId = sender?.tab?.id ?? request?.tabId;
   if (tabId == null) return;
-  const url = request?.url || sender?.tab?.url || '';
+  const url = sender?.url || request?.url || sender?.tab?.url || '';
   let origin = '';
   try { origin = url ? new URL(url).origin : ''; } catch {}
   try {
@@ -9682,6 +9935,8 @@ async function syncTabSelectionToWorkspace(request, sender) {
       url,
       origin,
       pageTitle: request?.pageTitle || sender?.tab?.title || '',
+      frameId: Number.isInteger(sender?.frameId) ? sender.frameId : (Number.isInteger(request?.frameId) ? request.frameId : 0),
+      documentId: String(sender?.documentId || request?.documentId || ''),
       elements: Array.isArray(request?.elements) ? request.elements : [],
       cleared: request?.cleared === true
     });
@@ -9708,6 +9963,8 @@ function pageLabelPayload(items) {
     .map((it) => ({
       selector: it.selector || it.locator?.css || '',
       src: it.src || it.preview?.src || '',
+      frameId: it.frameId ?? it.source?.frameId ?? 0,
+      documentId: it.documentId || it.source?.documentId || '',
       displayLabel: selectionDisplayLabel(it),
       labelKind: it.labelKind || '',
       labelN: it.labelN || 0
@@ -9720,7 +9977,18 @@ async function pushSelectionLabelsToTab(tabId, items) {
   const labels = pageLabelPayload(items);
   if (!labels.length) return;
   try {
-    await chrome.tabs.sendMessage(tabId, { action: 'apply_selection_labels', labels });
+    const byFrame = new Map();
+    for (const label of labels) {
+      const frameId = Number.isInteger(label.frameId) ? label.frameId : 0;
+      const key = `${frameId}:${label.documentId}`;
+      const bucket = byFrame.get(key) || { frameId, documentId: label.documentId, labels: [] };
+      bucket.labels.push(label); byFrame.set(key, bucket);
+    }
+    await Promise.all([...byFrame.values()].map((bucket) => chrome.tabs.sendMessage(
+      tabId,
+      { action: 'apply_selection_labels', labels: bucket.labels },
+      { frameId: bucket.frameId, ...(bucket.documentId ? { documentId: bucket.documentId } : {}) }
+    )));
   } catch (_) {}
 }
 
@@ -9743,14 +10011,54 @@ function pageItemsForActiveGroup(tabId, pageUrl, state = workspaceGroupState) {
     items.push({
       selector: it.selector || it.locator?.css || '',
       src: it.src || it.preview?.src || '',
+      href: it.href || '',
       text: it.text || it.preview?.textSnippet || '',
       tag: it.preview?.tagName || it.tag || it.kindHint || '',
+      kind: it.kindHint || it.kind || '',
+      scope: it.scope || 'element',
+      facets: it.facets,
+      locatorFingerprint: it.locatorFingerprint || it.locator?.fingerprint,
+      frameId: it.frameId ?? it.source?.frameId ?? 0,
+      documentId: it.documentId || it.source?.documentId || '',
       displayLabel: selectionDisplayLabel(it),
       labelKind: it.labelKind || '',
       labelN: it.labelN || 0
     });
   }
   return { group, items };
+}
+
+async function restoreItemsToFrames(tabId, items, { replace = true, silent = true } = {}) {
+  const byFrame = new Map();
+  for (const item of items || []) {
+    const frameId = Number.isInteger(item.frameId) ? item.frameId : 0;
+    const key = `${frameId}:${String(item.documentId || '')}`;
+    const bucket = byFrame.get(key) || { frameId, documentId: String(item.documentId || ''), items: [] };
+    bucket.items.push(item); byFrame.set(key, bucket);
+  }
+  const liveFrames = replace
+    ? await chrome.webNavigation.getAllFrames({ tabId }).catch(() => [{ frameId: 0 }])
+    : [];
+  for (const frame of liveFrames || []) {
+    const frameId = Number.isInteger(frame.frameId) ? frame.frameId : 0;
+    const legacyKey = `${frameId}:`;
+    const liveKey = `${frameId}:${String(frame.documentId || '')}`;
+    if (frame.documentId && byFrame.has(legacyKey) && !byFrame.has(liveKey)) {
+      const legacy = byFrame.get(legacyKey);
+      byFrame.delete(legacyKey);
+      byFrame.set(liveKey, { ...legacy, documentId: String(frame.documentId) });
+    }
+  }
+  for (const frame of liveFrames || []) {
+    const frameId = Number.isInteger(frame.frameId) ? frame.frameId : 0;
+    const key = `${frameId}:${String(frame.documentId || '')}`;
+    if (!byFrame.has(key)) byFrame.set(key, { frameId, documentId: String(frame.documentId || ''), items: [] });
+  }
+  if (!byFrame.size) byFrame.set('0:', { frameId: 0, documentId: '', items: [] });
+  return Promise.allSettled([...byFrame.values()].map(async (bucket) => {
+    const options = { frameId: bucket.frameId, ...(bucket.documentId ? { documentId: bucket.documentId } : {}) };
+    return chrome.tabs.sendMessage(tabId, { action: 'restore_selection', items: bucket.items, replace, silent }, options);
+  })).then((settled) => settled.filter((row) => row.status === 'fulfilled').map((row) => row.value));
 }
 
 /**
@@ -9765,12 +10073,7 @@ async function loadActiveGroupOntoPage() {
     const injected = await ensureContentScriptActive(tab.id);
     if (!injected) return;
     const { group, items } = pageItemsForActiveGroup(tab.id, tab.url || '');
-    await chrome.tabs.sendMessage(tab.id, {
-      action: 'restore_selection',
-      items,
-      replace: true,
-      silent: true
-    });
+    await restoreItemsToFrames(tab.id, items);
     if (tab.id != null) {
       if (items.length) {
         let domain = '网页';
@@ -9781,12 +10084,7 @@ async function loadActiveGroupOntoPage() {
           tabId: tab.id,
           domain,
           pageTitle: tab.title || '',
-          elements: items.map((el) => ({
-            selector: el.selector,
-            tag: el.tag,
-            text: el.text || '',
-            src: el.src || ''
-          }))
+          elements: items.map((el) => ({ ...el }))
         });
       } else {
         crossTabStore.delete(tab.id);
@@ -9835,14 +10133,9 @@ async function restoreBoundHighlightsToTab(tabId, pageUrl) {
       const { items } = pageItemsForActiveGroup(tabId, url, state);
       const injected = await ensureContentScriptActive(tabId);
       if (!injected) return false;
-      const res = await chrome.tabs.sendMessage(tabId, {
-        action: 'restore_selection',
-        items,
-        replace: true,
-        silent: true
-      });
+      const results = await restoreItemsToFrames(tabId, items);
       void pushSelectionLabelsToTab(tabId, items);
-      return (res?.added || 0) > 0 || (res?.count || 0) > 0 || items.length === 0;
+      return results.some((res) => (res?.added || 0) > 0 || (res?.count || 0) > 0) || items.length === 0;
     } catch (err) {
       lastErr = err;
       const msg = String(err?.message || err || '');
@@ -14381,8 +14674,8 @@ async function attachScreenshotToChat(payload) {
     att.labelKind = 'screenshot';
     att.labelN = lab.n;
     pendingAttachments.push(att);
-    renderAttachmentPreviews();
     if (payload.source === 'paste') insertPastedScreenshotChip(att);
+    renderAttachmentPreviews();
     // If SW clipboard inject failed, retry from Side Panel document
     if (!payload.clipboardOk) {
       try {

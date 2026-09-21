@@ -39,9 +39,9 @@ export function createAccessPolicyUi(deps) {
     el.hidden = false;
     el.dataset.mode = policy.mode === 'full' ? 'full' : 'guarded';
     el.dataset.source = policy.source || 'default';
-    el.textContent = accessChipLabel(policy, t);
-    el.dataset.short = policy.mode === 'full' ? 'Full' : 'Guarded';
-    el.title = accessChipTitle(policy, t);
+    const label = el.querySelector('.access-policy-label') || el;
+    label.textContent = accessChipLabel(policy, t);
+    el.title = `${accessChipLabel(policy, t)} — ${accessChipTitle(policy, t)}`;
     el.setAttribute('aria-label', el.title);
     return policy;
   }

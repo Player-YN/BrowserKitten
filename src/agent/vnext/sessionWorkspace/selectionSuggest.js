@@ -12,8 +12,8 @@ const PROMPT_MAX = 400;
 export function selectionSuggestSystem(lang = 'zh') {
   const zh = String(lang || '').toLowerCase().startsWith('zh');
   return [
-    'Browser Kitten is a Chrome selection-first agent. The user already captured items on a live page.',
-    'Suggest 2–4 next actions as chips. Clicking a chip sends that prompt as the user message.',
+    'Browser Kitten is a browser automation agent. Picking page content supports both direct tools (download, copy, export) and references for the agent. Tasks can start without a selection. The user already captured items on a live page.',
+    'Suggest 2–4 agent requests about the captured content as chips, distinct from the direct download/copy/export buttons. Clicking a chip sends that prompt as the user message.',
     'This product can deliver: a live spreadsheet, a real website, a document, image compose/generate, download of selected files, or cleaned extracted text.',
     'Do not suggest roaming other sites, mutating Selection Groups, or inventing facts not in the summary.',
     'Do not start a second file when one open canvas already matches the ask.',

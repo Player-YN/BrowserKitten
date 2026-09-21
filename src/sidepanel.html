@@ -95,6 +95,14 @@
         <span id="pageFavicon" hidden></span>
       </div>
       <div class="topbar-right">
+        <button type="button" class="access-policy-chip" id="accessPolicyChip" data-mode="guarded" title="守卫模式" aria-label="守卫模式">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3 4 6v5c0 5 8 10 8 10s8-5 8-10V6z" />
+            <path class="access-guard-mark" d="m8.5 12 2.5 2.5 4.5-5" />
+            <path class="access-full-mark" d="M12 8v5m0 3h.01" />
+          </svg>
+          <span class="access-policy-label sr-only">守卫模式</span>
+        </button>
         <button type="button" class="icon-btn" id="moreBtn" title="更多" aria-label="更多" aria-expanded="false" aria-haspopup="dialog" aria-controls="moreSheet">⋯</button>
         <!-- Hidden legacy hooks (settings/lang/theme/status still driven by JS via more sheet) -->
         <button type="button" id="gearBtn" hidden aria-hidden="true" aria-haspopup="dialog" aria-controls="agentSettingsModal"></button>
@@ -116,7 +124,7 @@
     <!-- Pinned under topbar: pick / shot / group / clipboard (does not scroll away) -->
     <section class="selection-bar is-empty" id="selectionBar" aria-label="Selection summary" aria-expanded="false">
       <div class="sel-toolbar" id="selToolbar">
-        <button type="button" class="pick-btn" id="pickBtn" aria-pressed="false" title="点选：在网页上点选元素" aria-label="点选">
+        <button type="button" class="pick-btn" id="pickBtn" aria-pressed="false" data-i18n-title="pickHint" title="选择网页内容，可直接下载、复制，也可在对话中引用" aria-label="点选">
           <span class="pick-icon pick-icon-mark" aria-hidden="true"></span>
           <span class="pick-label" id="pickBtnLabel" data-i18n="pickBtn">点选</span>
         </button>
@@ -125,32 +133,14 @@
           <span class="shot-icon" aria-hidden="true">📸</span>
           <span class="shot-label" data-i18n="shotBtn">截图</span>
         </button>
+        <button type="button" class="library-entry-btn" id="personalToolsBtn" title="工具" aria-label="工具">工具</button>
+        <button type="button" class="library-entry-btn" id="personalWorkflowsBtn" title="Workflow" aria-label="Workflow">Workflow</button>
+        <button type="button" class="library-entry-btn" id="personalLibraryManageBtn" data-i18n-title="libraryTitle" data-i18n-aria="libraryTitle" title="个人库" aria-label="个人库">⋯</button>
         <button type="button" class="sel-pin-btn" id="pinSelBtn" data-drawer-pin hidden title="固定展开面板" aria-label="固定展开面板" aria-pressed="false">
           <span class="sel-pin-icon" aria-hidden="true"></span>
         </button>
-        <!-- Active Group for capture only (where new selections go). Session bind lives under the dialog. -->
-        <div class="group-select" id="groupSelect" title="当前选择组：点选/截图写入此组">
-          <button
-            type="button"
-            class="group-select-trigger"
-            id="groupSelectTrigger"
-            aria-haspopup="listbox"
-            aria-expanded="false"
-            aria-controls="groupSelectMenu"
-            title="选择当前 Group（添加元素的目标）"
-          >
-            <span class="group-select-label" id="groupSelectLabel">未选择组</span>
-            <span class="group-select-caret" aria-hidden="true"></span>
-          </button>
-          <div class="group-select-menu" id="groupSelectMenu" hidden role="listbox" aria-label="选择组">
-            <div class="group-select-list" id="groupSelectList"></div>
-            <button type="button" class="group-select-create" id="groupSelectCreate">+ 新建 Group</button>
-          </div>
-          <!-- a11y / programmatic mirror -->
-          <select id="activeGroupSelect" hidden aria-hidden="true" tabindex="-1"></select>
-        </div>
         <div class="sel-summary" id="selSummary" hidden>
-          <span class="sel-label" data-i18n="selected">已选</span>
+          <span class="sr-only" data-i18n="selected">已选</span>
           <span class="sel-counts" id="selCounts">
             <span class="sel-count" data-kind="text" hidden><span data-i18n="kindText">文</span>×<b id="countText">0</b></span>
             <span class="sel-count" data-kind="image" hidden><span data-i18n="kindImage">图</span>×<b id="countImage">0</b></span>
@@ -168,24 +158,25 @@
       <div class="sel-expand-body" data-drawer-body id="selExpandBody">
         <div class="sel-chips" id="selChips"></div>
         <div class="sel-extra" id="selExtra" hidden>
-          <!-- 下图 only; clipboard no longer has a separate pill — opens with selection hover -->
-          <div class="quick-tools" id="quickTools" aria-label="快捷操作">
-            <button type="button" class="quick-tool" id="toolDlImg" hidden title="下载当前选中的图片">
-              📷 <span data-i18n="toolDlImg">下图</span><span class="qt-badge" id="badgeImg">0</span>
+          <!-- Existing direct tools and collected text share the selection drawer. -->
+          <p class="sr-only" id="directToolsLabel" data-i18n="directTools" hidden>直接操作 · 无需 Agent</p>
+          <div class="quick-tools" id="quickTools" aria-labelledby="directToolsLabel">
+            <button type="button" class="quick-tool" id="toolDlImg" data-i18n-title="toolDlImg" hidden title="下载当前选中的图片">
+              📷 <span data-i18n="toolDlImg">下载图片</span><span class="qt-badge" id="badgeImg">0</span>
             </button>
-            <button type="button" class="quick-tool" id="toolExportTable" hidden title="导出选中表格为 CSV">
-              📊 <span data-i18n="toolExportTable">导出表</span><span class="qt-badge" id="badgeTable">0</span>
+            <button type="button" class="quick-tool" id="toolExportTable" data-i18n-title="toolExportTable" hidden title="导出选中表格为 CSV">
+              📊 <span data-i18n="toolExportTable">导出表格</span><span class="qt-badge" id="badgeTable">0</span>
             </button>
-            <button type="button" class="quick-tool" id="toolCopyLink" hidden title="复制选中链接">
+            <button type="button" class="quick-tool" id="toolCopyLink" data-i18n-title="toolCopyLink" hidden title="复制选中链接">
               🔗 <span data-i18n="toolCopyLink">复制链接</span><span class="qt-badge" id="badgeLink">0</span>
             </button>
-            <button type="button" class="quick-tool" id="toolDlFile" hidden title="下载链接指向的文件">
+            <button type="button" class="quick-tool" id="toolDlFile" data-i18n-title="toolDlFile" hidden title="下载链接指向的文件">
               ⬇️ <span data-i18n="toolDlFile">下载文件</span><span class="qt-badge" id="badgeFile">0</span>
             </button>
-            <button type="button" class="quick-tool" id="toolDlSvg" hidden title="下载选中 SVG">
-              🧩 <span data-i18n="toolDlSvg">下矢量</span><span class="qt-badge" id="badgeSvg">0</span>
+            <button type="button" class="quick-tool" id="toolDlSvg" data-i18n-title="toolDlSvg" hidden title="下载选中 SVG">
+              🧩 <span data-i18n="toolDlSvg">下载 SVG</span><span class="qt-badge" id="badgeSvg">0</span>
             </button>
-            <button type="button" class="quick-tool" id="toolCoverLink" hidden title="下载 AVIF 封面到文档，并附上页面链接">
+            <button type="button" class="quick-tool" id="toolCoverLink" data-i18n-title="toolCoverLink" hidden title="下载 AVIF 封面到文档，并附上页面链接">
               🎬 <span data-i18n="toolCoverLink">下载封面</span><span class="qt-badge" id="badgeCover">0</span>
             </button>
           </div>
@@ -217,12 +208,71 @@
             </div>
           </div>
         </div>
+        <div class="capture-destination" id="captureDestination" hidden>
+          <span class="sr-only" data-i18n="captureDestination">收集到</span>
+          <div class="group-select" id="groupSelect" data-i18n-title="captureGroupTitle" title="选择新点选内容的收集位置">
+            <button
+              type="button"
+              class="group-select-trigger"
+              id="groupSelectTrigger"
+              aria-describedby="captureGroupHelp"
+              aria-haspopup="listbox"
+              aria-expanded="false"
+              aria-controls="groupSelectMenu"
+              data-i18n-title="captureGroupTitle" title="选择新点选内容的收集位置"
+            >
+              <span class="group-select-label" id="groupSelectLabel">尚未选择资料组</span>
+              <span class="group-select-caret" aria-hidden="true"></span>
+            </button>
+            <div class="group-select-menu" id="groupSelectMenu" hidden role="listbox" data-i18n-aria="captureGroupTitle" aria-label="选择新点选内容的收集位置">
+              <div class="group-select-list" id="groupSelectList"></div>
+              <button type="button" class="group-select-create" id="groupSelectCreate" data-i18n="createCaptureGroup">+ 新建资料组</button>
+            </div>
+            <!-- a11y / programmatic mirror -->
+            <select id="activeGroupSelect" hidden aria-hidden="true" tabindex="-1"></select>
+          </div>
+        </div>
+        <p class="sr-only" id="captureGroupHelp" data-i18n="captureAutoCreate">首次点选会自动创建资料组；文字收进剪贴板。</p>
       </div>
       <div class="quick-toast" id="quickToast" hidden></div>
     </section>
 
+
+    <dialog class="personal-library-dialog" id="personalLibraryDialog" aria-labelledby="personalLibraryTitle">
+      <div class="personal-library-head">
+        <h2 id="personalLibraryTitle" data-i18n="libraryTitle">个人库</h2>
+        <button type="button" id="personalLibraryClose" data-i18n-aria="libraryDismiss" aria-label="关闭">×</button>
+      </div>
+      <div class="personal-library-tabs" role="tablist">
+        <button type="button" data-library-kind="tool" role="tab" data-i18n="libraryTools">工具</button>
+        <button type="button" data-library-kind="workflow" role="tab">Workflow</button>
+        <button type="button" id="personalLibraryImport" data-i18n="libraryImport">导入</button>
+        <button type="button" id="personalLibraryExport" data-i18n="libraryExport">导出</button>
+      </div>
+      <div class="personal-library-list" id="personalLibraryList"></div>
+      <button type="button" class="personal-library-create" id="personalLibraryCreate" data-i18n="libraryCreate">＋ 新建</button>
+      <input type="file" id="personalLibraryImportFile" accept="application/json" hidden />
+    </dialog>
+
     <!-- Conversation scrollport only -->
     <div class="panel-scroll" id="panelScroll">
+
+    <section class="library-draft-card" id="personalLibraryDraftCard" hidden aria-live="polite">
+      <strong id="personalLibraryDraftName"></strong>
+      <span id="personalLibraryDraftStatus"></span>
+      <details class="library-draft-definition"><summary data-i18n="libraryView">查看内容</summary><pre id="personalLibraryDraftCode"></pre></details>
+      <div class="library-draft-actions">
+        <button type="button" id="personalLibraryDraftRefresh" data-i18n="libraryRefresh">刷新草稿</button>
+        <button type="button" id="personalLibraryDraftRun" data-i18n="libraryTry">试运行</button>
+        <button type="button" id="personalLibraryDraftPublish">添加</button>
+      </div>
+    </section>
+    <section class="library-draft-card" id="personalLibraryRunCard" hidden aria-live="polite">
+      <strong id="personalLibraryRunName"></strong>
+      <pre id="personalLibraryRunOutput"></pre>
+      <button type="button" id="personalLibraryRunStop" data-i18n="libraryStop" hidden>停止</button>
+      <button type="button" id="personalLibraryRunDismiss" data-i18n="libraryDismiss" hidden>收起</button>
+    </section>
 
     <!-- Unfinished drafts (same scroll level; hidden when empty) -->
     <section class="drafts-bar" id="draftsBar" hidden aria-label="Unfinished drafts">
@@ -261,8 +311,9 @@
           <div class="home-center" id="homeCenter">
             <div class="home-mark home-mark-hero" aria-hidden="true"></div>
             <div class="home-composer-slot" id="homeComposerSlot"></div>
+            <p class="suggestion-note" data-i18n="suggestionSendHint">点击建议会发送给 Bot</p>
             <div class="hint-chips" id="hintChips">
-              <button type="button" class="hint-chip" data-prompt-key="userGuide" data-i18n="guideChipLabel" data-prompt="Browser Kitten 能做什么？简短介绍点选选中、对话、下载与导出。">怎么用 Browser Kitten？</button>
+              <button type="button" class="hint-chip" data-prompt-key="userGuide" data-i18n="guideChipLabel" data-prompt="Browser Kitten 能做什么？简短介绍直接发起任务、点选后的下载复制与导出，以及用 @ 和对话参考引用资料。">怎么用 Browser Kitten？</button>
             </div>
           </div>
         </div>
@@ -273,13 +324,11 @@
 
     <nav class="turn-jump" id="turnJumpRail" hidden aria-label="跳转到发言"></nav>
 
-    <!-- Hidden attachment bar (kept for multimodal / screenshot) -->
-    <div class="attachment-preview-bar" id="attachmentPreviewBar" hidden></div>
     <input type="file" id="fileInput" accept="image/*,.txt,.json,.js,.py,.md,.csv,.pdf" multiple hidden />
 
     <!-- Sticky composer: floating model / bind-group / artifacts above white shell -->
     <footer class="composer">
-      <div class="composer-float-row" id="composerMeta" aria-label="模型与任务 Group">
+      <div class="composer-float-row" id="composerMeta" aria-label="模型与对话参考">
         <div class="model-select" id="modelSelectRoot">
           <button
             type="button"
@@ -329,8 +378,7 @@
             <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
           </select>
         </div>
-        <div class="composer-aiming" id="composerAiming" aria-live="polite">全页可访问</div>
-        <button type="button" class="access-policy-chip" id="accessPolicyChip" data-mode="guarded" data-short="Guarded" title="守卫模式">Guarded</button>
+        <div class="composer-aiming sr-only" id="composerAiming" aria-live="polite">未引用资料组</div>
         <div class="session-bind-add" id="sessionBindAdd">
           <button
             type="button"
@@ -339,14 +387,15 @@
             aria-haspopup="listbox"
             aria-expanded="false"
             aria-controls="sessionBindAddMenu"
-            title="为本任务瞄准 Group（优先上下文，不是权限门）"
-          >瞄准组</button>
+            aria-describedby="composerAiming"
+            title="选择供本对话参考的资料组"
+          >对话参考</button>
           <div class="session-bind-add-menu" id="sessionBindAddMenu" hidden></div>
           <div class="bind-group-hint" id="bindGroupHint" hidden>
             <div class="bind-group-hint-card">
               <span class="bind-group-hint-text">
-                <span data-i18n="bindGroupHint">没有瞄准项。Agent 仍可访问整页。</span>
-                <strong data-i18n="bindGroupHintEmphasis">瞄准只提高优先级，不是权限边界。</strong>
+                <span data-i18n="bindGroupHint">未引用资料组，也可直接开始任务。</span>
+                <strong data-i18n="bindGroupHintEmphasis">引用提供上下文，不代表网页操作授权。</strong>
               </span>
               <button type="button" class="bind-group-hint-x" id="bindGroupHintClose" aria-label="关闭">×</button>
             </div>
@@ -380,74 +429,77 @@
         <button type="button" class="sheet-sel-clear" id="canvasSelClear" data-i18n="canvasSelClear" hidden>清空</button>
       </div>
       <div class="composer-inner">
-        <button type="button" class="attach-btn" id="attachFileBtn" title="上传图片或文本文件" aria-label="Attach">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-          </svg>
-        </button>
-        <div class="composer-field">
-          <div
-            id="input"
-            class="is-empty"
-            contenteditable="true"
-            role="textbox"
-            aria-multiline="true"
-            aria-autocomplete="list"
-            aria-controls="mentionPalette"
-            aria-expanded="false"
-            data-i18n-aria="inputPlaceholder"
-            aria-label="选中，说要什么"
-            spellcheck="true"
-          ></div>
-          <span id="composerTypewriter" class="composer-typewriter" aria-hidden="true"></span>
-        </div>
-        <div class="composer-actions">
-          <div class="composer-context" id="composerContext">
-            <button
-              type="button"
-              class="context-usage-btn"
-              id="contextUsageBtn"
-              aria-haspopup="dialog"
-              aria-expanded="false"
-              aria-controls="contextUsagePopover"
-              data-i18n-aria="contextChip"
-              aria-label="上下文"
-            >
-              <span class="context-ring" id="contextRing" aria-hidden="true" data-ratio="0">
-                <svg class="context-ring-svg" viewBox="0 0 32 32" aria-hidden="true">
-                  <circle class="context-ring-track" cx="16" cy="16" r="12"></circle>
-                  <circle class="context-ring-fill" cx="16" cy="16" r="12"></circle>
-                </svg>
-                <span class="context-ring-label sr-only" id="contextRingLabel" hidden>Compacting</span>
-              </span>
-              <span class="context-usage-chip sr-only" id="contextUsageChip" data-i18n="contextChip">上下文</span>
-            </button>
+        <div class="attachment-preview-bar" id="attachmentPreviewBar" hidden></div>
+        <div class="composer-input-row">
+          <button type="button" class="attach-btn" id="attachFileBtn" title="上传图片或文本文件" aria-label="Attach">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+            </svg>
+          </button>
+          <div class="composer-field">
             <div
-              class="context-usage-popover"
-              id="contextUsagePopover"
-              hidden
-              role="dialog"
-              aria-labelledby="contextUsagePopoverTitle"
-            >
-              <div class="context-usage-popover-head">
-                <h3 id="contextUsagePopoverTitle" data-i18n="contextPopoverTitle">上下文用量</h3>
-                <p class="context-usage-headline" id="contextUsageHeadline"></p>
-              </div>
-              <div class="context-usage-bar" id="contextUsageBar" hidden>
-                <span class="context-usage-bar-fill" id="contextUsageBarFill"></span>
-              </div>
-              <ul class="context-usage-parts" id="contextUsageParts"></ul>
-              <p class="context-usage-note" id="contextUsageNote" hidden></p>
-            </div>
+              id="input"
+              class="is-empty"
+              contenteditable="true"
+              role="textbox"
+              aria-multiline="true"
+              aria-autocomplete="list"
+              aria-controls="mentionPalette"
+              aria-expanded="false"
+              data-i18n-aria="inputPlaceholder"
+              aria-label="说说要完成什么，也可用 @ 引用网页内容"
+              spellcheck="true"
+            ></div>
+            <span id="composerTypewriter" class="composer-typewriter" aria-hidden="true"></span>
           </div>
-          <span id="promptQueueHint" class="prompt-queue-hint" hidden></span>
-          <!-- Hover + scroll wheel on send: chat (accent) ↔ run (purple). Same shape. -->
-          <button type="button" class="send-btn is-send" id="sendBtn" data-mode="chat" data-submit="chat" title="发送（对话）· 悬停滚轮切换运行" aria-label="发送（对话）">
-            <span class="send-icon" aria-hidden="true"></span>
-          </button>
-          <button type="button" class="stop-btn" id="stopBtn" hidden title="停止" aria-label="停止" aria-hidden="true">
-            <span class="stop-icon" aria-hidden="true"></span>
-          </button>
+          <div class="composer-actions">
+            <div class="composer-context" id="composerContext">
+              <button
+                type="button"
+                class="context-usage-btn"
+                id="contextUsageBtn"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="contextUsagePopover"
+                data-i18n-aria="contextChip"
+                aria-label="上下文"
+              >
+                <span class="context-ring" id="contextRing" aria-hidden="true" data-ratio="0">
+                  <svg class="context-ring-svg" viewBox="0 0 32 32" aria-hidden="true">
+                    <circle class="context-ring-track" cx="16" cy="16" r="12"></circle>
+                    <circle class="context-ring-fill" cx="16" cy="16" r="12"></circle>
+                  </svg>
+                  <span class="context-ring-label sr-only" id="contextRingLabel" hidden>Compacting</span>
+                </span>
+                <span class="context-usage-chip sr-only" id="contextUsageChip" data-i18n="contextChip">上下文</span>
+              </button>
+              <div
+                class="context-usage-popover"
+                id="contextUsagePopover"
+                hidden
+                role="dialog"
+                aria-labelledby="contextUsagePopoverTitle"
+              >
+                <div class="context-usage-popover-head">
+                  <h3 id="contextUsagePopoverTitle" data-i18n="contextPopoverTitle">上下文用量</h3>
+                  <p class="context-usage-headline" id="contextUsageHeadline"></p>
+                </div>
+                <div class="context-usage-bar" id="contextUsageBar" hidden>
+                  <span class="context-usage-bar-fill" id="contextUsageBarFill"></span>
+                </div>
+                <ul class="context-usage-parts" id="contextUsageParts"></ul>
+                <p class="context-usage-note" id="contextUsageNote" hidden></p>
+              </div>
+            </div>
+            <span id="promptQueueHint" class="prompt-queue-hint" hidden></span>
+            <!-- Hover + scroll wheel on send: chat (accent) ↔ run (purple). Same shape. -->
+            <button type="button" class="send-btn is-send" id="sendBtn" data-mode="chat" data-submit="chat" title="发送（对话）· 悬停滚轮切换运行" aria-label="发送（对话）">
+              <span class="send-icon" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="stop-btn" id="stopBtn" hidden title="停止" aria-label="停止" aria-hidden="true">
+              <span class="stop-icon" aria-hidden="true"></span>
+            </button>
+          </div>
         </div>
       </div>
     </footer>

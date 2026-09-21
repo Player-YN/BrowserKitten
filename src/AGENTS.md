@@ -58,6 +58,14 @@ sidepanel  workspaceRpc(method, params)     # vnext/host/workspaceClient.js
 
 `method` 必须在 `workspaceRpcContract.js` 的显式清单内；按 Chrome 原生 sender 区分侧栏、预览与内部调度。`getTaskSchedule` / `runDueTasks` / `getBrowserRuntimeState` 只给 SW；offscreen 拒绝侧栏绕过 SW 直调。新增公开 async 方法不自动暴露。侧栏和四种预览共用 `workspaceClient.js`，完整参数语义仍由领域方法验证。
 
+## Selector 与对话引用
+
+点选是网页内容入口，同时支持直接下载/复制/导出和 Bot 引用。侧栏抽屉「收集到」选择新内容的资料组；输入框「对话参考」管理本会话绑定，两者独立。SelectionGroup 保存资料，既不是 live `action` 的前置条件，也不代表网页操作授权。文字先收进扩展剪贴板，再由用户点击复制到系统剪贴板。展示命名调整不改变 Group/WebItem/sessionBindings 的 RPC 或存储合同。
+
+点选候选只从指针 hit stack 派生，不能用整页媒体矩形越过实际遮挡。默认一击采集首项；悬停边缘的可点击范围标签可直接采集图片、链接、卡片、单元格/行/表等关联范围，标签自身不参与点选，Esc 仍退出。新捕获携带 `scope`、`facets`、保留段落和缩进的 `textRaw`、严格 `locatorFingerprint`，以及 `source.tabId/frameId/documentId/url`；恢复必须按 frame/document 定向并核验身份，不能把新项静默重定到相似节点。
+
+卡片 `facets` 保存其本体文字以及最多 8 个媒体、8 个链接的关系，可靠字段才写入；它不是完整页面抓取。点选保存内容与来源，不授予 live `action` 权限。`locatorFingerprint` 只用于恢复或采集时拒绝错误重定；live action 仍必须走既有 opaque ref/rev 和宿主权限链。
+
 ## `action` 运输
 
 ```text
@@ -124,3 +132,7 @@ Content script：
 ### 媒体观察
 
 `action snapshot` 附 `mediaElements`（最多 6 项，含 frame/document 的媒体播放和源线索）；它只提示可用证据，不自动选择路径。`action op=record` 经 SW tabCapture → offscreen 录制可见标签画面+声音（默认 8 秒，最大 30 秒），只在当前模型可接收原生视频时执行。`browserbot_record_grant:{sessionId}:{tabId}` 是独立侧栏视频授权，听音 grant 不覆盖它。两种采集共用生命周期清理，但 listen 保持 `video:false`。详见 [CHAT_MEDIA_INPUT.md](../docs/CHAT_MEDIA_INPUT.md)。
+
+## 顺序 Workflow 宿主
+
+`workflowHost.js` 接收仅 offscreen 可用的 `workspace_workflow_host`；该入口只提供录制运输、标签/下载读取及 UI 高亮，不增加回放执行通道。真实内容事件由 SW 验证 sender 的 tab/frame/document 身份，再转内部 RPC；网页与 preview 不能发布或运行流程。显式录制范围包含已加入标签及 opener 子标签。重启/运输或存储失败暂停录制，不能静默遗漏后声称完整。页面回放依旧走 pageActionHost；针对 Workflow 的窄目标 snapshot 保持原 ref/rev/documentId 校验，滚动距离也参与派发哈希。详见 [Workflow v1](../docs/WORKFLOW_V1.md)。
