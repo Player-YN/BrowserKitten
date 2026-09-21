@@ -317,7 +317,7 @@ export function inspectWorkbookRange(data, a1, sheetName, cap = {}) {
     columnCount: wantCols,
     sheetRowCount: used.rowCount,
     note: truncated
-      ? `truncated to ${maxRows} rows × ${maxCols} cols; pass next or sheet act=snapshot`
+      ? `truncated to ${maxRows} rows × ${maxCols} cols; pass next`
       : undefined
   };
 }

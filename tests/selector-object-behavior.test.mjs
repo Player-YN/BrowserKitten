@@ -173,9 +173,11 @@ test('clipboard pins keep raw text and still RPC same text captured from another
   const ctx = vm.createContext({
     workspaceGroupState: state, CLIPBOARD_GROUP_KIND: 'clipboard', currentLang: 'en', Date,
     isClipboardGroup: g => g?.kind === 'clipboard', clipClipboardText: s => s,
-    pinClipboardItemsToStore: rows => local.push(...rows), workspaceRpc: (_method, payload) => { rpc.push(payload); return Promise.resolve(null); },
+    pinClipboardItemsToStore: rows => { local.push(...rows); return rows; },
+    workspaceRpc: (_method, payload) => { rpc.push(payload); return Promise.resolve(null); },
     getWorkspaceSessionId: () => 's', renderWorkspaceGroupControls() {}, renderClipboardUI() {}, renderQuickTools() {}, showQuickToast() {}, t: x => x,
-    $: () => null, holdDrawerOpen() {}, listClipboardItemsFromStore: () => [], clipDrawerOpen: false
+    $: () => null, holdDrawerOpen() {}, listClipboardItemsFromStore: () => [], clearClipboardStore() {},
+    removeClipboardIdsFromStore() {}, syncLocalClipboardMirrorFromGroup() {}, clipDrawerOpen: false
   });
   vm.runInContext(functionSource(panelSource, 'clipboardGroupFromState') + '\n' + functionSource(panelSource, 'getClipboardPins') + '\n' + functionSource(panelSource, 'clipboardUiKey') + '\n' + functionSource(panelSource, 'pinTextsToClipboard'), ctx);
   const raw = 'first line\n\n  indented line';

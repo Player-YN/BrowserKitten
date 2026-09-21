@@ -40,7 +40,7 @@ Chrome MV3 **unpacked** 扩展：把已登录浏览器当成可编程层（live-
    │ workspace_rpc             │ 打开 chrome-extension:// 标签
    ▼                           ▼
 ┌─ Offscreen  src/offscreen/ ─┐  ┌─ Preview  src/preview/ ──┐
-│ SessionWorkspaceService     │  │ sheet / docs / site /    │
+│ SessionWorkspaceService     │  │ docs / site /            │
 │ IDB + OPFS 会话仓库         │  │ artifactPreview          │
 │ AI SDK ToolLoopAgent        │  │ docs / site 预览         │
 │ iframe → sandbox QuickJS    │  └──────────────────────────┘
@@ -71,7 +71,7 @@ Chrome MV3 **unpacked** 扩展：把已登录浏览器当成可编程层（live-
        beginExecution
        createSessionTools + inventoryFromSession（瞄准，不藏工具）
        AI SDK 7 ToolLoopAgent（sessionAgent.js，toolChoice=auto）
-       工具：inspect / acquire / run / clarify / action / task / sheet / doc / web
+       工具：inspect / acquire / run / clarify / action / task / doc / web
        （sys 不是工具；在 run 代码里调，目录：inspect view=sys）
        （普通 send 不建 durable task；task 工具始终在 schema 里）
        settleExecution

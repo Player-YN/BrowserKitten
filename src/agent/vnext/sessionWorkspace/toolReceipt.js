@@ -20,7 +20,7 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   NEED_CAPTURE_GRANT: 'wait for the side-panel capture grant, then retry the requested listen or record operation',
   NEED_EXPLICIT_TAB: 'pass tabId from this turn world or the previous action receipt',
   NEED_PAGE: 'target a live http(s) tab; action op=snapshot, or run + sys.tabs.list',
-  NO_CANVAS: 'register a workbook with run op=sheet, or a site with write_artifact data-browserbot-kind=site; then edit with sheet or web',
+  NO_CANVAS: 'create a website with write_artifact HTML marked data-browserbot-kind=site, then edit with web. There is no sheet canvas.',
   NO_DOCUMENT: 'register a document with run op=doc (createDocument), then edit with the doc tool. Documents are marked HTML.',
   OP_REMOVED: 'there is no canvas HTML op. Use run op=doc for a document, or write_artifact with data-browserbot-kind=site for a website.',
   NO_TARGET:
@@ -28,7 +28,7 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   PAYMENT_DENIED: 'stop; payment surfaces are not dispatched',
   RAW_ESCAPE_DENIED:
     'use pointer method=point or upload method=auto. To change page policy (eval / cdp) switch the session to Full Access, then run + sys.eval or sys.cdp on this tabId',
-  SNAPSHOT_TOO_LARGE: 'sheet act=snapshot with a smaller a1; do not silently truncate',
+  SNAPSHOT_TOO_LARGE: 'pass a smaller a1; do not silently truncate',
   STALE_REF: 'action op=snapshot then retry with the new rev',
   SYS_DENIED: 'inspect view=sys and pick an allowed op; Guarded blocks raw eval/CDP',
   TAB_LEASED: 'wait for the other session to finish, or target a different tabId',

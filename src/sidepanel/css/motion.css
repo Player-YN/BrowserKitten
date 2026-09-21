@@ -172,7 +172,7 @@
   animation: pw-sel-settle 440ms var(--ease-out, ease) both;
 }
 
-/* Focus ring — interactive controls only (never textarea: composer has its own shell ring) */
+/* Focus ring — interactive controls and form fields (composer textarea keeps shell ring) */
 :focus-visible:not(textarea):not(input):not(select):not(.composer-bubble) {
   outline: 1px solid var(--signal);
   outline-offset: 2px;
@@ -182,6 +182,13 @@
 textarea:focus-visible,
 input:focus-visible,
 select:focus-visible {
+  outline: 1px solid var(--signal);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.composer-inner textarea:focus-visible,
+.composer-inner #input:focus-visible {
   outline: none;
   box-shadow: none;
 }

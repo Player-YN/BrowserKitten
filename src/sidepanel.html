@@ -59,20 +59,33 @@
     <aside class="artifact-rail" id="artifactRail" data-i18n-aria="artifactShelfTitle" aria-label="文件" aria-hidden="true" hidden inert>
       <div class="artifact-rail-head">
         <span class="artifact-rail-title" data-i18n="artifactShelfTitle">文件</span>
-        <button type="button" class="session-rail-icon-btn" id="artifactRailCloseBtn" title="收起" aria-label="收起工作区">›</button>
+        <div class="artifact-rail-head-actions">
+          <div class="artifact-rail-new" id="artifactRailNew">
+            <button
+              type="button"
+              class="session-rail-icon-btn"
+              id="artifactRailNewBtn"
+              data-i18n-title="artifactNew"
+              data-i18n-aria="artifactNew"
+              title="新建"
+              aria-label="新建"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="artifactRailNewMenu"
+            >＋</button>
+            <div class="artifact-rail-new-menu" id="artifactRailNewMenu" role="menu" hidden>
+              <button type="button" class="artifact-rail-new-btn" role="menuitem" data-blank-kind="doc" data-i18n="artifactNewDoc">空白文档</button>
+              <button type="button" class="artifact-rail-new-btn" role="menuitem" data-blank-kind="site" data-i18n="artifactNewSite">空白网站</button>
+            </div>
+          </div>
+          <button type="button" class="session-rail-icon-btn" id="artifactRailCloseBtn" title="收起" aria-label="收起工作区">›</button>
+        </div>
       </div>
       <nav class="artifact-rail-nav" id="artifactRailNav" hidden aria-label="文件分类"></nav>
-      <div class="artifact-rail-empty" id="sessionArtifactEmpty" hidden>工作区还没有文件</div>
+      <div class="artifact-rail-empty" id="sessionArtifactEmpty" hidden>还没有文件</div>
       <ul class="artifact-rail-list" id="artifactShelfList" role="list"></ul>
-      <div class="artifact-rail-foot" id="artifactRailFoot">
-        <div class="artifact-rail-new" id="artifactRailNew">
-          <div class="artifact-rail-new-label" id="artifactRailNewLabel" data-i18n="artifactNew">新建</div>
-          <div class="artifact-rail-new-list" role="group" aria-labelledby="artifactRailNewLabel">
-            <button type="button" class="artifact-rail-new-btn" data-blank-kind="doc" data-i18n="artifactNewDoc">空白 Document</button>
-            <button type="button" class="artifact-rail-new-btn" data-blank-kind="site" data-i18n="artifactNewSite">空白网站</button>
-          </div>
-        </div>
-        <button type="button" class="artifact-rail-foot-btn" id="artifactRailZipSelected" data-i18n="artifactZipSelected">下载所选</button>
+      <div class="artifact-rail-foot" id="artifactRailFoot" hidden>
+        <button type="button" class="artifact-rail-foot-btn" id="artifactRailZipSelected" data-i18n="artifactZipSelected" hidden>下载所选</button>
       </div>
     </aside>
 
@@ -133,7 +146,7 @@
           <span class="shot-label" data-i18n="shotBtn">截图</span>
         </button>
         <button type="button" class="library-entry-btn" id="personalToolsBtn" title="工具" aria-label="工具">工具</button>
-        <button type="button" class="library-entry-btn" id="personalWorkflowsBtn" title="Workflow" aria-label="Workflow">Workflow</button>
+        <button type="button" class="library-entry-btn" id="personalWorkflowsBtn" data-i18n="workflowAutomation" data-i18n-title="workflowAutomation" data-i18n-aria="workflowAutomation" title="自动化" aria-label="自动化">自动化</button>
         <button type="button" class="library-entry-btn" id="personalLibraryManageBtn" data-i18n-title="libraryTitle" data-i18n-aria="libraryTitle" title="个人库" aria-label="个人库">⋯</button>
         <button type="button" class="sel-pin-btn" id="pinSelBtn" data-drawer-pin hidden title="固定展开面板" aria-label="固定展开面板" aria-pressed="false">
           <span class="sel-pin-icon" aria-hidden="true"></span>
@@ -237,16 +250,18 @@
     </section>
 
 
-    <dialog class="personal-library-dialog" id="personalLibraryDialog" aria-labelledby="personalLibraryTitle">
+    <dialog class="personal-library-dialog" id="personalLibraryDialog" aria-labelledby="personalLibraryTitle" closedby="any">
       <div class="personal-library-head">
         <h2 id="personalLibraryTitle" data-i18n="libraryTitle">个人库</h2>
-        <button type="button" id="personalLibraryClose" data-i18n-aria="libraryDismiss" aria-label="关闭">×</button>
+        <div class="personal-library-head-actions">
+          <button type="button" id="personalLibraryImport" data-i18n="libraryImport">导入</button>
+          <button type="button" id="personalLibraryExport" data-i18n="libraryExport">导出</button>
+          <button type="button" class="personal-library-close" id="personalLibraryClose" data-i18n-aria="libraryDismiss" aria-label="关闭">×</button>
+        </div>
       </div>
-      <div class="personal-library-tabs" role="tablist">
-        <button type="button" data-library-kind="tool" role="tab" data-i18n="libraryTools">工具</button>
-        <button type="button" data-library-kind="workflow" role="tab">Workflow</button>
-        <button type="button" id="personalLibraryImport" data-i18n="libraryImport">导入</button>
-        <button type="button" id="personalLibraryExport" data-i18n="libraryExport">导出</button>
+      <div class="personal-library-tabs">
+        <button type="button" data-library-kind="tool" aria-pressed="true" data-i18n="libraryTools">工具</button>
+        <button type="button" data-library-kind="workflow" aria-pressed="false" data-i18n="workflowAutomation">自动化</button>
       </div>
       <div class="personal-library-list" id="personalLibraryList"></div>
       <button type="button" class="personal-library-create" id="personalLibraryCreate" data-i18n="libraryCreate">＋ 新建</button>
@@ -505,12 +520,11 @@
       </div>
     </footer>
 
-    <!-- Advanced sheet -->
-    <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
-    <div class="more-sheet" id="moreSheet" hidden role="dialog" aria-modal="true" data-i18n-aria="moreTitle" aria-label="设置">
+    <!-- Advanced sheet (native dialog: focus trap + light dismiss) -->
+    <dialog class="more-sheet" id="moreSheet" closedby="any" aria-labelledby="moreSheetTitle">
       <div class="sheet-handle"></div>
       <header class="sheet-head">
-        <h3 data-i18n="moreTitle" data-i18n-title="moreNote" title="默认首页刻意隐藏这些项，降低新用户认知负担。">设置</h3>
+        <h3 id="moreSheetTitle" data-i18n="moreTitle" data-i18n-title="moreNote" title="默认首页刻意隐藏这些项，降低新用户认知负担。">设置</h3>
       </header>
 
       <div class="sheet-body">
@@ -541,14 +555,14 @@
       <button type="button" id="deleteSessionBtn" hidden aria-hidden="true"></button>
 
       <button type="button" class="sheet-close" id="sheetClose" data-i18n="close">关闭</button>
-    </div>
+    </dialog>
   </aside>
 
   <!-- ── Production overlays (same IDs as before) ── -->
 
 
   <!-- App modal (prompt / confirm) -->
-  <dialog id="appModalOverlay" class="pw-dialog" aria-labelledby="modalTitle">
+  <dialog id="appModalOverlay" class="pw-dialog" aria-labelledby="modalTitle" closedby="any">
     <div class="modal-card">
       <div class="modal-header">
         <h3 id="modalTitle">任务重命名</h3>
@@ -649,7 +663,7 @@
   </div>
 
   <!-- Agent settings -->
-  <dialog id="agentSettingsModal" class="pw-dialog" aria-labelledby="settingsModalTitle">
+  <dialog id="agentSettingsModal" class="pw-dialog" aria-labelledby="settingsModalTitle" closedby="any">
     <div class="modal-card settings-modal-card">
       <div class="modal-header">
         <h3 id="settingsModalTitle" title="配置仅保存在本机，不会上传到云端服务器。">⚙️ 设置</h3>
@@ -896,7 +910,7 @@
     </div>
   </dialog>
 
-  <dialog id="skillsSettingsModal" class="pw-dialog" aria-labelledby="skillsModalTitle">
+  <dialog id="skillsSettingsModal" class="pw-dialog" aria-labelledby="skillsModalTitle" closedby="any">
     <div class="modal-card settings-modal-card">
       <div class="modal-header">
         <h3 id="skillsModalTitle" data-i18n="moreSkills" data-i18n-title="settingsSkillsHint" title="打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。">Skills 技能</h3>

@@ -1,5 +1,5 @@
 /**
- * Office tool result → model output. Frame-pixel attach is unused by sheet / doc / web.
+ * Office tool result → model output. Frame-pixel attach is unused by doc / web.
  *
  * HARD: preview JPEGs are ephemeral model-vision only — never createArtifact,
  * never list in 交付物, never download.

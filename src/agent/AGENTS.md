@@ -63,7 +63,7 @@ sidepanel workspaceRpc('sendMessage')
 
 `sys.fetch` / `sys.screenshot` 可传 `saveTo: '/scratch/…' | '/artifacts/…'`：宿主写入 guest FS，返回文件回执；`run` 登记交付物。调用携带身份与截止时间，错误保留 `code`。停止可中止扩展 fetch，但已派发的页面/CDP 副作用可能已发生，超时后需查证状态。
 
-Artifact 具有 `revision`；`updateArtifact` 可携带 `expectedRevision`，不同内容的过期写入返回 `ARTIFACT_CONFLICT`。三种画布（sheet / doc / web）与常用 office 写入路径已接入；raw guest 写主文件推进 revision，但仍不是带读版本的条件写入。
+Artifact 具有 `revision`；`updateArtifact` 可携带 `expectedRevision`，不同内容的过期写入返回 `ARTIFACT_CONFLICT`。文档（`doc`）与站点（`web`）的常用写入路径已接入。csv / xlsx 按文件打开，没有表格画布工具。raw guest 写主文件推进 revision，但仍不是带读版本的条件写入。
 
 模型可见面：没有单独的 `sys` 工具。ISA 写在 `run` 的 `code` 字段（`SYS_MODEL_HINT`）；`run.description` 只指向该字段与 `inspect view=sys`。`inspect.view` enum 含 `sys`、每轮 world 有 `browserSys=browserbot-sys-v1`。完整目录仍是 `inspect view=sys` 或 guest `sys.help()`。
 

@@ -841,7 +841,7 @@ export function createSessionTools(env) {
     name: 'run',
     description:
       'Guest JS/TS sandbox with fs (/context read-only, /artifacts durable, /scratch this turn) and sys (no chrome/window/document). ' +
-      'op registers persist/scratch/workbook/document/html; code executes. Everyday canvas edits use sheet, doc, or web. ' +
+      'op registers persist/scratch/document/html; code executes. Everyday canvas edits use doc or web. csv and xlsx are files, not a sheet tool. ' +
       'sys.eval / sys.cdp program an already-open tab when action cannot change page policy. ISA: inspect view=sys. ' +
       'Failed calls return {ok:false, code, error, hint}.',
     parameters: {
@@ -907,7 +907,7 @@ export function createSessionTools(env) {
             ok: false,
             op: 'code',
             error:
-              'code exceeds 24000 chars. For spreadsheet transforms use the sheet tool (reshapeSplit / applyGrid); do not embed the grid in code.'
+              'code exceeds 24000 chars. Write a csv or tsv file instead of embedding the grid. There is no sheet tool.'
           };
         }
         const codeFs = createCodeFsBridge(fs);
@@ -1168,7 +1168,7 @@ export function createSessionTools(env) {
           ok: false,
           error: 'run requires code or op',
           code: 'BAD_INPUT',
-          hint: 'pass op (write_artifact / sheet / doc / …) or code'
+          hint: 'pass op (write_artifact / doc / …) or code'
         };
       }
       return {
@@ -1617,7 +1617,6 @@ export function createSessionTools(env) {
     signal,
     fetchImpl,
     onEvent,
-    hostSheet,
     hostPageCapture: env.hostPageCapture,
     webAcquire: env.webAcquire,
     activeTab: env.activeTab,

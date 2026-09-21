@@ -52,7 +52,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch {
         /* port already closed */
       }
-      if (!isAbortLike(error)) throw error;
+      if (!isAbortLike(error) && !error?.code) throw error;
     }
   })().catch((error) => {
     if (isAbortLike(error)) return;

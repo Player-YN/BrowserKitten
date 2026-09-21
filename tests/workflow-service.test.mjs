@@ -192,3 +192,24 @@ test('recording controls and idle cancellation publish their committed revisions
   const cancelled = await service.pauseWorkflowRun({ runId: run.id, cancel: true });
   assert.deepEqual(events.findLast(e => e.type === 'workflow-run').run, cancelled);
 });
+
+test('updateWorkflowDraft renames draft and published entry; reopen reuses the same draft', async () => {
+  const f = await fixture();
+  const published = await publish(f.service, wf([{ id: 'manual', title: 'Review', op: 'manual' }]));
+  assert.equal(published.name, 'Automation');
+  const edit = await f.service.createWorkflowDraft({ entryId: published.entryId, name: 'ignored' });
+  assert.equal(edit.draft.name, 'Automation');
+  const saved = await f.service.updateWorkflowDraft({
+    draftId: edit.draftId,
+    expectedRevision: edit.draft.revision,
+    patch: { name: 'Renamed Live', parameters: edit.draft.parameters || {}, workflow: edit.draft.workflow }
+  });
+  assert.equal(saved.draft.name, 'Renamed Live');
+  const listed = (await f.library.list()).find(row => row.entryId === published.entryId);
+  assert.equal(listed.name, 'Renamed Live');
+  const reread = await f.service.getPersonalLibraryDraft({ draftId: edit.draftId });
+  assert.equal(reread.draft.name, 'Renamed Live');
+  const reopen = await f.service.createWorkflowDraft({ entryId: published.entryId });
+  assert.equal(reopen.draftId, edit.draftId);
+  assert.equal(reopen.draft.name, 'Renamed Live');
+});

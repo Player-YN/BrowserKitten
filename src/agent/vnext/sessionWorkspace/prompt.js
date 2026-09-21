@@ -282,7 +282,7 @@ export function buildWorldStateBlock(ctx = {}) {
           artifactId: ctx.activeWorkbook.artifactId || '',
           overview: capOverview(ctx.activeWorkbook.overview || null)
         })}`,
-        'activeWorkbook is the live spreadsheet. overview.selections (and selection) are hints only — possibly multiple ranges across sheets. Agent edits apply in place; the host pulses the range and offers Undo.'
+        'activeWorkbook is a spreadsheet file, not a live canvas. Read csv/tsv with inspect view=workbook or view=range. There is no sheet tool.'
       ]
     });
   }

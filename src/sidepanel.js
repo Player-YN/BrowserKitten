@@ -2890,10 +2890,15 @@ function pinTextsToClipboard(texts, { openDrawer = true, toast = true } = {}) {
     }
     return [];
   }
-  pinClipboardItemsToStore(fresh);
+  // Use store-assigned ids for the optimistic group so UI + mirror stay aligned
+  // until the workspace RPC returns authoritative webItemIds.
+  const storeResult = pinClipboardItemsToStore(fresh);
+  const pinned = Array.isArray(storeResult) && storeResult.length
+    ? storeResult
+    : fresh.map((f, i) => ({ ...f, id: f.id || `clip_tmp_${Date.now()}_${i}` }));
   const clipG = clipboardGroupFromState();
   if (clipG && Array.isArray(workspaceGroupState.groups)) {
-    const extras = fresh.map((f, i) => ({
+    const extras = pinned.map((f, i) => ({
       webItemId: f.id || `clip_tmp_${Date.now()}_${i}`,
       text: f.text,
       textRaw: f.textRaw || f.text,
@@ -2912,10 +2917,12 @@ function pinTextsToClipboard(texts, { openDrawer = true, toast = true } = {}) {
   }
   void workspaceRpc('pinClipboard', {
     sessionId: getWorkspaceSessionId(),
-    items: fresh
+    items: pinned
   })
     .then((st) => {
       if (st && Array.isArray(st.groups)) workspaceGroupState = st;
+      // Server assigns fresh webItemIds; rebuild the local mirror so delete ids match.
+      syncLocalClipboardMirrorFromGroup();
       renderWorkspaceGroupControls();
       renderClipboardUI();
       renderQuickTools();
@@ -2935,12 +2942,45 @@ function pinTextsToClipboard(texts, { openDrawer = true, toast = true } = {}) {
   renderClipboardUI();
   renderQuickTools();
   if (openDrawer) holdDrawerOpen('selection', 2000);
-  return fresh;
+  return pinned;
+}
+
+/** Drop local-store orphans whose content key matches removed pins (id may differ). */
+function purgeClipboardStoreMatching(pins) {
+  const keys = new Set(
+    (Array.isArray(pins) ? pins : []).map((p) => clipboardUiKey(p)).filter(Boolean)
+  );
+  if (!keys.size) return;
+  const orphans = listClipboardItemsFromStore()
+    .filter((it) => keys.has(clipboardUiKey(it)))
+    .map((it) => it.id);
+  if (orphans.length) removeClipboardIdsFromStore(orphans);
+}
+
+/** Keep chrome.local mirror ids equal to the authoritative clipboard group. */
+function syncLocalClipboardMirrorFromGroup() {
+  const pins = getClipboardPins();
+  clearClipboardStore();
+  if (!pins.length) return;
+  pinClipboardItemsToStore(
+    pins.map((p) => ({
+      id: p.id,
+      text: p.text,
+      textRaw: p.textRaw || p.text,
+      source: p.source,
+      kind: p.kind
+    }))
+  );
 }
 
 function persistClipboardRemove(ids) {
-  removeClipboardIdsFromStore(ids);
   const set = new Set((ids || []).map(String));
+  // Capture what the UI is showing before mutating either store.
+  const removing = getClipboardPins().filter((p) => set.has(String(p.id)));
+  removeClipboardIdsFromStore([...set]);
+  // Group webItemIds and local clip_* ids diverge after pinClipboard RPC;
+  // also purge by content key so getClipboardPins cannot resurrect orphans.
+  purgeClipboardStoreMatching(removing);
   const clipG = clipboardGroupFromState();
   if (clipG && Array.isArray(workspaceGroupState.groups)) {
     workspaceGroupState = {
@@ -2958,6 +2998,7 @@ function persistClipboardRemove(ids) {
   })
     .then((st) => {
       if (st && Array.isArray(st.groups)) workspaceGroupState = st;
+      syncLocalClipboardMirrorFromGroup();
       renderWorkspaceGroupControls();
       renderClipboardUI();
       renderQuickTools();
@@ -3096,11 +3137,19 @@ function renderClipboardUI() {
         })
         .catch(() => showQuickToast(t('toastCopyFail')));
     });
-    li.querySelector('.clip-item-x').addEventListener('click', (e) => {
+    const delBtn = li.querySelector('.clip-item-x');
+    // Persist immediately on first click (do not wait for leave animation / rebind).
+    // Guard dataset so one click cannot delete two items if the handler re-fires.
+    delBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    delBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      void animateLeave(li).then(() => {
-        persistClipboardRemove([c.id]);
-        clipSelectedIds.delete(c.id);
+      if (li.dataset.clipDeleting === '1') return;
+      li.dataset.clipDeleting = '1';
+      const id = String(c.id);
+      persistClipboardRemove([id]);
+      clipSelectedIds.delete(id);
+      void animateLeave(li).finally(() => {
         renderClipboardUI();
         renderQuickTools();
         showQuickToast(t('toastRemoved'));
@@ -5613,12 +5662,21 @@ function syncMoreSheetChrome() {
 }
 
 function openMoreSheet() {
-  const sheet = $('moreSheet');
-  const backdrop = $('sheetBackdrop');
+  const sheet = /** @type {HTMLDialogElement|null} */ ($('moreSheet'));
   const moreBtn = $('moreBtn');
   syncMoreSheetChrome();
-  if (sheet) sheet.hidden = false;
-  if (backdrop) backdrop.hidden = false;
+  if (!sheet) return;
+  if (!sheet.open) {
+    try {
+      if (typeof sheet.showModal === 'function') sheet.showModal();
+      else {
+        sheet.setAttribute('open', '');
+      }
+    } catch (e) {
+      console.warn('[BrowserBot] more sheet showModal failed', e);
+      sheet.setAttribute('open', '');
+    }
+  }
   if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
   // Focus first actionable control in the sheet
   requestAnimationFrame(() => {
@@ -5633,8 +5691,7 @@ function openMoreSheet() {
 }
 
 function closeMoreSheet({ restoreFocus = true } = {}) {
-  const sheet = $('moreSheet');
-  const backdrop = $('sheetBackdrop');
+  const sheet = /** @type {HTMLDialogElement|null} */ ($('moreSheet'));
   const moreBtn = $('moreBtn');
   const focusInside =
     sheet &&
@@ -5645,8 +5702,15 @@ function closeMoreSheet({ restoreFocus = true } = {}) {
       document.activeElement.blur();
     } catch (_) {}
   }
-  if (sheet) sheet.hidden = true;
-  if (backdrop) backdrop.hidden = true;
+  if (sheet?.open) {
+    try {
+      sheet.close();
+    } catch (_) {
+      sheet.removeAttribute('open');
+    }
+  } else if (sheet?.hasAttribute('open')) {
+    sheet.removeAttribute('open');
+  }
   if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
   if (restoreFocus && moreBtn) {
     requestAnimationFrame(() => {
@@ -5657,16 +5721,25 @@ function closeMoreSheet({ restoreFocus = true } = {}) {
   }
 }
 
-/** Esc closes the settings sheet and restores focus to its gear button. */
+/** Esc / backdrop close sync aria-expanded; native dialog already traps focus. */
 function wireMoreSheetEscape() {
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    const sheet = $('moreSheet');
-    if (!sheet || sheet.hidden) return;
-    // Native dialogs handle their own Esc
-    if (document.querySelector('dialog[open]')) return;
-    e.preventDefault();
-    closeMoreSheet({ restoreFocus: true });
+  const sheet = /** @type {HTMLDialogElement|null} */ ($('moreSheet'));
+  if (!sheet || sheet.dataset.moreSheetWired === '1') return;
+  sheet.dataset.moreSheetWired = '1';
+  sheet.addEventListener('close', () => {
+    const moreBtn = $('moreBtn');
+    if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
+    if (moreBtn && document.activeElement === document.body) {
+      requestAnimationFrame(() => {
+        try {
+          moreBtn.focus({ preventScroll: true });
+        } catch (_) {}
+      });
+    }
+  });
+  // Fallback light-dismiss when closedby is unsupported
+  sheet.addEventListener('click', (e) => {
+    if (e.target === sheet) closeMoreSheet({ restoreFocus: true });
   });
 }
 
@@ -7842,8 +7915,8 @@ function renderPersonalLibraryDraft() {
   const draft = personalLibraryDraft;
   const card = $('personalLibraryDraftCard');
   if (!card) return;
-  card.hidden = !draft;
-  if (!draft) return;
+  card.hidden = !draft || draft.workflow?.version === 2;
+  if (!draft || card.hidden) return;
   const code = String(draft.kind === 'tool' ? draft.code || '' : draft.workflow ? JSON.stringify(draft.workflow, null, 2) : draft.instructions || '');
   const ready = Boolean(draft.name?.trim() && code.trim());
   $('personalLibraryDraftName').textContent = draft.name || t('libraryDraft');
@@ -7878,8 +7951,13 @@ async function refreshPersonalLibraryDraft() {
   return personalLibraryDraft;
 }
 
+function libraryFailureText(error) {
+  if (error?.code === 'SESSION_BUSY') return t('libraryDraftBusy');
+  return String(error?.message || error);
+}
+
 function libraryAction(fn) {
-  return Promise.resolve().then(fn).catch(error => showQuickToast(String(error?.message || error)));
+  return Promise.resolve().then(fn).catch(error => showQuickToast(libraryFailureText(error)));
 }
 
 function libraryResultText(result) {
@@ -7930,10 +8008,19 @@ function setupPersonalLibrary() {
     getActiveTab: activeTabContext,
     prompt: (title, initial) => promptInApp(title, initial, initial),
     toast: showQuickToast,
-    onError: error => showQuickToast(String(error?.message || error)),
+    onError: error => showQuickToast(libraryFailureText(error)),
     onCreateAgent: () => startAgentWorkflowCreation(),
     onRunSession: (sessionId, name) => adoptLibrarySession(sessionId, name),
-    onPublished: () => personalLibraryUi?.refresh()
+    onDraft: () => personalLibraryUi?.refresh?.(),
+    onPublished: () => personalLibraryUi?.refresh?.(),
+    onEditorClosed: () => {
+      // Library stays open under the editor when opened from it; only open if missing.
+      if (personalLibraryUi?.isOpen?.()) {
+        void personalLibraryUi.refresh?.();
+        return;
+      }
+      void personalLibraryUi?.open?.('workflow');
+    }
   }) : {
     chooseCreate: () => startAgentWorkflowCreation(),
     open: ({ published } = {}) => startAgentWorkflowCreation(published),
@@ -7941,22 +8028,22 @@ function setupPersonalLibrary() {
   };
   personalLibraryUi = createPersonalLibraryUi({
     $, rpc: workspaceRpc, t,
-    onError: error => showQuickToast(String(error?.message || error)),
+    onError: error => showQuickToast(libraryFailureText(error)),
     getPins: async () => (await chrome.storage.local.get('browserbot_library_shortcuts')).browserbot_library_shortcuts || [],
     setPins: ids => chrome.storage.local.set({ browserbot_library_shortcuts: ids }),
     workflowLabel: () => currentLang === 'en' ? 'Automation' : '自动化',
     agentTaskLabel: () => currentLang === 'en' ? 'Agent task' : 'Agent 任务',
     create: async (kind, entry = null) => {
+      // Do not close the library for Workflow editor — it stays under the modal blur.
+      if (kind === 'workflow' && entry) return workflowUi.open({ published: entry });
+      if (kind === 'workflow') return workflowUi.chooseCreate();
       personalLibraryUi.close();
-      if (kind === 'workflow' && entry?.workflow) return workflowUi.open({ published: entry });
-      if (kind === 'workflow' && !entry) return workflowUi.chooseCreate();
-      if (kind === 'workflow') return startAgentWorkflowCreation(entry);
       const made = await workspaceRpc('startLibraryCreation', { kind, entryId: entry?.entryId, lang: currentLang });
       await adoptLibrarySession(made.sessionId, made.title);
       personalLibraryDraft = made.draft; renderPersonalLibraryDraft();
       return submitCustomPrompt(made.content);
     },
-    run: (entry, input) => entry.kind === 'workflow' ? (entry.workflow ? workflowUi.runPublished(entry, input) : startLibraryWorkflowUi(entry, input)) : runLibraryScript(entry, input),
+    run: (entry, input) => entry.kind === 'workflow' ? workflowUi.runPublished(entry, input) : runLibraryScript(entry, input),
     remove: async entry => {
       // Removing a personal definition also removes its history: explicit UI confirmation.
       personalLibraryUi.close();
@@ -8223,12 +8310,11 @@ function setupCoreEventListeners() {
     hideListenGrantBar();
   });
   $('moreBtn')?.addEventListener('click', () => {
-    const sheet = $('moreSheet');
-    if (sheet && !sheet.hidden) closeMoreSheet();
+    const sheet = /** @type {HTMLDialogElement|null} */ ($('moreSheet'));
+    if (sheet?.open) closeMoreSheet();
     else openMoreSheet();
   });
   $('sheetClose')?.addEventListener('click', () => closeMoreSheet());
-  $('sheetBackdrop')?.addEventListener('click', () => closeMoreSheet());
   $('clearHistoryBtn')?.addEventListener('click', () => clearAllHistory());
   $('historyToggleBtn')?.addEventListener('click', () => {
     historyListExpanded = !historyListExpanded;
@@ -8960,32 +9046,8 @@ function updateSheetSelGroupOverflow(wrap) {
   next.disabled = chips.scrollLeft + chips.clientWidth >= chips.scrollWidth - 2;
 }
 
-async function sheetSelRpc(method, extra = {}) {
-  if (sheetSelIsCanvas()) return;
-  const artifactId = String(sheetSelState.artifactId || '');
-  if (!artifactId) return;
-  try {
-    const res = await chrome.runtime.sendMessage({
-      target: 'browserbot-background',
-      action: 'sheet_host',
-      sessionId: getWorkspaceSessionId(),
-      artifactId,
-      method,
-      ...extra
-    });
-    const overview = res?.result?.overview || res?.overview;
-    if (overview) {
-      applySheetSelState({
-        action: 'sheet_tab_state',
-        sessionId: getWorkspaceSessionId(),
-        artifactId,
-        overview: { ...overview, artifactId }
-      });
-    }
-    return res;
-  } catch (err) {
-    console.warn('[sheet-sel]', method, err);
-  }
+async function sheetSelRpc() {
+  return;
 }
 
 function artifactFolderUiLabel(folderId, shelf) {
@@ -9021,6 +9083,29 @@ function isWorkspaceContractRow(a) {
     || name === 'agents.md' || name === 'memory.md' || name === 'status.md';
 }
 
+function workspaceContractRank(a) {
+  const name = String(a?.name || a?.displayLabel || '').toLowerCase();
+  const path = String(a?.primaryPath || '');
+  if (name === 'agents.md' || path.endsWith('/AGENTS.md')) return 0;
+  if (name === 'memory.md' || path.endsWith('/Memory.md')) return 1;
+  if (name === 'status.md' || path.endsWith('/STATUS.md')) return 2;
+  return 9;
+}
+
+function workspaceContractLabel(a) {
+  const rank = workspaceContractRank(a);
+  if (rank === 0) return 'AGENTS';
+  if (rank === 1) return 'Memory';
+  if (rank === 2) return 'STATUS';
+  return a?.displayLabel || a?.name || a?.artifactId || '';
+}
+
+function artifactRowTitle(a) {
+  const access = artifactAccessBadgeKeys(a).map((key) => t(key)).filter(Boolean).join(' · ');
+  const path = a?.primaryPath || a?.name || '';
+  return [path, access].filter(Boolean).join(' — ') || t('artifactPreview');
+}
+
 function renderArtifactShelfRow(a) {
   const li = document.createElement('li');
   li.className = 'artifact-shelf-item';
@@ -9050,11 +9135,8 @@ function renderArtifactShelfRow(a) {
   const label = document.createElement('span');
   label.className = 'artifact-shelf-label';
   label.textContent = a.displayLabel || a.name || a.artifactId;
-  const accessEl = document.createElement('span');
-  accessEl.className = 'artifact-access';
-  accessEl.textContent = artifactAccessBadgeKeys(a).map((key) => t(key)).join(' · ');
-  name.title = a.primaryPath || a.name || t('artifactPreview');
-  name.append(label, accessEl);
+  name.title = artifactRowTitle(a);
+  name.append(label);
   name.addEventListener('click', () => void previewSessionArtifact(a.artifactId));
   const actions = document.createElement('div');
   actions.className = 'artifact-shelf-actions';
@@ -9083,6 +9165,40 @@ function artifactTreeCount(folder) {
   const here = (folder.items || []).filter((a) => !isWorkspaceContractRow(a)).length;
   const nested = (folder.children || []).reduce((n, child) => n + artifactTreeCount(child), 0);
   return here + nested;
+}
+
+function artifactTreeIsFlatRoot(tree) {
+  return tree.length === 1 && tree[0].id === 'path/files' && !(tree[0].children || []).length;
+}
+
+function renderWorkspaceContractGroup(items) {
+  const li = document.createElement('li');
+  li.className = 'artifact-rail-workspace';
+  const label = document.createElement('span');
+  label.className = 'artifact-rail-workspace-label';
+  label.textContent = t('artifactWorkspace');
+  label.title = t('artifactWorkspace');
+  const row = document.createElement('div');
+  row.className = 'artifact-rail-workspace-row';
+  const sorted = [...items].sort((a, b) => workspaceContractRank(a) - workspaceContractRank(b));
+  for (const a of sorted) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'artifact-rail-workspace-btn';
+    btn.textContent = workspaceContractLabel(a);
+    btn.title = artifactRowTitle(a);
+    btn.addEventListener('click', () => void previewSessionArtifact(a.artifactId));
+    row.appendChild(btn);
+  }
+  li.append(label, row);
+  return li;
+}
+
+function renderArtifactEmptyHint() {
+  const li = document.createElement('li');
+  li.className = 'artifact-rail-empty-inline';
+  li.textContent = t('artifactEmpty');
+  return li;
 }
 
 function renderArtifactShelfFolder(folder, sessionId, shelf) {
@@ -9148,10 +9264,7 @@ async function refreshArtifactShelf() {
       countEl.hidden = n === 0;
     }
     if (btn) btn.classList.toggle('has-items', n > 0);
-    if (emptyEl) {
-      emptyEl.hidden = n > 0;
-      emptyEl.textContent = t('artifactEmpty');
-    }
+    if (emptyEl) emptyEl.hidden = true;
     lastWorkspaceStats = {
       bytes: Math.max(Number(stats?.blobBytes || 0), Number(stats?.artifactBytes || 0)),
       fileCount: Number(stats?.fileCount != null ? stats.fileCount : n) || 0
@@ -9164,13 +9277,24 @@ async function refreshArtifactShelf() {
       nav.hidden = true;
       nav.innerHTML = '';
     }
-    const tree = buildArtifactPathTree(sessionArtifacts);
-    for (const folder of tree) {
-      listEl.appendChild(renderArtifactShelfFolder(folder, sessionId, shelfMeta));
+    const contracts = sessionArtifacts.filter((a) => isWorkspaceContractRow(a));
+    const userArts = sessionArtifacts.filter((a) => !isWorkspaceContractRow(a));
+    const tree = buildArtifactPathTree(userArts);
+    if (!userArts.length) listEl.appendChild(renderArtifactEmptyHint());
+    if (artifactTreeIsFlatRoot(tree)) {
+      for (const a of tree[0].items || []) listEl.appendChild(renderArtifactShelfRow(a));
+    } else {
+      for (const folder of tree) listEl.appendChild(renderArtifactShelfFolder(folder, sessionId, shelfMeta));
     }
+    if (contracts.length) listEl.appendChild(renderWorkspaceContractGroup(contracts));
     const zipSel = $('artifactRailZipSelected');
+    const foot = $('artifactRailFoot');
     const any = selectedArtifactIds.size > 0;
-    if (zipSel) zipSel.disabled = !any;
+    if (zipSel) {
+      zipSel.hidden = !any;
+      zipSel.disabled = !any;
+    }
+    if (foot) foot.hidden = !any;
   } catch (err) {
     console.warn('[workspace] artifact shelf refresh failed', err);
     applyWorkspaceStatsToHeaders();
@@ -9738,6 +9862,15 @@ function setSessionBindMenuOpen(open) {
   }
 }
 
+function setArtifactNewMenuOpen(open) {
+  const menu = $('artifactRailNewMenu');
+  const btn = $('artifactRailNewBtn');
+  if (!menu || !btn) return;
+  const next = !!open;
+  menu.hidden = !next;
+  btn.setAttribute('aria-expanded', next ? 'true' : 'false');
+}
+
 function setArtifactRailOpen(open) {
   const panel = $('panel');
   const rail = $('artifactRail');
@@ -9749,6 +9882,7 @@ function setArtifactRailOpen(open) {
   setAriaRegionOpen(rail, next, btn);
   if (scrim) scrim.hidden = !next;
   if (btn) btn.setAttribute('aria-expanded', next ? 'true' : 'false');
+  if (!next) setArtifactNewMenuOpen(false);
   if (next) {
     setSessionRailOpen(false);
     setGroupSelectOpen(false);
@@ -9781,6 +9915,7 @@ function wireArtifactMenu() {
   const scrim = $('artifactRailScrim');
   const closeBtn = $('artifactRailCloseBtn');
   const zipSel = $('artifactRailZipSelected');
+  const newBtn = $('artifactRailNewBtn');
   const toggle = (e) => {
     e.stopPropagation();
     const rail = $('artifactRail');
@@ -9790,16 +9925,30 @@ function wireArtifactMenu() {
   closeBtn?.addEventListener('click', () => setArtifactRailOpen(false));
   scrim?.addEventListener('click', () => setArtifactRailOpen(false));
   zipSel?.addEventListener('click', () => void zipSelectedArtifacts());
+  newBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const menu = $('artifactRailNewMenu');
+    setArtifactNewMenuOpen(!!menu?.hidden);
+  });
   document.querySelectorAll('[data-blank-kind]').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
+      setArtifactNewMenuOpen(false);
       void createBlankArtifactAndOpen(el.getAttribute('data-blank-kind'));
     });
   });
+  document.addEventListener('click', (e) => {
+    const root = $('artifactRailNew');
+    if (root && !root.contains(e.target)) setArtifactNewMenuOpen(false);
+  });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && $('panel')?.classList.contains('artifact-rail-open')) {
-      setArtifactRailOpen(false);
+    if (e.key !== 'Escape' || !$('panel')?.classList.contains('artifact-rail-open')) return;
+    const menu = $('artifactRailNewMenu');
+    if (menu && !menu.hidden) {
+      setArtifactNewMenuOpen(false);
+      return;
     }
+    setArtifactRailOpen(false);
   });
 }
 
@@ -10408,6 +10557,8 @@ function showCustomModal({
   }
   overlay.classList.toggle('is-confirm', isConfirm);
   overlay.classList.toggle('is-danger', !!danger);
+  // Light-dismiss prompts only; destructive confirms stay Esc / explicit buttons.
+  overlay.setAttribute('closedby', isConfirm || danger ? 'closerequest' : 'any');
   if (isConfirm && message) overlay.setAttribute('aria-describedby', 'modalMessage');
   else overlay.removeAttribute('aria-describedby');
   confirmBtn.classList.toggle('btn-danger', !!danger);
@@ -10492,9 +10643,9 @@ function showCustomModal({
   if (!overlay.dataset.pwBackdropBound) {
     overlay.dataset.pwBackdropBound = '1';
     overlay.addEventListener('click', (e) => {
-      if (e.target === overlay && overlay.open) {
-        document.getElementById('modalCancelBtn')?.click();
-      }
+      if (e.target !== overlay || !overlay.open) return;
+      if (overlay.classList.contains('is-confirm') || overlay.classList.contains('is-danger')) return;
+      document.getElementById('modalCancelBtn')?.click();
     });
   }
 

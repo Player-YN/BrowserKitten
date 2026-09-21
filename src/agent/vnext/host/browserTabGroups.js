@@ -4,7 +4,6 @@
  */
 
 export const WORK_PAGE_FILES = Object.freeze([
-  'sheet.html',
   'docs.html',
   'site.html',
   'artifactPreview.html',
@@ -13,7 +12,6 @@ export const WORK_PAGE_FILES = Object.freeze([
 
 /** Live office canvases the agent may lock. Never live web / picker / artifactPreview. */
 export const LOCKABLE_PAGE_FILES = Object.freeze([
-  'sheet.html',
   'docs.html',
   'site.html'
 ]);

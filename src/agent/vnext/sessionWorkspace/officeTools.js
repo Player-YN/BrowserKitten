@@ -51,8 +51,8 @@ import { sessionToolToModelOutput } from './canvasPreview.js';
 const NO_CANVAS = {
   ok: false,
   code: 'NO_CANVAS',
-  error: 'no spreadsheet or website canvas in this session',
-  hint: 'register a workbook with run op=sheet, or a site with write_artifact data-browserbot-kind=site'
+  error: 'no website canvas in this session',
+  hint: 'create a website with write_artifact HTML marked data-browserbot-kind=site, or web act=clone'
 };
 
 const NO_DOCUMENT = {
@@ -460,7 +460,7 @@ function loadWorkbook(fs, rec, artifactId) {
       ok: false,
       error: 'artifact is not a spreadsheet',
       code: 'NOT_SHEET',
-      hint: 'pass a sheet artifactId, or register one with run createWorkbook'
+      hint: 'pass a csv or tsv artifactId'
     };
   }
   const bytes = fs.readFileBytes(rec.primaryPath);
@@ -470,9 +470,9 @@ function loadWorkbook(fs, rec, artifactId) {
     if (snap) return { ok: true, rec, kind, data: snap, sheets: workbookDataToSheets(snap) };
     return {
       ok: false,
-      error: 'xlsx inspect needs the live sheet tab',
-      code: 'NEED_TAB',
-      hint: 'open the live sheet tab and retry inspect/snapshot',
+      error: 'xlsx is not parsed here',
+      code: 'BAD_INPUT',
+      hint: 'csv and tsv can be read with inspect view=workbook or view=range',
       rec
     };
   }
@@ -593,47 +593,12 @@ function decorateSheetResult(ok, artifactId, body, error, commands) {
   );
 }
 
-async function snapshotArtifact(env, { fs, hostSheet, gate, artifactId, a1, sheet }) {
-  let snap = null;
+async function snapshotArtifact(_env, { fs, gate, artifactId, a1, sheet }) {
   let overview = null;
-  if (hostSheet) {
-    try {
-      const res = await hostSheet({
-        method: 'snapshot',
-        artifactId,
-        a1,
-        sheet,
-        promptId: String(env.promptId || env.execution?.executionId || '')
-      });
-      const body = res?.result || res || {};
-      if (body?.code === 'SNAPSHOT_TOO_LARGE' || (body?.ok === false && body?.rowCount > SHEET_SNAPSHOT_MAX_ROWS)) {
-        overview = body.overview;
-        return {
-          ok: false,
-          act: 'snapshot',
-          artifactId,
-          code: body.code || 'SNAPSHOT_TOO_LARGE',
-          error: body.error,
-          rowCount: body.rowCount,
-          sheetRowCount: body.sheetRowCount,
-          sheets: compactSheetList(overview || body.sheets),
-          overview
-        };
-      }
-      if (body?.ok !== false && Array.isArray(body.values)) {
-        snap = { ...body, ok: true };
-        overview = body.overview;
-      }
-    } catch {
-      /* fall back to artifact bytes */
-    }
-  }
-  if (!snap) {
-    const loaded = loadWorkbook(fs, gate.record, artifactId);
-    if (!loaded.ok) return loaded;
-    snap = snapshotSheetRange(loaded.data, a1, sheet);
-    overview = overviewFromWorkbookData(loaded.data);
-  }
+  const loaded = loadWorkbook(fs, gate.record, artifactId);
+  if (!loaded.ok) return loaded;
+  const snap = snapshotSheetRange(loaded.data, a1, sheet);
+  overview = overviewFromWorkbookData(loaded.data);
   if (snap.ok === false) {
     return {
       ok: false,

@@ -15,7 +15,7 @@ import { createWorkspaceRpcTransport } from './agent/vnext/host/workspaceRpcTran
 // (https://github.com/w3c/ServiceWorker/issues/1356) and surfaces as Workspace RPC errors.
 import { loadLlmSettings } from './agent/llm.js';
 import { executeLlmProxyFetch } from './agent/llmProxyFetch.js';
-import { sheetTabMatches, htmlTabMatches } from './sidepanel/sessionIsolation.js';
+import { htmlTabMatches } from './sidepanel/sessionIsolation.js';
 import { previewEntryForItem } from './agent/vnext/sessionWorkspace/openClassify.js';
 import { handleWorkspaceSys } from './agent/vnext/host/browserSysHost.js';
 import { putDispatchTicket, expireDispatchTickets, dropDispatchTicket, dropTicketsForExecution } from './agent/vnext/host/dispatchTicket.js';
@@ -599,38 +599,6 @@ function sheetKey(sessionId, artifactId) {
   return `${sessionId || ''}::${artifactId || ''}`;
 }
 
-function sheetUrl(sessionId, artifactId, lang) {
-  const q = new URLSearchParams();
-  q.set('sessionId', String(sessionId || ''));
-  q.set('artifactId', String(artifactId || ''));
-  const loc = previewLangParam(lang);
-  if (loc) q.set('lang', loc);
-  return chrome.runtime.getURL(`src/preview/artifactPreview.html?${q.toString()}`);
-}
-
-async function findSheetTab(sessionId, artifactId) {
-  const key = sheetKey(sessionId, artifactId);
-  const cached = sheetTabByKey.get(key);
-  if (cached != null) {
-    try {
-      const t = await chrome.tabs.get(cached);
-      if (t?.id != null) return t.id;
-    } catch {
-      sheetTabByKey.delete(key);
-    }
-  }
-  const url = sheetUrl(sessionId, artifactId);
-  const tabs = await chrome.tabs.query({});
-  const hit = tabs.find(
-    (t) => (t.url || '') === url || sheetTabMatches(t.url || '', sessionId, artifactId)
-  );
-  if (hit?.id != null) {
-    sheetTabByKey.set(key, hit.id);
-    return hit.id;
-  }
-  return null;
-}
-
 const sheetReadyKeys = new Set();
 
 /** sessionId → chrome.tabGroups id. One collapsed group per task. */
@@ -783,80 +751,11 @@ async function activateBrowserBotTab(tabId, opts = {}) {
   }
 }
 
-async function openSheetTab(sessionId, artifactId, opts = {}) {
-  const focus = shouldFocusBrowserBotTab(opts);
-  const reason = opts.reason || (focus ? 'user' : 'agent');
-  const existing = await findSheetTab(sessionId, artifactId);
-  if (existing != null) {
-    await activateBrowserBotTab(existing, {
-      focus,
-      sessionId,
-      title: opts.title,
-      reason,
-      url: sheetUrl(sessionId, artifactId)
-    });
-    return existing;
-  }
-  const key = sheetKey(sessionId, artifactId);
-  const tab = await openBrowserBotTab({
-    url: sheetUrl(sessionId, artifactId),
-    sessionId,
-    focus,
-    title: opts.title,
-    reason
-  });
-  if (tab?.id != null) sheetTabByKey.set(key, tab.id);
-  return tab?.id;
-}
-
-function waitSheetReady(sessionId, artifactId, timeoutMs = 20000) {
-  const key = sheetKey(sessionId, artifactId);
-  if (sheetReadyKeys.has(key) && sheetTabByKey.has(key)) {
-    return Promise.resolve(sheetTabByKey.get(key));
-  }
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      sheetReadyWaiters.delete(key);
-      reject(new Error('sheet tab timeout'));
-    }, timeoutMs);
-    const prev = sheetReadyWaiters.get(key) || [];
-    prev.push({
-      resolve: (id) => {
-        clearTimeout(timer);
-        resolve(id);
-      },
-      reject
-    });
-    sheetReadyWaiters.set(key, prev);
-  });
-}
-
-async function sendSheetRpc(sessionId, artifactId, payload) {
-  let tabId = await findSheetTab(sessionId, artifactId);
-  if (tabId == null) {
-    await openSheetTab(sessionId, artifactId, { focus: false, reason: 'agent' });
-    try {
-      tabId = await waitSheetReady(sessionId, artifactId);
-    } catch {
-      tabId = await findSheetTab(sessionId, artifactId);
-    }
-  }
-  if (tabId == null) throw new Error('sheet tab unavailable');
-  const res = await chrome.tabs.sendMessage(tabId, {
-    action: 'browserbot_sheet_rpc',
-    sessionId,
-    artifactId,
-    ...payload
-  });
-  return res;
-}
-
 async function handleSheetHost(request) {
   const sessionId = String(request.sessionId || '');
-  let artifactId = String(request.artifactId || '');
   const method = String(request.method || 'overview');
   if (method === 'create') {
-    const created = await forwardWorkspaceRpc({
+    return forwardWorkspaceRpc({
       method: 'createSheetArtifact',
       params: {
         sessionId,
@@ -865,25 +764,12 @@ async function handleSheetHost(request) {
         kind: request.kind || 'csv'
       }
     });
-    if (!created?.ok) return created;
-    artifactId = created.result?.artifact?.artifactId || created.result?.artifactId || artifactId;
-    await openSheetTab(sessionId, artifactId, { focus: false, reason: 'agent' });
-    try {
-      await waitSheetReady(sessionId, artifactId);
-    } catch {
-      /* still return create */
-    }
-    return created;
   }
-  const res = await sendSheetRpc(sessionId, artifactId, {
-    method,
-    commands: request.commands,
-    a1: request.a1,
-    sheet: request.sheet,
-    statusText: request.statusText,
-    promptId: request.promptId
-  });
-  return { ok: res?.ok !== false, result: res, error: res?.error };
+  return {
+    ok: false,
+    code: 'NO_CANVAS',
+    error: 'There is no spreadsheet canvas.'
+  };
 }
 
 const htmlTabByKey = new Map();
@@ -1003,13 +889,11 @@ async function openArtifactPreviewTab(sessionId, artifactIds, opts = {}) {
   });
   if (lang) docsQ.set('lang', lang);
   const url =
-    routed.entry === 'sheet.html'
-      ? sheetUrl(sessionId, ids[0], lang)
-      : routed.entry === 'docs.html'
-        ? chrome.runtime.getURL(`src/preview/docs.html?${docsQ.toString()}`)
-        : routed.entry === 'site.html'
-          ? artifactPreviewUrl(sessionId, ids, 'site.html', lang)
-          : artifactPreviewUrl(sessionId, ids, 'artifactPreview.html', lang);
+    routed.entry === 'docs.html'
+      ? chrome.runtime.getURL(`src/preview/docs.html?${docsQ.toString()}`)
+      : routed.entry === 'site.html'
+        ? artifactPreviewUrl(sessionId, ids, 'site.html', lang)
+        : artifactPreviewUrl(sessionId, ids, 'artifactPreview.html', lang);
   try {
     const tabs = await chrome.tabs.query({});
     const sid = String(sessionId || '');

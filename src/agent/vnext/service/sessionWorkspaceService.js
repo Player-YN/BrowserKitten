@@ -2025,13 +2025,6 @@ export class SessionWorkspaceService {
         modelId: resolvedModel?.modelId,
         contextWindow,
         callModel: injectedCallModel || undefined,
-        hostSheet: (payload) =>
-          chrome.runtime.sendMessage({
-            target: MSG_TARGET_BACKGROUND,
-            action: 'sheet_host',
-            sessionId,
-            ...payload
-          }),
         hostCanvas: (payload) =>
           chrome.runtime.sendMessage({
             target: MSG_TARGET_BACKGROUND,

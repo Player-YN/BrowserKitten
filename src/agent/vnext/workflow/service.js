@@ -29,11 +29,21 @@ export class WorkflowService {
   async get({ runId }) { const row = await (await this.library()).getWorkflowRecord({ id: runId }); if (!row) throw workflowError('WORKFLOW_NOT_FOUND', 'Run not found.'); return row; }
   async list() { return (await (await this.library()).listWorkflowRecords({ type: 'run' })).sort((a,b) => b.updatedAt-a.updatedAt); }
   async createDraft({ name = 'Automation', entryId, lang } = {}) {
-    const made = await this.owner.startLibraryCreation({ kind: 'workflow', entryId, lang });
-    if (entryId && made.draft.workflow) { await this.seed(made.draft); return made; }
-    if (entryId) throw workflowError('WORKFLOW_INVALID', 'Use the Agent task editor for a playbook.');
     const lib = await this.library();
-    const draft = await lib.updateDraft({ draftId: made.draftId, expectedRevision: made.draft.revision, patch: { name, workflow: emptyWorkflow() } });
+    if (entryId) {
+      const existing = (await lib.listDrafts()).find(row => row.baseEntryId === entryId && row.kind === 'workflow');
+      if (existing && this.owner.runtime.store.has('sessions', existing.sessionId)) {
+        await this.seed(existing);
+        return { draftId: existing.draftId, draft: existing, sessionId: existing.sessionId, content: '', title: existing.name };
+      }
+    }
+    const made = await this.owner.startLibraryCreation({ kind: 'workflow', entryId, lang });
+    if (made.draft.workflow?.version === 2) { await this.seed(made.draft); return made; }
+    const draft = await lib.updateDraft({
+      draftId: made.draftId,
+      expectedRevision: made.draft.revision,
+      patch: { name: entryId ? (made.draft.name || name) : name, workflow: emptyWorkflow() }
+    });
     await this.seed(draft); return { ...made, draft };
   }
   async seed(draft) {
@@ -46,7 +56,7 @@ export class WorkflowService {
   }
   async updateDraft({ draftId, expectedRevision, patch }) {
     const { draft } = await this.owner.getPersonalLibraryDraft({ draftId }); requireLibraryRevision(expectedRevision, draft.revision);
-    if (this.owner._activeBySession.has(draft.sessionId)) throw workflowError('SESSION_BUSY', 'Wait for the creation turn to finish.');
+    // Structured editor owns this draft; revision CAS is the conflict gate. Agent file ingestion stays on refreshLibraryDraft.
     if (!this.owner.runtime.store.has('sessions', draft.sessionId)) throw workflowError('WORKFLOW_NOT_FOUND', 'Creation conversation was deleted.');
     const next = { ...draft, ...patch };
     validateWorkflow(next.workflow, { partial: true, parameters: next.parameters || {} });

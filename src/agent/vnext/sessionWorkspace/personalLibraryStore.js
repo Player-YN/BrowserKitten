@@ -272,6 +272,19 @@ export async function openPersonalLibraryStore(opts = {}) {
         const checked = validatePayload({ ...draft, ...(patch || {}) }, { partial: true });
         if (checked.kind && checked.kind !== draft.kind) fail('LIBRARY_BAD_INPUT', 'draft kind cannot change');
         const next = { ...draft, ...checked, revision: draft.revision + 1, updatedAt: now() };
+        // Save-as-rename: mirror workflow draft name onto the published entry so the
+        // library list and a later Edit reopen see the typed name without orphan drafts.
+        if (next.kind === 'workflow' && next.baseEntryId && checked.name != null) {
+          const entryId = id(next.baseEntryId, 'entryId');
+          const entry = state.entries[entryId];
+          if (entry && entry.name !== next.name) {
+            const updated = { ...entry, name: next.name, revision: entry.revision + 1, updatedAt: now() };
+            state.entries[entryId] = updated;
+            state.revisions[entryId] ||= [];
+            state.revisions[entryId].push(revisionCopy(updated));
+            next.baseRevision = updated.revision;
+          }
+        }
         state.drafts[draftId] = next;
         return next;
       });

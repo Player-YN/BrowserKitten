@@ -6,6 +6,7 @@ export async function collectPersonalLibraryInput(entry, { document: doc = docum
   if (!Object.keys(schema.properties || {}).length) return validatePersonalLibraryInput(schema, {});
   return new Promise(resolve => {
     const dialog = doc.createElement('dialog'); dialog.className = 'personal-library-dialog library-parameter-dialog';
+    dialog.setAttribute('closedby', 'any');
     const form = doc.createElement('form');
     const title = doc.createElement('h3'); title.textContent = entry.name || t('libraryParameters'); form.appendChild(title);
     const fields = new Map();
@@ -35,6 +36,7 @@ export async function collectPersonalLibraryInput(entry, { document: doc = docum
     const submit = doc.createElement('button'); submit.type = 'submit'; submit.textContent = t('libraryRun');
     let settled = false;
     const finish = value => { if (settled) return; settled = true; dialog.close(); dialog.remove(); resolve(value); };
+    dialog.addEventListener('click', event => { if (event.target === dialog) finish(null); });
     cancel.addEventListener('click', () => finish(null));
     dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); });
     form.addEventListener('submit', event => {
@@ -82,8 +84,8 @@ export function createPersonalLibraryUi(opts = {}) {
     ['personalToolsBtn', 'personalWorkflowsBtn'].forEach((id, index) => {
       const node = $(id); if (!node) return;
       const entry = entries.find(row => row.entryId === pins[index]);
-      node.textContent = entry?.name || (index === 0 ? t('libraryTools') : 'Workflow');
-      node.title = entry ? `${t(entry.kind === 'tool' ? 'libraryRun' : 'libraryStart')} · ${entry.name}` : t('libraryTitle');
+      node.textContent = entry?.name || (index === 0 ? t('libraryTools') : t('workflowAutomation'));
+      node.title = entry ? `${t(entry.kind === 'tool' ? 'libraryRun' : 'libraryStart')} · ${entry.name}` : (index === 0 ? t('libraryTools') : t('workflowAutomation'));
       node.setAttribute('aria-label', node.title);
       node.onclick = () => invoke(() => entry ? run(entry) : open(index === 0 ? 'tool' : 'workflow'));
     });
@@ -95,25 +97,63 @@ export function createPersonalLibraryUi(opts = {}) {
     const rows = entries.filter(entry => entry.kind === kind);
     if (!rows.length) { const empty = doc.createElement('p'); empty.className = 'personal-library-empty'; empty.textContent = t('libraryEmpty'); list.appendChild(empty); }
     for (const entry of rows) {
-      const card = doc.createElement('article'); card.className = 'personal-library-card';
-      const name = doc.createElement('strong');
-      const type = entry.kind === 'workflow' ? (entry.workflow ? (opts.workflowLabel?.() || 'Automation') : (opts.agentTaskLabel?.() || 'Agent task')) : '';
-      name.textContent = `${entry.name} · v${entry.revision}${type ? ` · ${type}` : ''}`; card.appendChild(name);
-      const detail = doc.createElement('details'); const summary = doc.createElement('summary'); summary.textContent = t('libraryView');
-      const code = doc.createElement('pre'); code.textContent = entry.code || entry.instructions || (entry.workflow ? JSON.stringify(entry.workflow, null, 2) : '');
-      detail.appendChild(summary); detail.appendChild(code); card.appendChild(detail);
-      const actions = doc.createElement('div'); actions.className = 'personal-library-card-actions';
-      button(actions, t(entry.kind === 'tool' ? 'libraryRun' : 'libraryStart'), () => run(entry));
-      button(actions, t('libraryEdit'), () => opts.create?.(entry.kind, entry));
-      button(actions, t(pins.includes(entry.entryId) ? 'libraryUnpin' : 'libraryPin'), async () => {
+      const runnable = entry.kind === 'tool' || entry.workflow?.version === 2;
+      const label = entry.name || t('libraryUntitled');
+      const kindLabel = entry.kind === 'tool'
+        ? t('libraryTools')
+        : (runnable ? (opts.workflowLabel?.() || 'Automation') : (opts.agentTaskLabel?.() || 'Agent task'));
+      const row = doc.createElement('article'); row.className = 'personal-library-row';
+      const main = doc.createElement('button'); main.type = 'button'; main.className = 'personal-library-row-main';
+      main.title = label;
+      const name = doc.createElement('span'); name.className = 'personal-library-row-name'; name.textContent = label; name.title = label;
+      main.append(name);
+      main.addEventListener('click', () => invoke(() => runnable ? run(entry) : opts.create?.(entry.kind, entry)));
+      const more = doc.createElement('button'); more.type = 'button'; more.className = 'personal-library-row-more';
+      more.textContent = '⋯'; more.setAttribute('aria-label', t('libraryMore')); more.setAttribute('aria-expanded', 'false');
+      const meta = doc.createElement('div'); meta.className = 'personal-library-row-meta';
+      const version = doc.createElement('span'); version.textContent = `v${entry.revision}`;
+      const badge = doc.createElement('span'); badge.className = 'personal-library-row-kind'; badge.textContent = kindLabel;
+      meta.append(version, badge);
+      const menu = doc.createElement('div'); menu.className = 'personal-library-row-menu'; menu.hidden = true; menu.setAttribute('role', 'menu');
+      more.addEventListener('click', event => {
+        event.stopPropagation();
+        const next = menu.hidden;
+        list.querySelectorAll('.personal-library-row-menu').forEach(node => {
+          node.hidden = true;
+          node.parentElement?.querySelector('.personal-library-row-more')?.setAttribute('aria-expanded', 'false');
+        });
+        menu.hidden = !next;
+        more.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
+      });
+      if (!runnable) button(menu, t(entry.kind === 'tool' ? 'libraryRun' : 'libraryStart'), () => run(entry));
+      if (runnable) button(menu, t('libraryEdit'), () => opts.create?.(entry.kind, entry));
+      const code = doc.createElement('pre'); code.className = 'personal-library-row-code'; code.hidden = true;
+      code.textContent = entry.code || entry.instructions || (entry.workflow ? JSON.stringify(entry.workflow, null, 2) : '');
+      button(menu, t('libraryView'), () => { code.hidden = !code.hidden; });
+      button(menu, t(pins.includes(entry.entryId) ? 'libraryUnpin' : 'libraryPin'), async () => {
         const next = pins.includes(entry.entryId) ? pins.filter(id => id !== entry.entryId) : [...pins, entry.entryId].slice(-2);
         await opts.setPins?.(next); pins = next; render();
       });
-      button(actions, t('libraryRevert'), () => opts.revert?.(entry));
-      button(actions, t('libraryDelete'), () => opts.remove?.(entry));
-      card.appendChild(actions); list.appendChild(card);
+      button(menu, t('libraryRevert'), () => opts.revert?.(entry));
+      button(menu, t('libraryDelete'), () => opts.remove?.(entry)).classList?.add('is-danger');
+      row.append(main, more, meta, menu, code);
+      list.appendChild(row);
     }
-    dialog?.querySelectorAll('[data-library-kind]').forEach(node => node.setAttribute('aria-selected', String(node.dataset.libraryKind === kind)));
+    if (!list.dataset.menuBound) {
+      list.dataset.menuBound = '1';
+      dialog?.addEventListener('click', event => {
+        if (event.target.closest?.('.personal-library-row-more, .personal-library-row-menu')) return;
+        list.querySelectorAll('.personal-library-row-menu').forEach(node => {
+          node.hidden = true;
+          node.parentElement?.querySelector('.personal-library-row-more')?.setAttribute('aria-expanded', 'false');
+        });
+      });
+    }
+    dialog?.querySelectorAll('[data-library-kind]').forEach(node => {
+      const selected = node.dataset.libraryKind === kind;
+      node.setAttribute('aria-pressed', String(selected));
+      node.setAttribute('aria-selected', String(selected));
+    });
   }
   async function refresh() {
     const sequence = ++refreshSequence;
@@ -123,13 +163,30 @@ export function createPersonalLibraryUi(opts = {}) {
     pins = [...new Set(Array.isArray(savedPins) ? savedPins : [])].filter(id => entries.some(entry => entry.entryId === id)).slice(0, 2);
     render();
   }
-  async function open(next = kind) { kind = next; if (!dialog?.open) dialog?.showModal(); await refresh(); }
+  async function open(next = kind) {
+    kind = next;
+    if (!dialog?.open) dialog?.showModal();
+    await refresh();
+    dialog?.querySelector(`[data-library-kind="${kind}"]`)?.focus();
+  }
   function close() { dialog?.close(); }
+  function isOpen() { return Boolean(dialog?.open); }
+  function bindLightDismiss() {
+    if (!dialog || dialog.dataset.lightDismissBound) return;
+    dialog.dataset.lightDismissBound = '1';
+    dialog.setAttribute('closedby', 'any');
+    dialog.addEventListener('click', event => { if (event.target === dialog) close(); });
+  }
   function wire() {
+    bindLightDismiss();
     $('personalLibraryManageBtn')?.addEventListener('click', () => invoke(() => open()));
     $('personalLibraryClose')?.addEventListener('click', close);
     dialog?.querySelectorAll('[data-library-kind]').forEach(node => node.addEventListener('click', () => invoke(() => open(node.dataset.libraryKind))));
-    $('personalLibraryCreate')?.addEventListener('click', () => invoke(async () => { close(); await opts.create?.(kind); }));
+    // Keep the library open under the Workflow editor so its blur shows the list, not home.
+    $('personalLibraryCreate')?.addEventListener('click', () => invoke(async () => {
+      if (kind !== 'workflow') close();
+      await opts.create?.(kind);
+    }));
     $('personalLibraryExport')?.addEventListener('click', () => invoke(() => opts.export?.()));
     $('personalLibraryImport')?.addEventListener('click', () => $('personalLibraryImportFile')?.click());
     $('personalLibraryImportFile')?.addEventListener('change', event => invoke(async () => {
@@ -138,5 +195,5 @@ export function createPersonalLibraryUi(opts = {}) {
     renderSlots();
     return invoke(refresh);
   }
-  return { wire, open, close, refresh, render, run };
+  return { wire, open, close, isOpen, refresh, render, run };
 }

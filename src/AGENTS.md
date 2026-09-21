@@ -13,7 +13,7 @@ Service worker 会被 Chrome 杀掉。会话仓库、AI SDK、`run` 沙箱客户
 | Content script | `content_script.js` | `matches: <all_urls>`，`run_at: document_idle`，**`all_frames: true`**。点选选区 + 每 frame 的 action。经典脚本（IIFE），`executeScript` 可再注入 |
 | Sidepanel | `sidepanel.html` + `sidepanel.js` | 对话 UI。`workspaceRpc` → background。编排器仍是 `sidepanel.js` |
 | Sandbox | `sandbox/runtime.html` | `manifest.sandbox`；无 `chrome.*`。`run` 的访客代码 + FS / `sys` postMessage |
-| Preview | `preview/` | 扩展页标签：sheet / docs / site / artifactPreview / print |
+| Preview | `preview/` | 扩展页标签：docs / site / artifactPreview / print |
 
 `icons/` 在仓库根，不在 `src/`。`web_accessible_resources` 目前只有 `src/agent/vnext/sessionWorkspace/pickContext.js`（content script 动态 `import`）。
 
@@ -107,7 +107,7 @@ Content script：
 
 ## 预览标签（SW 打开）
 
-`background.js` 按 artifact 打开 `chrome-extension://…/src/preview/*.html?sessionId&artifactId`，并用 tab 缓存 + `*_tab_ready` 握手。office 工具经 `sheet_host` / `canvas_host` 把读写打到已打开的页。种类 → 页面映射见 [preview/AGENTS.md](preview/AGENTS.md)。
+`background.js` 按 artifact 打开 `chrome-extension://…/src/preview/*.html?sessionId&artifactId`，并用 tab 缓存 + `*_tab_ready` 握手。`sheet_host` 是工作簿文件 RPC，不另开表格引擎页。`canvas_host` 返回 `NO_CANVAS`。种类 → 页面映射见 [preview/AGENTS.md](preview/AGENTS.md)。
 
 会话相关预览标签可进 `tabGroups`（`browserTabGroups` / `attachTabToSessionGroup`）。
 

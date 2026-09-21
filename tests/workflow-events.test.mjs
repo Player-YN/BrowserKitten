@@ -102,7 +102,35 @@ test('a stop event carries the committed draft revision into the next editor sav
   await walk(f.doc.body).find(n => n.tagName === 'button' && n.textContent === 'Edit').fire('click');
   current = recording(4, 'stopped');
   f.ui.handleEvent({ type: 'workflow-recording', recording: current, draft: { ...draft, revision: 2 } });
-  await walk(f.doc.body).find(n => n.tagName === 'button' && n.textContent === 'Save draft').fire('click');
+  await walk(f.doc.body).find(n => n.tagName === 'button' && n.textContent === 'Save').fire('click');
   assert.equal(savedRevision, 2);
   assert.deepEqual(f.errors, []);
+});
+
+test('Save sits in the header beside Close; rename patch includes name and not the footer', async () => {
+  let patch;
+  const f = setup(async (method, params) => {
+    if (method === 'listPersonalLibrary') return { entries: [] };
+    if (method === 'createWorkflowDraft') return { draft: { ...draft, name: 'Old' } };
+    if (method === 'updateWorkflowDraft') { patch = params.patch; return { draft: { ...draft, revision: 2, ...params.patch } }; }
+    return null;
+  });
+  await f.ui.open({ source: 'blank' });
+  const dialog = f.doc.body.children.find(n => n.tagName === 'dialog');
+  const head = dialog.children[0];
+  const footer = dialog.children[2];
+  const headActions = head.children[1];
+  assert.equal(headActions.className.includes('workflow-head-actions'), true);
+  const headLabels = headActions.children.filter(n => n.tagName === 'button').map(n => n.textContent);
+  assert.deepEqual(headLabels, ['Save', 'Close']);
+  const footerLabels = walk(footer).filter(n => n.tagName === 'button' || n.tagName === 'summary').map(n => n.textContent);
+  assert.equal(footerLabels.includes('Save'), false);
+  assert.equal(footerLabels.includes('Run'), true);
+  assert.equal(footerLabels.includes('Add / Update'), true);
+  const nameInput = walk(dialog).find(n => n.tagName === 'input');
+  nameInput.value = 'Renamed flow';
+  for (const fn of nameInput.listeners.input || []) fn();
+  await walk(headActions).find(n => n.textContent === 'Save').fire('click');
+  assert.equal(patch.name, 'Renamed flow');
+  assert.equal(nameInput.value, 'Renamed flow');
 });

@@ -395,7 +395,6 @@ export async function sendMessage(store, input) {
     onEvent,
     waitForClarify: input.waitForClarify,
     webAcquire,
-    hostSheet: typeof input.hostSheet === 'function' ? input.hostSheet : null,
     hostCanvas: typeof input.hostCanvas === 'function' ? input.hostCanvas : null,
     hostPageCapture: typeof input.hostPageCapture === 'function' ? input.hostPageCapture : null,
     hostPageAction: typeof input.hostPageAction === 'function' ? input.hostPageAction : null,
