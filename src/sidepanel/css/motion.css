@@ -319,9 +319,72 @@ select:focus-visible {
   }
 }
 
+/*
+ * Library / workflow <dialog>: animate open only.
+ * Closed rules use transition:none so exit is instant — no exit translate,
+ * no backdrop-filter interpolation (blur→0 smears), no overlay/display fight.
+ */
+.personal-library-dialog {
+  opacity: 0;
+  transform: translateY(0);
+  transition: none;
+}
+
+.personal-library-dialog[open] {
+  opacity: 1;
+  transform: translateY(0);
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: var(--dur-3, 220ms);
+  transition-timing-function: var(--ease-out, ease);
+  transition-behavior: allow-discrete;
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.personal-library-dialog::backdrop {
+  background-color: transparent;
+  backdrop-filter: none;
+  transition: none;
+}
+
+.personal-library-dialog[open]::backdrop {
+  background-color: color-mix(in srgb, var(--bg-void) 50%, transparent);
+  backdrop-filter: blur(10px);
+  /* Fade dim only on entry; never transition blur (smear on close). */
+  transition-property: background-color, display, overlay;
+  transition-duration: var(--dur-3, 220ms);
+  transition-timing-function: var(--ease-out, ease);
+  transition-behavior: allow-discrete;
+
+  @starting-style {
+    background-color: transparent;
+  }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .bot-status-stop {
+    transition: none;
+  }
+  .personal-library-dialog {
+    transform: none;
+    transition: none;
+  }
+  .personal-library-dialog[open] {
+    transform: none;
+    transition: none;
+
+    @starting-style {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  .personal-library-dialog::backdrop,
+  .personal-library-dialog[open]::backdrop {
+    backdrop-filter: none;
     transition: none;
   }
   .ambient-layer::before,
@@ -342,7 +405,8 @@ select:focus-visible {
   .clip-export-menu[popover]:popover-open,
   .context-usage-popover.is-open,
   .sheet-backdrop,
-  .more-sheet {
+  .more-sheet,
+  .personal-library-dialog {
     animation: none !important;
   }
 
@@ -362,6 +426,18 @@ select:focus-visible {
   .pick-btn,
   .shot-btn,
   .library-entry-btn,
+  .quick-tool,
+  .personal-library-row,
+  .personal-library-row-more,
+  .personal-library-row-menu button,
+  .personal-library-head button,
+  .personal-library-tabs button,
+  .personal-library-create,
+  .personal-library-card button,
+  .workflow-body button,
+  .workflow-footer button,
+  .workflow-footer summary,
+  .workflow-dialog .workflow-head-save,
   .send-btn,
   .stop-btn,
   .sel-expand-body,
