@@ -1394,17 +1394,19 @@ export function createSessionTools(env) {
   const action = {
     name: 'action',
     description:
-      'Operate a live Chrome tab (tabId). snapshot returns controls, JPEG and media playback/source hints. ' +
-      'Use record for short tab video+audio when temporal visual evidence helps the goal and nativeVideo is available; it delivers video to your own input (8s default, max 30s; separate capture grant). ' +
-      'For audio alone use listen=start|stop|clip; downloadable media uses acquire fetch. ' +
-      'Form/pointer/upload mutations need latest rev. Page policy blocks use run + sys.eval/sys.cdp (inspect view=sys). Errors: {ok:false,code,error,hint}.',
+      'Operate a live Chrome tab (tabId). snapshot returns controls and a JPEG when the page is new or empty. ' +
+      'record is short video when nativeVideo is available; listen is audio only; acquire fetches files. ' +
+      'Mutations need the latest rev. Many similar controls or a hop toward a page: op=choose with subgoal, not a ref. ' +
+      'A DOM miss returns FALLBACK_VISUAL plus a viewport JPEG; next is op=pointer, x,y in 0–1, method=cdp. ' +
+      'method=point is elementFromPoint and cannot click a canvas. VISUAL_UNCHANGED: do not repeat that point. ' +
+      'Page policy blocks use run + sys.eval/sys.cdp (inspect view=sys). Errors: {ok:false,code,error,hint}.',
     parameters: {
       type: 'object',
       properties: {
         op: {
           type: 'string',
-          enum: ['snapshot', 'fill_form', 'click', 'fill', 'select', 'press', 'scroll', 'wait', 'upload', 'pointer', 'listen', 'record'],
-          description: 'Live-tab op. snapshot reads both channels on a new page (structure always; JPEG when new/empty/asked). File chooser: op=upload with path, not fill. Visual click: op=pointer with x,y and method. Audio only: listen=start|stop|clip. Temporal visual evidence: record + seconds, including dynamic UI without a video element; no rev.'
+          enum: ['snapshot', 'fill_form', 'click', 'fill', 'select', 'press', 'scroll', 'wait', 'upload', 'pointer', 'listen', 'record', 'choose'],
+          description: 'Live-tab op. snapshot reads both channels on a new page. op=choose takes subgoal and optional until; the host picks a named control. After FALLBACK_VISUAL, visual click is op=pointer with x,y in 0–1 and method=cdp. Audio only: listen=start|stop|clip. record + seconds for short video. no rev on listen/record.'
         },
         tabId: {
           type: 'number',
@@ -1478,7 +1480,10 @@ export function createSessionTools(env) {
           enum: ['start', 'stop', 'clip'],
           description: 'listen: start/stop tab audio, or clip seconds then stop. Default clip.'
         },
-        seconds: { type: 'number', description: 'Duration: record defaults to 8s, max 30s; listen=clip defaults to 20s, max 120s' }
+        seconds: { type: 'number', description: 'Duration: record defaults to 8s, max 30s; listen=clip defaults to 20s, max 120s' },
+        subgoal: { type: 'string', description: 'choose: one-line target, such as the control name or the page to reach' },
+        until: { type: 'string', description: 'choose: stop when the URL contains this or a control has this exact name' },
+        maxSteps: { type: 'number', description: 'choose: step cap, default 4, max 8' }
       },
       required: ['op']
     },
@@ -1551,6 +1556,29 @@ export function createSessionTools(env) {
           x: input.x,
           y: input.y,
           observe: input.observe,
+          subgoal: input.subgoal,
+          until: input.until,
+          maxSteps: input.maxSteps,
+          onChooseStep: (step) => {
+            try {
+              onEvent?.({
+                type: 'action-outcome',
+                sessionId,
+                op: 'choose',
+                ok: step.verified === true,
+                name: step.name || '',
+                subgoal: step.subgoal || '',
+                ref: step.ref || '',
+                via: step.via || '',
+                verified: step.verified === true,
+                url: step.url || '',
+                tabId: resolveActionTabId(input, env),
+                title: env.activeTab?.title || ''
+              });
+            } catch {
+              /* UI fact must not fail the tool */
+            }
+          },
           tabId: resolveActionTabId(input, env),
           url: env.activeTab?.url,
           executionId: execution?.executionId

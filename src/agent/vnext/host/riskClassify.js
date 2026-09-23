@@ -343,23 +343,13 @@ function classifyAction(input = {}) {
 
   if (op === 'pointer') {
     const pointerMethod = String(input.method || '').toLowerCase();
-    if (pointerMethod === 'cdp') {
-      return verdict({
-        risk: RISK_RAW,
-        confidence: CONF_KNOWN,
-        effectConfidence: CONF_UNKNOWN,
-        reason: 'action:pointer:cdp',
-        summary: '视口坐标 CDP 鼠标',
-        signals: ['pointer-cdp'],
-        target: base
-      });
-    }
+    const cdp = pointerMethod === 'cdp';
     return verdict({
       risk: RISK_COMMIT,
       confidence: CONF_UNKNOWN,
-      reason: 'action:pointer:point',
-      summary: '视口坐标脚本点击',
-      signals: ['pointer-point'],
+      reason: cdp ? 'action:pointer:cdp' : 'action:pointer:point',
+      summary: cdp ? '视口坐标 CDP 鼠标' : '视口坐标脚本点击',
+      signals: [cdp ? 'pointer-cdp' : 'pointer-point'],
       target: base
     });
   }

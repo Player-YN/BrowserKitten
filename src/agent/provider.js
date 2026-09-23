@@ -1,10 +1,17 @@
 /**
- * BrowserBot — OpenAI-compatible language model via Vercel AI SDK
+ * BrowserBot — OpenAI-compatible or Anthropic Messages language model via Vercel AI SDK
  * BYOK from active provider in chrome.storage; HTTPS inference only (no cloud agent orchestrator).
  */
 
 import { createOpenAICompatible } from './vnext/adapters/vendor/ai-sdk-loader.mjs';
-import { loadLlmSettings, DEFAULT_BASE } from './llm.js';
+import {
+  loadLlmSettings,
+  DEFAULT_BASE,
+  CHAT_PROTOCOL_ANTHROPIC,
+  CHAT_PROTOCOL_OPENAI
+} from './llm.js';
+import { resolveChatWire } from './chatWireRoute.js';
+import { createAnthropicLanguageModel } from './anthropicProvider.js';
 import { loadCachedModelsForBase } from './modelCatalog.js';
 import { resolveChatMediaCapabilities, canSendChatMedia, MAX_CHAT_MEDIA_BYTES } from './chatMedia.js';
 import { isAbortLike, toAbortError } from './vnext/host/userStop.js';
@@ -255,7 +262,8 @@ export function applyChatReasoningToInit(init = {}, reasoning) {
 
 /**
  * Build a LanguageModel for streamText / ToolLoopAgent.
- * Uses the **active** OpenAI-compatible provider (baseURL + apiKey + model).
+ * Uses the **active** chat provider. Wire path comes from provider.protocol
+ * (openai-compatible | anthropic | openai-responses | auto) for any base URL.
  * @param {{ model?: string, reasoning?: { enabled?: boolean, effort?: string } }} [opts]
  * @returns {Promise<{ model: import('ai').LanguageModel, settings: object, modelId: string }>}
  */
@@ -272,9 +280,39 @@ export async function createBrowserBotLanguageModel(opts = {}) {
   const providerName =
     (settings.providerName && String(settings.providerName).trim()) || 'browserbot';
 
+  const route = resolveChatWire({
+    baseURL,
+    model: modelId,
+    protocol: settings.protocol
+  });
+  if (!route.supported) {
+    const err = new Error(route.error || 'CHAT_WIRE_UNSUPPORTED');
+    err.code = route.code || 'CHAT_WIRE_UNSUPPORTED';
+    throw err;
+  }
+  const protocol = route.protocol || CHAT_PROTOCOL_OPENAI;
+
   const mediaCapabilities = opts.mediaCapabilities || resolveChatMediaCapabilities(
     { ...settings, model: modelId }, (await loadCachedModelsForBase(baseURL)).models
   );
+
+  if (protocol === CHAT_PROTOCOL_ANTHROPIC) {
+    const model = createAnthropicLanguageModel({
+      modelId,
+      apiKey: settings.apiKey,
+      baseURL,
+      providerName,
+      fetch: createExtensionFetch({
+        reasoning: null,
+        mediaCapabilities,
+        mediaContext: opts.mediaContext,
+        noRetry: opts.noRetry === true,
+        anthropic: true
+      })
+    });
+    return { model, settings: { ...settings, protocol }, modelId };
+  }
+
   const provider = createOpenAICompatible({
     name: providerName,
     apiKey: settings.apiKey,
@@ -286,7 +324,7 @@ export async function createBrowserBotLanguageModel(opts = {}) {
 
   return {
     model: provider(modelId),
-    settings,
+    settings: { ...settings, protocol },
     modelId
   };
 }
@@ -297,7 +335,8 @@ export async function createBrowserBotLanguageModel(opts = {}) {
  * Failed to fetch (CORS / unsafe headers / PNA). Then SW `llm_proxy_fetch`
  * buffers the full HTTPS response — including SSE — so the turn can finish.
  * OpenRouter keeps reasoning / reasoning_details; Groq-class hosts strip them.
- * @param {{ reasoning?: { enabled?: boolean, effort?: string }|null }} [opts]
+ * Anthropic Messages bodies must not go through OpenAI message sanitizers.
+ * @param {{ reasoning?: { enabled?: boolean, effort?: string }|null, anthropic?: boolean }} [opts]
  * @returns {typeof fetch}
  */
 export function createExtensionFetch(opts = {}) {
@@ -307,13 +346,15 @@ export function createExtensionFetch(opts = {}) {
     headers.delete('x-paw-internal-no-retry');
     const url = resolveLlmFetchUrl(input);
     const keepReasoning = /openrouter\.ai/i.test(String(url));
-    const cleanedInit = stripUnsupportedFieldsFromRequestInit({
-      ...init,
-      headers: sanitizeLlmProxyHeaders(headers)
-    }, opts.reasoning || null, {
-      keepReasoning,
-      mediaCapabilities: opts.mediaContext?.current || opts.mediaCapabilities
-    });
+    const cleanedInit = opts.anthropic
+      ? { ...init, headers: sanitizeLlmProxyHeaders(headers) }
+      : stripUnsupportedFieldsFromRequestInit({
+          ...init,
+          headers: sanitizeLlmProxyHeaders(headers)
+        }, opts.reasoning || null, {
+          keepReasoning,
+          mediaCapabilities: opts.mediaContext?.current || opts.mediaCapabilities
+        });
     const body = await serializeLlmProxyBody(cleanedInit.body);
     const fetchInit = {
       ...cleanedInit,

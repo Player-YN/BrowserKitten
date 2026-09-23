@@ -9,6 +9,7 @@ export const STORAGE_PROVIDERS = 'browserbot_providers';
 export const STORAGE_ACTIVE_PROVIDER_ID = 'browserbot_active_provider_id';
 export const STORAGE_ACTIVE_IMAGE_PROVIDER_ID = 'browserbot_active_image_provider_id';
 export const STORAGE_ACTIVE_STT_PROVIDER_ID = 'browserbot_active_stt_provider_id';
+export const STORAGE_ACTIVE_JEV_PROVIDER_ID = 'browserbot_active_jev_provider_id';
 export const STORAGE_API_KEY = 'browserbot_api_key';
 export const STORAGE_API_BASE = 'browserbot_api_base';
 export const STORAGE_ACCESS_POLICY = 'browserbot_access_policy';

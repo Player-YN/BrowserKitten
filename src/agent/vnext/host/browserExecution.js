@@ -1,6 +1,7 @@
 /** Browser resources are scoped to an execution, not to a sidepanel or a model call. */
 import { listTabLeases, revokeTabLeaseOwner, releaseOwnedTabLeases } from './tabLease.js';
 import { releaseBrowserSysResources } from './browserSysHost.js';
+import { clearVisualReplay } from './visualClick.js';
 const releases = new Map();
 
 export function releaseBrowserExecution(sessionId, executionId) {
@@ -12,6 +13,7 @@ export function releaseBrowserExecution(sessionId, executionId) {
     await revokeTabLeaseOwner(sessionId, executionId);
     const owned = (await listTabLeases()).filter(row => row.sessionId === sessionId && row.executionId === executionId);
     await releaseBrowserSysResources(sessionId, executionId, owned);
+    clearVisualReplay(executionId);
     return releaseOwnedTabLeases(sessionId, executionId);
   })();
   releases.set(key, pending);

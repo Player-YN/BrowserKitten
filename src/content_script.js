@@ -4647,6 +4647,35 @@ ${fragment}
     }
   }
 
+  function visualDomBlock(el) {
+    if (!el || el.nodeType !== 1) return '';
+    if (String(el.tagName || '').toLowerCase() === 'canvas') return 'canvas';
+    let rect = null;
+    try { rect = el.getBoundingClientRect(); } catch (_) { return ''; }
+    if (!rect || rect.width < 1 || rect.height < 1) return '';
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    if (x < 0 || y < 0 || x > (window.innerWidth || 0) || y > (window.innerHeight || 0)) return '';
+    let hit = null;
+    try { hit = document.elementFromPoint(x, y); } catch (_) { return ''; }
+    if (!hit || hit.nodeType !== 1) return '';
+    const hitTag = String(hit.tagName || '').toLowerCase();
+    if (hitTag === 'canvas' && hit !== el && !el.contains(hit)) return 'canvas';
+    if (hit === el || el.contains(hit) || hit.contains(el)) return '';
+    return 'occluded';
+  }
+
+  function visualDomFailure(el) {
+    const block = visualDomBlock(el);
+    if (block === 'canvas') {
+      return { ok: false, code: 'NO_TARGET', hit: 'canvas', error: 'Top hit is a canvas. Use pointer method=cdp.' };
+    }
+    if (block === 'occluded') {
+      return { ok: false, code: 'NO_TARGET', occluded: true, error: 'elementFromPoint did not hit the target ref.' };
+    }
+    return null;
+  }
+
   function clickActionTarget(el) {
     const tag = (el.tagName || '').toLowerCase();
     const type = actionControlType(el);
@@ -4871,6 +4900,17 @@ ${fragment}
       if (!el || el.nodeType !== 1) {
         return { ok: false, code: 'NO_TARGET', error: 'no element at viewport point', x, y };
       }
+      if (String(el.tagName || '').toLowerCase() === 'canvas') {
+        return {
+          ok: false,
+          code: 'NO_TARGET',
+          hit: 'canvas',
+          x,
+          y,
+          error: 'method=point cannot click inside a canvas.',
+          hint: 'Use action op=pointer with method=cdp and the same 0–1 x,y.'
+        };
+      }
       const clicked = clickActionTarget(el);
       if (clicked && clicked.ok === false) return clicked;
       return { ok: true, op, methodUsed: 'point', x, y, after: actionAfter(el, { source: 'point' }) };
@@ -4912,6 +4952,8 @@ ${fragment}
     const afterExtra = { source: resolved.source, ref: resolved.ref };
 
     if (op === 'click') {
+      const blocked = visualDomFailure(el);
+      if (blocked) return blocked;
       const clicked = clickActionTarget(el);
       if (clicked && clicked.ok === false) return clicked;
       return { ok: true, op, after: actionAfter(el, afterExtra) };
@@ -4970,6 +5012,8 @@ ${fragment}
     }
 
     if (op === 'fill') {
+      const blocked = visualDomFailure(el);
+      if (blocked) return blocked;
       if (!Object.prototype.hasOwnProperty.call(request, 'value')) {
         return { ok: false, error: 'value is required', code: 'BAD_INPUT' };
       }

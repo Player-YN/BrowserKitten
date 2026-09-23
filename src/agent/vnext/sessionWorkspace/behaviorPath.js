@@ -1380,6 +1380,10 @@ function compactAuditFact(type, ev, ts) {
   if (ev.name) row.name = String(ev.name).slice(0, 80);
   if (ev.recovered === true) row.recovered = true;
   if (ev.reason) row.reason = String(ev.reason).slice(0, 40);
+  if (ev.subgoal) row.subgoal = String(ev.subgoal).slice(0, 80);
+  if (ev.ref) row.ref = String(ev.ref).slice(0, 32);
+  if (ev.via) row.via = String(ev.via).slice(0, 8);
+  if (ev.verified === true || ev.verified === false) row.verified = ev.verified === true;
   if (ev.kind) row.kind = String(ev.kind).slice(0, 24);
   if (ev.matched === false) row.matched = false;
   if (ev.dueAt) row.dueAt = String(ev.dueAt).slice(0, 80);

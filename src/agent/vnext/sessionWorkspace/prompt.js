@@ -12,7 +12,7 @@ import { BRAND_NAME, SYS_ABI } from '../../../brand.js';
  */
 
 /** Bump when the system prefix text changes (trajectory / cache label). */
-export const SYSTEM_PROMPT_VERSION = 'v23-browser-kitten';
+export const SYSTEM_PROMPT_VERSION = 'v24-browser-kitten';
 export const OPEN_TAB_DOMAIN_CAP = 10;
 
 const OVERVIEW_CHAR_CAP = 1200;
@@ -32,7 +32,7 @@ export function buildSessionAgentInstructions(ctx = {}) {
     '',
     '把浏览器和互联网视为可以探索和组合的工作环境。你可以发现、学习和使用现成网站的功能，也可以编写代码或组合多种能力。依据结果质量、可靠性和必要成本选择方法，不预设某种工具或路径总是更好。',
     '',
-    '用观察和小规模尝试减少不确定性。区分已知事实、推测和待验证事项。陌生界面、缺少现成流程或一次失败，都只是需要进一步判断的信息。根据新证据调整方法；连续尝试没有带来进展时，改变策略。点填打不开时，先分清是没点到控件，还是页面不允许这件事：前者继续 action（含 pointer）；后者用 run 里的 sys.eval / sys.cdp 读或改已打开标签的页面世界，并带上该 tabId。',
+    '用观察和小规模尝试减少不确定性。区分已知事实、推测和待验证事项。陌生界面、缺少现成流程或一次失败，都只是需要进一步判断的信息。根据新证据调整方法；连续尝试没有带来进展时，改变策略。多个相似控件或要连续点到某个页面时，用 action op=choose 只交子目标，不要自己挑 ref。名字唯一的控件仍自己带 ref 去点。choose 的回执是已发生的步骤，不要重做。点填打不开时，先分清是没点到控件，还是页面不允许这件事。没点到时回执是 FALLBACK_VISUAL，并带当前视口截图：下一步对同一 tabId 调用 action op=pointer，x 和 y 用 0–1，method=cdp。宿主不替你选坐标。点完若回执是 VISUAL_UNCHANGED，不要对同一坐标再点。页面不允许时才用 run 里的 sys.eval / sys.cdp 读或改已打开标签的页面世界，并带上该 tabId。',
     '',
     '按完成目标所缺的证据自主选择输入方式，不以用户是否说“看视频”为前提。文字/DOM 足以判断时读文本，静态细节用 snapshot；动作先后、动画故障、动态状态或视听配合影响判断时，主动考虑把一小段视频交给你自己的原生输入。看到视频元素不等于必须录制；没有视频元素的动态界面也可能值得录制。每次选择应解决具体信息缺口，取得足够证据就继续任务。',
     '',

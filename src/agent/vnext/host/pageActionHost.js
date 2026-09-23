@@ -20,11 +20,23 @@ import {
 } from './uploadChannel.js';
 import { captureVisibleJpeg } from './pageScreenshot.js';
 import { handleWorkspaceTabListen } from './tabListen.js';
+import { loadLlmSettings } from '../../llm.js';
+import { fetchJevChoice, runChooseLoop } from './jevSelect.js';
 import {
   shouldAttachPageScreenshot,
   screenshotToModelParts,
   observeDocumentKey
 } from '../sessionWorkspace/actionObserve.js';
+import {
+  POINTER_SETTLE_MS,
+  coarseScreenshotHash,
+  cssViewportPoint,
+  jpegPixelSize,
+  settleVisualPointer,
+  viewportAspectMismatch,
+  visualReplayBlocked,
+  withVisualFallback
+} from './visualClick.js';
 
 const snapshots = createPageSnapshotRegistry();
 const lastControls = new Map();
@@ -291,6 +303,10 @@ async function sendPageActionToFrame(tabId, frameId, payload, expected = null) {
     return await chrome.tabs.sendMessage(tabId, { action: 'workspace_page_action', ...payload },
       { frameId, documentId: target.documentId });
   } catch (error) {
+    const msg = String(error?.message || error);
+    if (/Receiving end does not exist|Could not establish connection|No frame with id/i.test(msg)) {
+      throw Object.assign(targetError('NEED_PAGE', msg), { frameUnreachable: true });
+    }
     if (mutation) throw Object.assign(targetError('ACTION_OUTCOME_UNKNOWN',
       'Page action response was lost. Inspect the page before deciding whether to retry.'), { outcome: 'unknown' });
     throw error;
@@ -723,10 +739,21 @@ function parsePointerPoint(request) {
   return { ok: true, x, y };
 }
 
-async function executePointerCdp(tabId, x, y) {
+async function readCssLayoutViewport(debuggee) {
+  const metrics = await chrome.debugger.sendCommand(debuggee, 'Page.getLayoutMetrics', {});
+  const css = metrics?.cssLayoutViewport || metrics?.layoutViewport || {};
+  const clientWidth = Number(css.clientWidth);
+  const clientHeight = Number(css.clientHeight);
+  if (!(clientWidth > 0) || !(clientHeight > 0)) return null;
+  return { clientWidth, clientHeight };
+}
+
+async function executePointerCdp(tabId, x, y, viewport) {
   if (typeof chrome.debugger?.attach !== 'function' || typeof chrome.debugger?.sendCommand !== 'function') {
     return { ok: false, code: 'SYS_DENIED', error: 'debugger API unavailable' };
   }
+  const point = cssViewportPoint(x, y, viewport);
+  if (!point) return { ok: false, code: 'COORD_MISMATCH', error: 'CSS viewport size is missing.' };
   const debuggee = { tabId };
   try {
     await chrome.debugger.attach(debuggee, '1.3');
@@ -738,26 +765,14 @@ async function executePointerCdp(tabId, x, y) {
     return { ok: false, code: 'SYS_DENIED', error: msg };
   }
   try {
-    let w = 1;
-    let h = 1;
-    try {
-      const metrics = await chrome.debugger.sendCommand(debuggee, 'Page.getLayoutMetrics', {});
-      const css = metrics?.cssLayoutViewport || metrics?.layoutViewport || {};
-      w = Number(css.clientWidth) || 1;
-      h = Number(css.clientHeight) || 1;
-    } catch {
-      /* fall back to unit square */
-    }
-    const px = x * w;
-    const py = y * h;
     await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved', x: px, y: py
+      type: 'mouseMoved', x: point.x, y: point.y
     });
     await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
-      type: 'mousePressed', x: px, y: py, button: 'left', clickCount: 1
+      type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1
     });
     await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
-      type: 'mouseReleased', x: px, y: py, button: 'left', clickCount: 1
+      type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1
     });
     return { ok: true, op: 'pointer', methodUsed: 'cdp', x, y, trusted: false };
   } catch (error) {
@@ -769,6 +784,138 @@ async function executePointerCdp(tabId, x, y) {
   } finally {
     try { await chrome.debugger.detach(debuggee); } catch { /* already gone */ }
   }
+}
+
+function waitPointerSettle(tabId, ms = POINTER_SETTLE_MS) {
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try { chrome.webNavigation?.onCommitted?.removeListener(onNav); } catch { /* listener optional */ }
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    const onNav = (details) => {
+      if (Number(details?.tabId) === Number(tabId) && Number(details?.frameId) === 0) finish();
+    };
+    try { chrome.webNavigation?.onCommitted?.addListener(onNav); } catch { /* timer still bounds the wait */ }
+  });
+}
+
+async function forceViewportScreenshot(result, tabId) {
+  if (!result || result.modelParts) return result;
+  const shot = await captureVisibleJpeg(chrome, tabId);
+  if (!shot.ok) {
+    return { ...result, screenshotError: { code: shot.code || 'NEED_PAGE', error: shot.error || '' } };
+  }
+  return {
+    ...result,
+    screenshot: { attached: true, mediaType: shot.mediaType || 'image/jpeg' },
+    modelParts: screenshotToModelParts({ ...shot, label: 'Viewport for visual pointer' })
+  };
+}
+
+function pageIdentity(page, fallback) {
+  const src = page && typeof page === 'object' ? page : {};
+  const alt = fallback && typeof fallback === 'object' ? fallback : {};
+  return {
+    url: src.url || alt.url || '',
+    documentId: src.documentId || alt.documentId || ''
+  };
+}
+
+async function reflectCdpPointer(request, tabId, point, expectedTop) {
+  if (visualReplayBlocked(request.executionId, point.x, point.y)) {
+    return {
+      ok: false,
+      code: 'VISUAL_UNCHANGED',
+      error: 'This viewport point already produced no visible change.',
+      hint: 'Do not repeat the same pointer coordinates in this execution.'
+    };
+  }
+  if (typeof chrome.debugger?.attach !== 'function' || typeof chrome.debugger?.sendCommand !== 'function') {
+    return { ok: false, code: 'SYS_DENIED', error: 'debugger API unavailable' };
+  }
+  const debuggee = { tabId };
+  let viewport = null;
+  let attached = false;
+  try {
+    await chrome.debugger.attach(debuggee, '1.3');
+    attached = true;
+    viewport = await readCssLayoutViewport(debuggee);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (/Another debugger|already attached|attached/i.test(msg)) {
+      return { ok: false, code: 'CDP_BUSY', error: msg };
+    }
+    return { ok: false, code: 'SYS_DENIED', error: msg };
+  } finally {
+    if (attached) {
+      try { await chrome.debugger.detach(debuggee); } catch { /* inspect attach is separate from the click */ }
+    }
+  }
+  if (!viewport) return { ok: false, code: 'COORD_MISMATCH', error: 'CSS viewport size is missing.' };
+  const beforeShot = await captureVisibleJpeg(chrome, tabId);
+  const shotSize = beforeShot.ok ? jpegPixelSize(beforeShot.base64) : null;
+  if (shotSize && viewportAspectMismatch(shotSize.width, shotSize.height, viewport.clientWidth, viewport.clientHeight)) {
+    return {
+      ok: false,
+      code: 'COORD_MISMATCH',
+      error: 'Screenshot aspect does not match the CSS viewport.',
+      hint: 'Snapshot again and choose x,y against the current viewport.'
+    };
+  }
+  const before = {
+    ...pageIdentity(expectedTop),
+    hash: beforeShot.ok ? await coarseScreenshotHash(beforeShot.base64) : ''
+  };
+  let raw;
+  try {
+    await assertTabLeaseOwnerActive(request.sessionId, request.executionId);
+    raw = await executePointerCdp(tabId, point.x, point.y, viewport);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || String(error),
+      code: error?.code || 'NEED_PAGE',
+      ...(error?.outcome ? { outcome: error.outcome } : {}),
+      ...(error?.frameUnreachable ? { frameUnreachable: true } : {})
+    };
+  }
+  if (!raw || raw.ok === false) return raw || { ok: false, code: 'SYS_FAILED', error: 'CDP pointer failed' };
+  await waitPointerSettle(tabId);
+  const snap = await observeAfterAction(tabId);
+  const afterShot = await captureVisibleJpeg(chrome, tabId);
+  const after = {
+    ...pageIdentity(snap?.page, snap),
+    hash: afterShot.ok ? await coarseScreenshotHash(afterShot.base64) : ''
+  };
+  const withShot = afterShot.ok
+    ? {
+        screenshot: { attached: true, mediaType: afterShot.mediaType || 'image/jpeg' },
+        modelParts: screenshotToModelParts({ ...afterShot, label: 'Page screenshot after pointer' })
+      }
+    : {};
+  const settled = settleVisualPointer({
+    executionId: request.executionId,
+    x: point.x,
+    y: point.y,
+    before,
+    after
+  });
+  if (settled.code === 'VISUAL_UNCHANGED') {
+    return {
+      ok: false,
+      code: 'VISUAL_UNCHANGED',
+      error: 'Pointer did not change the URL, document, or viewport.',
+      hint: 'Do not repeat the same pointer coordinates in this execution.',
+      methodUsed: 'cdp',
+      ...withShot
+    };
+  }
+  return { ...attachFreshSnapshot(raw, snap), ...withShot };
 }
 
 async function resolveNameAcrossFrames(tabId, name, snapshot) {
@@ -941,8 +1088,14 @@ async function runWorkspacePageAction(request) {
   let result;
   try { result = await executeWorkspacePageAction(request); }
   catch (error) { result = { ok: false, code: error?.code || 'NEED_PAGE', error: error?.message || String(error),
-    ...(error?.outcome ? { outcome: error.outcome } : {}) }; }
+    ...(error?.outcome ? { outcome: error.outcome } : {}),
+    ...(error?.frameUnreachable ? { frameUnreachable: true } : {}) }; }
   const tabId = Number(request?.tabId ?? request?.defaultTabId ?? result?.tabId);
+  const op = String(request?.op || '').trim().toLowerCase();
+  result = withVisualFallback(result, op);
+  if (result?.code === 'FALLBACK_VISUAL' && Number.isFinite(tabId) && tabId > 0) {
+    result = await forceViewportScreenshot(result, tabId);
+  }
   let title = result?.title;
   if ((!title || result?.tabId == null) && Number.isFinite(tabId) && tabId > 0) {
     try {
@@ -952,6 +1105,65 @@ async function runWorkspacePageAction(request) {
     }
   }
   return withPageActionTab(result, tabId, title);
+}
+
+async function clickChosenControl(request, tabId, snap, control) {
+  const frameId = Number.isFinite(Number(control.frameId)) ? Number(control.frameId) : 0;
+  const expected = (snap?.frames || []).find((frame) => frame.frameId === frameId);
+  const local = String(control.ref || '').replace(/^f\d+\./i, '');
+  const gate = await authorizePageActionDispatch(request, {
+    op: 'click',
+    tabId,
+    frameId,
+    ref: control.ref,
+    documentId: expected?.documentId || control.documentId,
+    frameUrl: expected?.url || control.frameUrl || '',
+    control: {
+      ...control,
+      frameId,
+      documentId: expected?.documentId || control.documentId || '',
+      frameUrl: expected?.url || control.frameUrl || ''
+    }
+  });
+  if (!gate.ok) return gate;
+  await assertTabLeaseOwnerActive(request.sessionId, request.executionId);
+  return sendPageActionToFrame(tabId, frameId, { op: 'click', ref: local, name: control.name }, expected);
+}
+
+async function runChooseAction(request, tabId) {
+  const settings = await loadLlmSettings();
+  const jev = settings.jev;
+  const jevVia = String(settings.jevProviderName || 'jev').slice(0, 80);
+  return runChooseLoop({
+    subgoal: request.subgoal,
+    until: request.until,
+    maxSteps: request.maxSteps,
+    onStep: request.onChooseStep,
+    jevVia,
+    observe: async () => {
+      const snap = await snapshotPageActionFrames(tabId, { scope: 'all' });
+      return { page: snap.page, controls: snap.controls, frames: snap.frames, title: snap.title };
+    },
+    select: async (payload) => {
+      if (!jev?.apiKey || !jev?.apiBase) {
+        return {
+          code: 'NEED_JEV',
+          error: 'No active Jev provider. Add one in Settings, or click with ref yourself.'
+        };
+      }
+      const chosen = await fetchJevChoice(
+        {
+          apiKey: jev.apiKey,
+          apiBase: jev.apiBase,
+          model: jev.model || 'jev-1.13'
+        },
+        payload
+      );
+      if (!chosen.ok) return { code: chosen.code, error: chosen.error };
+      return { ref: chosen.ref };
+    },
+    act: (picked, snap) => clickChosenControl(request, tabId, snap, picked)
+  });
 }
 
 async function executeWorkspacePageAction(request) {
@@ -970,6 +1182,7 @@ async function executeWorkspacePageAction(request) {
     };
   }
   const op = String(request?.op || '').trim().toLowerCase();
+  if (op === 'choose') return runChooseAction(request, tabId);
   if (op === 'listen' || op === 'record') {
     return handleWorkspaceTabListen({ ...request, tabId, url: resolved.url });
   }
@@ -1044,7 +1257,8 @@ async function executeWorkspacePageAction(request) {
           ok: false,
           error: error?.message || String(error),
           code: error?.code || 'NEED_PAGE',
-          outcome: error?.outcome
+          outcome: error?.outcome,
+          ...(error?.frameUnreachable ? { frameUnreachable: true } : {})
         });
         break;
       }
@@ -1070,8 +1284,13 @@ async function executeWorkspacePageAction(request) {
     }
     const snap = await observeAfterAction(tabId);
     const failure = results.find(row => row?.ok === false);
+    if (!allOk && failure?.code === 'STALE_REF') {
+      try { await snapshotPageActionFrames(tabId, { scope: 'all' }); } catch { /* still stale */ }
+    }
     return maybeAttachScreenshot(attachFreshSnapshot({ ok: allOk, op: 'fill_form', results,
       ...(!allOk ? { partial: true, code: failure?.code || 'FORM_PARTIAL',
+        ...(failure?.code === 'STALE_REF' ? { refreshed: true } : {}),
+        ...(failure?.frameUnreachable ? { frameUnreachable: true } : {}),
         ...(failure?.outcome ? { outcome: failure.outcome } : {}) } : {}) }, snap), request, tabId);
   }
 
@@ -1081,6 +1300,14 @@ async function executeWorkspacePageAction(request) {
     const method = String(request.method || '').toLowerCase();
     if (method !== 'point' && method !== 'cdp') {
       return { ok: false, code: 'BAD_INPUT', error: 'pointer method must be point or cdp' };
+    }
+    if (method === 'cdp' && visualReplayBlocked(request.executionId, point.x, point.y)) {
+      return {
+        ok: false,
+        code: 'VISUAL_UNCHANGED',
+        error: 'This viewport point already produced no visible change.',
+        hint: 'Do not repeat the same pointer coordinates in this execution.'
+      };
     }
     const expectedTop = snapshot?.frames.find((f) => f.frameId === 0);
     const gate = await authorizePageActionDispatch(request, {
@@ -1100,13 +1327,13 @@ async function executeWorkspacePageAction(request) {
       }
     });
     if (!gate.ok) return gate;
+    if (method === 'cdp') return reflectCdpPointer(request, tabId, point, expectedTop);
     let raw;
     try {
       await assertTabLeaseOwnerActive(request.sessionId, request.executionId);
-      if (method === 'cdp') raw = await executePointerCdp(tabId, point.x, point.y);
-      else raw = await sendPageActionToFrame(tabId, 0, { op: 'pointer', x: point.x, y: point.y }, expectedTop);
+      raw = await sendPageActionToFrame(tabId, 0, { op: 'pointer', x: point.x, y: point.y }, expectedTop);
     } catch (error) {
-      return { ok: false, error: error?.message || String(error), code: error?.code || 'NEED_PAGE', ...(error?.outcome ? { outcome: error.outcome } : {}) };
+      return { ok: false, error: error?.message || String(error), code: error?.code || 'NEED_PAGE', ...(error?.outcome ? { outcome: error.outcome } : {}), ...(error?.frameUnreachable ? { frameUnreachable: true } : {}) };
     }
     if (!raw || typeof raw !== 'object' || typeof raw.ok !== 'boolean') {
       return { ok: false, error: 'Empty page action result; inspect before retrying.', code: 'ACTION_OUTCOME_UNKNOWN', outcome: 'unknown' };
@@ -1142,7 +1369,16 @@ async function executeWorkspacePageAction(request) {
     text: request?.text,
     ms: request?.ms
   };
-  const expectedFrame = snapshot?.frames.find(f => f.frameId === frameId);
+  let expectedFrame = snapshot?.frames.find(f => f.frameId === frameId);
+  if ((op === 'click' || op === 'fill') && !expectedFrame?.documentId) {
+    try {
+      const refreshed = await snapshotPageActionFrames(tabId, { scope: 'all' });
+      expectedFrame = (refreshed?.frames || []).find((frame) => frame.frameId === frameId) || null;
+    } catch { /* frame is still missing */ }
+    if (!expectedFrame?.documentId) {
+      return { ok: false, code: 'STALE_REF', refreshed: true, error: 'Target frame was not in the snapshot.' };
+    }
+  }
   if (MUTATIONS.has(op)) {
     const prefixed = localRef ? `f${frameId}.${localRef}` : request.ref;
     const found = lookupControl(tabId, prefixed, request?.name || request?.label);
@@ -1179,10 +1415,14 @@ async function executeWorkspacePageAction(request) {
     await assertTabLeaseOwnerActive(request.sessionId, request.executionId);
     raw = await sendPageActionToFrame(tabId, frameId, payload, expectedFrame);
   } catch (error) {
-    return { ok: false, error: error?.message || String(error), code: error?.code || 'NEED_PAGE', ...(error?.outcome ? { outcome: error.outcome } : {}) };
+    return { ok: false, error: error?.message || String(error), code: error?.code || 'NEED_PAGE', ...(error?.outcome ? { outcome: error.outcome } : {}), ...(error?.frameUnreachable ? { frameUnreachable: true } : {}) };
   }
   if (!raw || typeof raw !== 'object' || typeof raw.ok !== 'boolean') {
     return { ok: false, error: 'Empty page action result; inspect before retrying.', code: 'ACTION_OUTCOME_UNKNOWN', outcome: 'unknown' };
+  }
+  if ((op === 'click' || op === 'fill') && raw.ok === false && raw.code === 'STALE_REF') {
+    try { await snapshotPageActionFrames(tabId, { scope: 'all' }); } catch { /* still stale */ }
+    raw = { ...raw, refreshed: true };
   }
   if (raw.after && raw.after.ref) {
     raw.after = {

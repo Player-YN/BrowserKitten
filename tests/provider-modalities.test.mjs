@@ -5,11 +5,14 @@ import {
   isImageOnlyProvider,
   isImageProvider,
   isSttOnlyProvider,
+  isJevProvider,
   listChatProviders,
   listImageProviders,
   listSttProviders,
+  listJevProviders,
   resolveActiveImageProvider,
   resolveActiveSttProvider,
+  resolveActiveJevProvider,
   imageVendorLabel,
   sttVendorLabel,
   normalizeProvider,
@@ -116,6 +119,35 @@ test('stt-only purpose is not a chat or image provider', () => {
   assert.equal(hit.activeSttProviderId, 'stt1');
   const fallback = resolveActiveSttProvider(providers, 'missing');
   assert.equal(fallback.activeSttProviderId, 'stt1');
+});
+
+test('jev-only purpose is not a chat provider', () => {
+  const jev = normalizeProvider({
+    id: 'jev1',
+    purpose: 'jev',
+    name: 'OpenCode Zen',
+    baseURL: 'https://opencode.ai/zen/v1',
+    apiKey: 'sk-jev',
+    model: 'jev-1.13'
+  });
+  assert.equal(jev.purpose, 'jev');
+  assert.equal(isJevProvider(jev), true);
+  assert.equal(isChatProvider(jev), false);
+  assert.equal(isImageOnlyProvider(jev), false);
+  assert.equal(isSttOnlyProvider(jev), false);
+  const chat = normalizeProvider({
+    id: 'c1',
+    name: 'DeepSeek',
+    baseURL: 'https://api.deepseek.com/v1',
+    model: 'deepseek-v4-flash'
+  });
+  const providers = [chat, jev];
+  assert.deepEqual(listChatProviders(providers).map((p) => p.id), ['c1']);
+  assert.deepEqual(listJevProviders(providers).map((p) => p.id), ['jev1']);
+  const none = resolveActiveJevProvider([chat], 'jev1');
+  assert.equal(none.activeJevProviderId, null);
+  const hit = resolveActiveJevProvider(providers, 'jev1');
+  assert.equal(hit.activeJevProviderId, 'jev1');
 });
 
 test('isLikelySttModel keeps whisper and drops chat ids', () => {

@@ -696,22 +696,47 @@
                 <label class="settings-label" for="providerNicknameInput" data-i18n="providerNickname">昵称</label>
                 <input type="text" id="providerNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
               </div>
-              <div class="provider-presets-row" id="inferencePresetRow" role="group" aria-label="快捷模板">
-                <button type="button" class="provider-preset-chip" data-preset="deepseek">DeepSeek</button>
-                <button type="button" class="provider-preset-chip" data-preset="openai">OpenAI</button>
-                <button type="button" class="provider-preset-chip" data-preset="openrouter">OpenRouter</button>
-                <button type="button" class="provider-preset-chip" data-preset="minimax">MiniMax</button>
-                <button type="button" class="provider-preset-chip" data-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+              <div class="api-preset-field">
+                <label class="settings-label" id="inferencePresetLabel" for="inferencePresetSelect" data-i18n="providerPreset">模板</label>
+                <div class="preset-combobox" id="inferencePresetCombobox" data-preset-kind="inference">
+                  <input
+                    type="text"
+                    id="inferencePresetSelect"
+                    class="modal-input preset-combobox-input"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-autocomplete="list"
+                    aria-controls="inferencePresetList"
+                    aria-labelledby="inferencePresetLabel"
+                    data-i18n-placeholder="presetSelectPlaceholder"
+                    placeholder="选择模板"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <ul class="preset-combobox-list" id="inferencePresetList" role="listbox" hidden></ul>
+                </div>
               </div>
             </div>
             <div class="api-editor-creds">
               <div>
+                <label class="settings-label" for="providerChatProtocolSelect" data-i18n="providerProtocol">协议</label>
+                <select id="providerChatProtocolSelect" class="modal-input">
+                  <option value="openai-compatible" data-i18n="protocolOpenaiCompatible">OpenAI 兼容</option>
+                  <option value="anthropic" data-i18n="protocolAnthropic">Anthropic Messages</option>
+                  <option value="openai-responses" data-i18n="protocolOpenaiResponses">OpenAI Responses</option>
+                  <option value="auto" data-i18n="protocolModelAuto">按模型自动</option>
+                </select>
+              </div>
+              <div>
                 <label class="settings-label" for="apiBaseInput">Base URL</label>
                 <input type="text" id="apiBaseInput" class="modal-input" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
               </div>
-              <div>
+              <div class="api-key-field">
                 <label class="settings-label" for="apiKeyInput">API Key</label>
-                <input type="password" id="apiKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" />
+                <div class="api-key-line">
+                  <input type="password" id="apiKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+                  <button type="button" class="btn btn-secondary settings-mini-btn api-key-reveal" data-reveal-for="apiKeyInput" aria-pressed="false" data-i18n="apiKeyShow">显示</button>
+                </div>
               </div>
             </div>
 
@@ -751,11 +776,25 @@
                 <label class="settings-label" for="imageNicknameInput" data-i18n="providerNickname">昵称</label>
                 <input type="text" id="imageNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
               </div>
-              <div class="provider-presets-row" id="imagePresetRow" role="group" aria-label="生图模板">
-                <button type="button" class="provider-preset-chip" data-image-preset="openrouter">OpenRouter</button>
-                <button type="button" class="provider-preset-chip" data-image-preset="openai">OpenAI</button>
-                <button type="button" class="provider-preset-chip" data-image-preset="minimax">MiniMax</button>
-                <button type="button" class="provider-preset-chip" data-image-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+              <div class="api-preset-field">
+                <label class="settings-label" id="imagePresetLabel" for="imagePresetSelect" data-i18n="providerPreset">模板</label>
+                <div class="preset-combobox" id="imagePresetCombobox" data-preset-kind="image">
+                  <input
+                    type="text"
+                    id="imagePresetSelect"
+                    class="modal-input preset-combobox-input"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-autocomplete="list"
+                    aria-controls="imagePresetList"
+                    aria-labelledby="imagePresetLabel"
+                    data-i18n-placeholder="presetSelectPlaceholder"
+                    placeholder="选择模板"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <ul class="preset-combobox-list" id="imagePresetList" role="listbox" hidden></ul>
+                </div>
               </div>
             </div>
             <input type="checkbox" id="providerImageEnabledCheck" hidden />
@@ -765,9 +804,12 @@
                   <label class="settings-label" for="providerImageBaseInput">Base URL</label>
                   <input type="text" id="providerImageBaseInput" class="modal-input" placeholder="https://openrouter.ai/api/v1" autocomplete="off" />
                 </div>
-                <div>
+                <div class="api-key-field">
                   <label class="settings-label" for="providerImageKeyInput">API Key</label>
-                  <input type="password" id="providerImageKeyInput" class="modal-input" placeholder="sk-or-..." autocomplete="off" />
+                  <div class="api-key-line">
+                    <input type="password" id="providerImageKeyInput" class="modal-input" placeholder="sk-or-..." autocomplete="off" spellcheck="false" />
+                    <button type="button" class="btn btn-secondary settings-mini-btn api-key-reveal" data-reveal-for="providerImageKeyInput" aria-pressed="false" data-i18n="apiKeyShow">显示</button>
+                  </div>
                 </div>
               </div>
               <input type="hidden" id="providerImageProtocolInput" value="openrouter-image" />
@@ -809,9 +851,25 @@
                 <label class="settings-label" for="sttNicknameInput" data-i18n="providerNickname">昵称</label>
                 <input type="text" id="sttNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
               </div>
-              <div class="provider-presets-row" id="sttPresetRow" role="group" aria-label="转写模板">
-                <button type="button" class="provider-preset-chip" data-stt-preset="openai">OpenAI</button>
-                <button type="button" class="provider-preset-chip" data-stt-preset="openai-compatible" data-i18n="presetCustom">自定义</button>
+              <div class="api-preset-field">
+                <label class="settings-label" id="sttPresetLabel" for="sttPresetSelect" data-i18n="providerPreset">模板</label>
+                <div class="preset-combobox" id="sttPresetCombobox" data-preset-kind="stt">
+                  <input
+                    type="text"
+                    id="sttPresetSelect"
+                    class="modal-input preset-combobox-input"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-autocomplete="list"
+                    aria-controls="sttPresetList"
+                    aria-labelledby="sttPresetLabel"
+                    data-i18n-placeholder="presetSelectPlaceholder"
+                    placeholder="选择模板"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <ul class="preset-combobox-list" id="sttPresetList" role="listbox" hidden></ul>
+                </div>
               </div>
             </div>
             <div class="api-editor-creds">
@@ -819,9 +877,12 @@
                 <label class="settings-label" for="providerSttBaseInput">Base URL</label>
                 <input type="text" id="providerSttBaseInput" class="modal-input" placeholder="https://api.openai.com/v1" autocomplete="off" />
               </div>
-              <div>
+              <div class="api-key-field">
                 <label class="settings-label" for="providerSttKeyInput">API Key</label>
-                <input type="password" id="providerSttKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" />
+                <div class="api-key-line">
+                  <input type="password" id="providerSttKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+                  <button type="button" class="btn btn-secondary settings-mini-btn api-key-reveal" data-reveal-for="providerSttKeyInput" aria-pressed="false" data-i18n="apiKeyShow">显示</button>
+                </div>
               </div>
             </div>
             <label class="settings-label" for="providerSttModelInput" data-i18n="settingsSttModel">模型</label>
@@ -844,6 +905,64 @@
           </div>
         </section>
 
+        <section class="settings-api-card" id="settingsJevCard" aria-labelledby="settingsJevTitle">
+          <h4 class="settings-api-card-title" id="settingsJevTitle" data-i18n="settingsJevTitle">选择</h4>
+          <p class="settings-hint" id="jevStatusLine" data-i18n="jevEmptyHint">尚未添加选择 API（Jev）。</p>
+          <div id="jevVendorList" class="api-vendor-list"></div>
+          <button type="button" class="api-add-btn" id="addJevBtn" data-i18n="addJevBtn">＋ 添加选择 API</button>
+          <div id="jevEditor" class="api-vendor-editor" hidden>
+            <div class="api-editor-head">
+              <div class="api-nickname-field">
+                <label class="settings-label" for="jevNicknameInput" data-i18n="providerNickname">昵称</label>
+                <input type="text" id="jevNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
+              </div>
+              <div class="api-preset-field">
+                <label class="settings-label" id="jevPresetLabel" for="jevPresetSelect" data-i18n="providerPreset">模板</label>
+                <div class="preset-combobox" id="jevPresetCombobox" data-preset-kind="jev">
+                  <input
+                    type="text"
+                    id="jevPresetSelect"
+                    class="modal-input preset-combobox-input"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-autocomplete="list"
+                    aria-controls="jevPresetList"
+                    aria-labelledby="jevPresetLabel"
+                    data-i18n-placeholder="presetSelectPlaceholder"
+                    placeholder="选择模板"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <ul class="preset-combobox-list" id="jevPresetList" role="listbox" hidden></ul>
+                </div>
+              </div>
+            </div>
+            <div class="api-editor-creds">
+              <div>
+                <label class="settings-label" for="providerJevBaseInput">Base URL</label>
+                <input type="text" id="providerJevBaseInput" class="modal-input" placeholder="https://opencode.ai/zen/v1" autocomplete="off" />
+              </div>
+              <div class="api-key-field">
+                <label class="settings-label" for="providerJevKeyInput">API Key</label>
+                <div class="api-key-line">
+                  <input type="password" id="providerJevKeyInput" class="modal-input" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+                  <button type="button" class="btn btn-secondary settings-mini-btn api-key-reveal" data-reveal-for="providerJevKeyInput" aria-pressed="false" data-i18n="apiKeyShow">显示</button>
+                </div>
+              </div>
+            </div>
+            <label class="settings-label" for="providerJevModelInput" data-i18n="settingsJevModel">模型</label>
+            <div class="chat-model-input-row">
+              <input type="text" id="providerJevModelInput" class="modal-input" placeholder="jev-1.13" autocomplete="off" />
+              <button type="button" id="providerJevProbeBtn" class="btn btn-secondary settings-mini-btn" data-i18n="apiProbeJevBtn" data-i18n-title="apiProbeJevBtnHint">探测</button>
+            </div>
+            <p class="settings-hint" id="jevProbeResult" hidden></p>
+            <div class="api-editor-actions">
+              <button type="button" class="btn btn-secondary" id="cancelJevEditorBtn" data-i18n="cancel">取消</button>
+              <button type="button" class="btn btn-primary" id="saveJevEditorBtn" data-i18n="saveJevBtn">保存选择 API</button>
+            </div>
+          </div>
+        </section>
+
         <section class="settings-api-card" id="settingsWebAcquireCard" aria-labelledby="settingsWebAcquireTitle">
           <h4 class="settings-api-card-title" id="settingsWebAcquireTitle" data-i18n="settingsWebTitle">搜索 / 抽取</h4>
           <p class="settings-hint" id="webAcquireStatusLine" data-i18n="webAcquireEmptyHint">尚未添加搜索 Key。</p>
@@ -855,27 +974,51 @@
                 <label class="settings-label" for="webNicknameInput" data-i18n="providerNickname">昵称</label>
                 <input type="text" id="webNicknameInput" class="modal-input" data-i18n-placeholder="providerNicknamePlaceholder" placeholder="可选昵称" autocomplete="off" />
               </div>
-              <div class="provider-presets-row" id="webVendorPresetRow" role="group" aria-label="搜索供应商">
-                <button type="button" class="provider-preset-chip" data-web-preset="tavily">Tavily</button>
-                <button type="button" class="provider-preset-chip" data-web-preset="brave">Brave</button>
-                <button type="button" class="provider-preset-chip" data-web-preset="firecrawl">Firecrawl</button>
+              <div class="api-preset-field">
+                <label class="settings-label" id="webPresetLabel" for="webPresetSelect" data-i18n="providerPreset">模板</label>
+                <div class="preset-combobox" id="webPresetCombobox" data-preset-kind="web">
+                  <input
+                    type="text"
+                    id="webPresetSelect"
+                    class="modal-input preset-combobox-input"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-autocomplete="list"
+                    aria-controls="webPresetList"
+                    aria-labelledby="webPresetLabel"
+                    data-i18n-placeholder="presetSelectPlaceholder"
+                    placeholder="选择模板"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <ul class="preset-combobox-list" id="webPresetList" role="listbox" hidden></ul>
+                </div>
               </div>
             </div>
             <select id="webSearchProviderSelect" class="modal-input" hidden>
               <option value="tavily">Tavily</option>
               <option value="brave">Brave</option>
             </select>
-            <div id="tavilyKeyRow">
+            <div id="tavilyKeyRow" class="api-key-field">
               <label class="settings-label" for="tavilyKeyInput">Tavily API Key</label>
-              <input type="password" id="tavilyKeyInput" class="modal-input" placeholder="tvly-..." autocomplete="off" />
+              <div class="api-key-line">
+                <input type="password" id="tavilyKeyInput" class="modal-input" placeholder="tvly-..." autocomplete="off" spellcheck="false" />
+                <button type="button" class="btn btn-secondary settings-mini-btn api-key-reveal" data-reveal-for="tavilyKeyInput" aria-pressed="false" data-i18n="apiKeyShow">显示</button>
+              </div>
             </div>
-            <div id="braveKeyRow" hidden>
+            <div id="braveKeyRow" class="api-key-field" hidden>
               <label class="settings-label" for="braveKeyInput">Brave API Key</label>
-              <input type="password" id="braveKeyInput" class="modal-input" placeholder="BSA..." autocomplete="off" />
+              <div class="api-key-line">
+                <input type="password" id="braveKeyInput" class="modal-input" placeholder="BSA..." autocomplete="off" spellcheck="false" />
+                <button type="button" class="btn btn-secondary settings-mini-btn api-key-reveal" data-reveal-for="braveKeyInput" aria-pressed="false" data-i18n="apiKeyShow">显示</button>
+              </div>
             </div>
-            <div id="firecrawlKeyRow" hidden>
+            <div id="firecrawlKeyRow" class="api-key-field" hidden>
               <label class="settings-label" for="firecrawlKeyInput">Firecrawl API Key</label>
-              <input type="password" id="firecrawlKeyInput" class="modal-input" placeholder="fc-..." autocomplete="off" />
+              <div class="api-key-line">
+                <input type="password" id="firecrawlKeyInput" class="modal-input" placeholder="fc-..." autocomplete="off" spellcheck="false" />
+                <button type="button" class="btn btn-secondary settings-mini-btn api-key-reveal" data-reveal-for="firecrawlKeyInput" aria-pressed="false" data-i18n="apiKeyShow">显示</button>
+              </div>
             </div>
             <div class="chat-model-input-row web-probe-row">
               <button type="button" id="webAcquireProbeBtn" class="btn btn-secondary settings-mini-btn" data-i18n="webAcquireProbeBtn">探测</button>

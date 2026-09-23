@@ -14,26 +14,47 @@ import {
   isChatProvider,
   isImageOnlyProvider,
   isSttOnlyProvider,
+  isJevProvider,
   listChatProviders,
   listImageProviders,
   listSttProviders,
+  listJevProviders,
   imageVendorLabel,
   imageCardTitle,
   sttVendorLabel,
   sttCardTitle,
+  jevVendorLabel,
+  jevCardTitle,
   providerDisplayName,
   setActiveImageProviderId,
   setActiveSttProviderId,
+  setActiveJevProviderId,
   PROVIDER_PRESETS,
   DEFAULT_BASE,
   DEFAULT_STT_BASE,
   DEFAULT_STT_MODEL,
+  DEFAULT_JEV_BASE,
+  DEFAULT_JEV_MODEL,
   OPENROUTER_API_BASE,
   DEFAULT_IMAGE_PROTOCOL,
   DEFAULT_IMAGE_PATH,
   DEFAULT_IMAGE_MODEL,
+  DEFAULT_CHAT_PROTOCOL,
+  normalizeChatProtocol,
   defaultImageConfig
 } from './agent/llm.js';
+import {
+  IMAGE_PROVIDER_PRESETS,
+  STT_PROVIDER_PRESETS,
+  JEV_PROVIDER_PRESETS,
+  WEB_PROVIDER_PRESETS
+} from './agent/providerPresets.js';
+import { mountPresetCombobox } from './sidepanel/presetCombobox.js';
+import {
+  probeJevSystemOne,
+  jevSystemOneUrl,
+  buildJevProbeBody
+} from './agent/vnext/host/jevSelect.js';
 import { putListenGrant } from './agent/vnext/host/tabListen.js';
 import {
   loadWebAcquireSettings,
@@ -512,6 +533,7 @@ let settingsConfigUi = {
 let settingsImageUi = { providerId: null, hasStoredKey: false, keyTail: '' };
 /** Dedicated speech-to-text vendor in the settings card. */
 let settingsSttUi = { providerId: null, hasStoredKey: false, keyTail: '' };
+let settingsJevUi = { providerId: null, hasStoredKey: false, keyTail: '' };
 /** Web-acquire editor vendor: tavily | brave | firecrawl */
 let settingsWebUi = { kind: 'tavily' };
 let settingsProbedSttModels = [];
@@ -1011,6 +1033,14 @@ function applyI18n() {
     const key = el.getAttribute('data-i18n-title');
     if (I18N[currentLang]?.[key] != null) el.title = I18N[currentLang][key];
   });
+  if (presetComboboxByInputId.size) {
+    const copy = presetComboboxCopy();
+    for (const box of presetComboboxByInputId.values()) {
+      box.setPlaceholder(copy.placeholder);
+      box.setEmptyText(copy.emptyText);
+      box.setValue(box.getValue());
+    }
+  }
   const langBtn = $('langToggle');
   if (langBtn) langBtn.textContent = currentLang === 'zh' ? 'EN' : '中';
   updatePickerButtonState(isPickerActive);
@@ -6788,45 +6818,172 @@ function showClarifyLive(ev) {
   host.appendChild(banner);
 
   const picks = questions.map(() => ({ labels: [], other: '' }));
-  const multi = questions.length > 1 || questions.some((q) => q.multiSelect);
+  let cursor = 0;
+  const stack = document.createElement('div');
+  stack.className = 'clarify-stack';
+  host.appendChild(stack);
 
-  questions.forEach((q, qi) => {
+  const answered = (i) => {
+    const p = picks[i];
+    return !!(p && (p.labels.length || String(p.other || '').trim()));
+  };
+  const answerText = (i) => {
+    const p = picks[i];
+    if (!p) return '';
+    if (String(p.other || '').trim()) return String(p.other).trim();
+    return p.labels.join('、');
+  };
+  const collect = () => {
+    const answers = {};
+    questions.forEach((q, i) => {
+      const p = picks[i];
+      const key = String(q.question || '');
+      if (p.other.trim()) answers[key] = p.other.trim();
+      else if (q.multiSelect) answers[key] = p.labels.slice();
+      else answers[key] = p.labels[0] || '';
+    });
+    return answers;
+  };
+  const firstOpen = () => {
+    const pending = picks.findIndex((_, i) => !answered(i));
+    return pending === -1 ? questions.length - 1 : pending;
+  };
+
+  const paint = () => {
+    stack.replaceChildren();
+    questions.forEach((q, qi) => {
+      if (qi > cursor && !answered(qi)) return;
+      if (qi === cursor) stack.appendChild(openCard(q, qi));
+      else if (answered(qi)) stack.appendChild(summaryRow(q, qi));
+    });
+    wire(stack);
+    scrollTaskStream();
+  };
+
+  const summaryRow = (q, qi) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'clarify-stack-row';
+    const title = String(q.header || q.question || '').trim();
+    row.innerHTML = `
+      <span class="clarify-stack-q">${escapeHtml(title)}</span>
+      <span class="clarify-stack-a">${escapeHtml(answerText(qi))}</span>
+      <span class="clarify-stack-edit">${escapeHtml(t('clarifyEdit'))}</span>
+    `;
+    row.addEventListener('click', () => {
+      cursor = qi;
+      paint();
+    });
+    return row;
+  };
+
+  const openCard = (q, qi) => {
     const card = document.createElement('div');
     card.className = 'pop-card-container clarify-card';
     const header = String(q.header || '').trim();
     const title = String(q.question || '').trim();
     const opts = Array.isArray(q.options) ? q.options : [];
+    const step = questions.length > 1 ? `${qi + 1}/${questions.length}` : '';
     const optHtml = opts
       .map((opt) => {
         const label = typeof opt === 'string' ? opt : String(opt?.label || '');
         const desc = typeof opt === 'object' ? String(opt?.description || '') : '';
         if (!label) return '';
-        return `<button type="button" class="pop-card-option-btn" data-q="${qi}" data-option="${escapeHtml(label)}">
+        const selected = picks[qi].labels.includes(label) ? ' is-selected' : '';
+        return `<button type="button" class="pop-card-option-btn${selected}" data-q="${qi}" data-option="${escapeHtml(label)}">
           <span class="opt-text">${escapeHtml(label)}</span>
           ${desc ? `<span class="opt-desc">${escapeHtml(desc)}</span>` : ''}
         </button>`;
       })
       .join('');
+    const last = qi === questions.length - 1;
+    const advanceLabel = last ? t('clarifyContinue') : t('clarifyNext');
+    const showAdvance = !!q.multiSelect || (last && answered(qi));
     card.innerHTML = `
-      ${header ? `<div class="clarify-card-kicker">${escapeHtml(header)}</div>` : ''}
+      ${header || step ? `<div class="clarify-card-kicker">${escapeHtml([header, step].filter(Boolean).join(' · '))}</div>` : ''}
       <div class="pop-card-header">
         <span class="pop-card-title">${escapeHtml(title)}</span>
       </div>
       <div class="pop-card-options-grid">${optHtml}</div>
       <div class="pop-card-custom-row">
-        <input type="text" class="pop-card-custom-input" data-q="${qi}" placeholder="${escapeHtml(t('clarifyOtherPh'))}" aria-label="${escapeHtml(t('clarifyOther'))}" />
-        ${multi ? '' : `<button type="button" class="pop-card-custom-submit" data-q="${qi}">${escapeHtml(t('clarifyOther'))}</button>`}
+        <input type="text" class="pop-card-custom-input" data-q="${qi}" placeholder="${escapeHtml(t('clarifyOtherPh'))}" aria-label="${escapeHtml(t('clarifyOther'))}" value="${escapeHtml(picks[qi].other || '')}" />
       </div>
+      ${showAdvance ? `<div class="clarify-live-actions"><button type="button" class="clarify-continue-btn" data-q="${qi}" ${answered(qi) ? '' : 'disabled'}>${escapeHtml(advanceLabel)}</button></div>` : ''}
     `;
-    host.appendChild(card);
-  });
+    return card;
+  };
 
-  if (multi) {
-    const row = document.createElement('div');
-    row.className = 'clarify-live-actions';
-    row.innerHTML = `<button type="button" class="clarify-continue-btn" disabled>${escapeHtml(t('clarifyContinue'))}</button>`;
-    host.appendChild(row);
-  }
+  const finishOrAdvance = (qi) => {
+    if (!answered(qi)) return;
+    const allDone = picks.every((_, i) => answered(i));
+    if (allDone && qi === questions.length - 1) {
+      submitClarifyAnswers(collect());
+      return;
+    }
+    cursor = firstOpen();
+    if (cursor === qi && qi < questions.length - 1) cursor = qi + 1;
+    paint();
+  };
+
+  const wire = (root) => {
+    root.querySelectorAll('.pop-card-option-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const qi = Number(btn.getAttribute('data-q'));
+        const label = btn.getAttribute('data-option') || '';
+        const q = questions[qi];
+        const p = picks[qi];
+        if (!p || !q) return;
+        p.other = '';
+        if (q.multiSelect) {
+          const ix = p.labels.indexOf(label);
+          if (ix >= 0) p.labels.splice(ix, 1);
+          else p.labels.push(label);
+          paint();
+          return;
+        }
+        p.labels = [label];
+        finishOrAdvance(qi);
+      });
+    });
+    root.querySelectorAll('.pop-card-custom-input').forEach((input) => {
+      const commitOther = () => {
+        const qi = Number(input.getAttribute('data-q'));
+        const v = String(input.value || '').trim();
+        const p = picks[qi];
+        const q = questions[qi];
+        if (!p || !q) return;
+        p.other = v;
+        if (!v) return;
+        p.labels = [];
+        if (q.multiSelect) {
+          paint();
+          return;
+        }
+        finishOrAdvance(qi);
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          commitOther();
+        }
+      });
+      input.addEventListener('input', () => {
+        const qi = Number(input.getAttribute('data-q'));
+        if (!picks[qi]) return;
+        picks[qi].other = String(input.value || '').trim();
+        if (picks[qi].other) picks[qi].labels = [];
+        const next = root.querySelector(`.clarify-continue-btn[data-q="${qi}"]`);
+        if (next) next.disabled = !answered(qi);
+      });
+    });
+    root.querySelectorAll('.clarify-continue-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const qi = Number(btn.getAttribute('data-q'));
+        if (btn.disabled || !answered(qi)) return;
+        finishOrAdvance(qi);
+      });
+    });
+  };
 
   if (liveTurnWrap?.isConnected) turnDisclosureUi.placeInterrupt(liveTurnWrap, host);
   else body.appendChild(host);
@@ -6844,101 +7001,7 @@ function showClarifyLive(ev) {
       picks
     };
   }
-  scrollTaskStream();
-
-  const continueBtn = host.querySelector('.clarify-continue-btn');
-  const syncContinue = () => {
-    if (!continueBtn) return;
-    const ready = picks.every((p, i) => {
-      if (questions[i]?.multiSelect) return p.labels.length > 0 || p.other.trim();
-      return p.labels.length > 0 || p.other.trim();
-    });
-    continueBtn.disabled = !ready;
-  };
-
-  const collect = () => {
-    const answers = {};
-    questions.forEach((q, i) => {
-      const p = picks[i];
-      const key = String(q.question || '');
-      if (p.other.trim()) answers[key] = p.other.trim();
-      else if (q.multiSelect) answers[key] = p.labels.slice();
-      else answers[key] = p.labels[0] || '';
-    });
-    return answers;
-  };
-
-  host.querySelectorAll('.pop-card-option-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const qi = Number(btn.getAttribute('data-q'));
-      const label = btn.getAttribute('data-option') || '';
-      const q = questions[qi];
-      const p = picks[qi];
-      if (!p || !q) return;
-      p.other = '';
-      const input = host.querySelector(`.pop-card-custom-input[data-q="${qi}"]`);
-      if (input) input.value = '';
-      if (q.multiSelect) {
-        const ix = p.labels.indexOf(label);
-        if (ix >= 0) p.labels.splice(ix, 1);
-        else p.labels.push(label);
-        host.querySelectorAll(`.pop-card-option-btn[data-q="${qi}"]`).forEach((b) => {
-          b.classList.toggle('is-selected', p.labels.includes(b.getAttribute('data-option') || ''));
-        });
-        syncContinue();
-        return;
-      }
-      p.labels = [label];
-      if (!multi) submitClarifyAnswers(collect());
-      else {
-        host.querySelectorAll(`.pop-card-option-btn[data-q="${qi}"]`).forEach((b) => {
-          b.classList.toggle('is-selected', b.getAttribute('data-option') === label);
-        });
-        syncContinue();
-      }
-    });
-  });
-
-  host.querySelectorAll('.pop-card-custom-input').forEach((input) => {
-    const sendOther = () => {
-      const qi = Number(input.getAttribute('data-q'));
-      const v = String(input.value || '').trim();
-      if (!v) return;
-      const p = picks[qi];
-      if (!p) return;
-      p.other = v;
-      p.labels = [];
-      host.querySelectorAll(`.pop-card-option-btn[data-q="${qi}"]`).forEach((b) => b.classList.remove('is-selected'));
-      if (!multi) submitClarifyAnswers(collect());
-      else syncContinue();
-    };
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        sendOther();
-      }
-    });
-    input.addEventListener('input', () => {
-      const qi = Number(input.getAttribute('data-q'));
-      if (picks[qi]) picks[qi].other = String(input.value || '').trim();
-      syncContinue();
-    });
-  });
-  host.querySelectorAll('.pop-card-custom-submit').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const qi = Number(btn.getAttribute('data-q'));
-      const input = host.querySelector(`.pop-card-custom-input[data-q="${qi}"]`);
-      const v = String(input?.value || '').trim();
-      if (!v) return;
-      picks[qi].other = v;
-      picks[qi].labels = [];
-      submitClarifyAnswers(collect());
-    });
-  });
-  continueBtn?.addEventListener('click', () => {
-    if (continueBtn.disabled) return;
-    submitClarifyAnswers(collect());
-  });
+  paint();
 }
 
 function handleSessionWorkspaceEvent(request) {
@@ -12283,7 +12346,9 @@ async function renderModelPickerList() {
       wrap.dataset.kind = kind;
       const row = document.createElement('div');
       row.className = 'model-select-group-row';
-      const vendorName = kind === 'image' ? imageVendorLabel(p) : p.name || p.id || 'API';
+      const vendorName = kind === 'image'
+        ? imageCardTitle(p)
+        : providerDisplayName(p, p.name || p.id || 'API');
       if (p.id && accordion) {
         const groupBtn = document.createElement('button');
         groupBtn.type = 'button';
@@ -12689,21 +12754,107 @@ function applyImagePreset(presetId) {
     if (imgKey && !settingsImageUi.hasStoredKey) imgKey.placeholder = 'eyJ...';
     if (imgBase && !imgBase.value.trim()) imgBase.value = 'https://api.minimaxi.com/v1';
   }
-  document.querySelectorAll('#imagePresetRow [data-image-preset]').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-image-preset') === presetId);
-  });
+  setPresetSelect('imagePresetSelect', presetId);
   syncImageSectionVisibility();
 }
 
 /**
- * Mark active preset chip (visual only).
+ * Mark active preset on the searchable combobox (visual only).
+ * @param {string} id
  * @param {string|null} presetId
  */
+function setPresetSelect(id, presetId) {
+  const box = presetComboboxByInputId.get(id);
+  if (box && presetId != null) {
+    box.setValue(presetId);
+    return;
+  }
+  const el = document.getElementById(id);
+  if (!el || presetId == null) return;
+  if (el instanceof HTMLSelectElement) {
+    if ([...el.options].some((option) => option.value === presetId)) el.value = presetId;
+  } else if (el instanceof HTMLInputElement) {
+    el.value = presetId;
+  }
+}
+
+/** @type {Map<string, ReturnType<typeof mountPresetCombobox>>} */
+const presetComboboxByInputId = new Map();
+
+function presetComboboxCopy() {
+  return {
+    placeholder: t('presetSelectPlaceholder') || '选择模板',
+    emptyText: t('presetNoMatches') || '无匹配模板'
+  };
+}
+
+function ensurePresetComboboxes() {
+  if (presetComboboxByInputId.size) {
+    for (const box of presetComboboxByInputId.values()) {
+      box.setPlaceholder(presetComboboxCopy().placeholder);
+      box.setEmptyText(presetComboboxCopy().emptyText);
+    }
+    return;
+  }
+  const copy = presetComboboxCopy();
+  const specs = [
+    {
+      rootId: 'inferencePresetCombobox',
+      inputId: 'inferencePresetSelect',
+      items: PROVIDER_PRESETS || [],
+      onSelect: (id) => applyInferencePreset(id)
+    },
+    {
+      rootId: 'imagePresetCombobox',
+      inputId: 'imagePresetSelect',
+      items: IMAGE_PROVIDER_PRESETS,
+      onSelect: (id) => {
+        if (id && id !== 'off') applyImagePreset(id);
+      }
+    },
+    {
+      rootId: 'sttPresetCombobox',
+      inputId: 'sttPresetSelect',
+      items: STT_PROVIDER_PRESETS,
+      onSelect: (id) => {
+        if (id) applySttPreset(id);
+      }
+    },
+    {
+      rootId: 'jevPresetCombobox',
+      inputId: 'jevPresetSelect',
+      items: JEV_PROVIDER_PRESETS,
+      onSelect: (id) => {
+        if (id) applyJevPreset(id);
+      }
+    },
+    {
+      rootId: 'webPresetCombobox',
+      inputId: 'webPresetSelect',
+      items: WEB_PROVIDER_PRESETS,
+      onSelect: (id) => {
+        if (id) setWebEditorKind(id);
+      }
+    }
+  ];
+  for (const spec of specs) {
+    const root = document.getElementById(spec.rootId);
+    if (!(root instanceof HTMLElement)) continue;
+    const box = mountPresetCombobox({
+      root,
+      items: spec.items,
+      placeholder: copy.placeholder,
+      emptyText: copy.emptyText,
+      onSelect: spec.onSelect,
+      getItemLabel: (item) =>
+        item.id === 'openai-compatible' ? t('presetCustom') || item.name : item.name
+    });
+    presetComboboxByInputId.set(spec.inputId, box);
+  }
+}
+
 function setActivePresetChip(presetId) {
-  document.querySelectorAll('#inferencePresetRow .provider-preset-chip').forEach((btn) => {
-    const id = btn.getAttribute('data-preset');
-    btn.classList.toggle('active', !!presetId && id === presetId);
-  });
+  setPresetSelect('inferencePresetSelect', presetId);
 }
 
 /**
@@ -12758,6 +12909,7 @@ function fillSettingsForm(provider, opts = {}) {
   const baseInput = document.getElementById('apiBaseInput');
   const keyInput = document.getElementById('apiKeyInput');
   const modelInput = document.getElementById('providerModelInput');
+  const protocolSelect = document.getElementById('providerChatProtocolSelect');
   const hint = document.getElementById('settingsApiHint');
   fillNickname('providerNicknameInput', provider?.nickname);
 
@@ -12770,6 +12922,11 @@ function fillSettingsForm(provider, opts = {}) {
 
   if (baseInput) baseInput.value = provider?.baseURL != null ? provider.baseURL : isNew ? '' : baseURL;
   if (modelInput) modelInput.value = provider?.model != null ? provider.model : isNew ? '' : model;
+  if (protocolSelect) {
+    const proto =
+      normalizeChatProtocol(provider?.protocol) || DEFAULT_CHAT_PROTOCOL;
+    protocolSelect.value = proto;
+  }
 
   chatMediaSettingsUi ||= createChatMediaSettings({ t, workspaceRpc, loadProvidersState,
     getProviderId: () => settingsConfigUi.providerId,
@@ -12814,9 +12971,14 @@ function applyInferencePreset(presetId) {
   const baseInput = document.getElementById('apiBaseInput');
   const keyInput = document.getElementById('apiKeyInput');
   const modelInput = document.getElementById('providerModelInput');
+  const protocolSelect = document.getElementById('providerChatProtocolSelect');
 
   if (baseInput) baseInput.value = preset.baseURL || '';
   if (modelInput) modelInput.value = preset.model || '';
+  if (protocolSelect) {
+    protocolSelect.value =
+      normalizeChatProtocol(preset.protocol) || DEFAULT_CHAT_PROTOCOL;
+  }
   settingsConfigUi.providerName = preset.name || settingsConfigUi.providerName || 'Provider';
 
   if (keyInput) {
@@ -13399,6 +13561,9 @@ function setEditorOpen(editorId, addBtnId, open) {
   const add = document.getElementById(addBtnId);
   if (ed) ed.hidden = !open;
   if (add) add.hidden = !!open;
+  ed?.closest('.settings-api-card')?.classList.toggle('is-editing', !!open);
+  const footerSave = document.getElementById('settingsSaveBtn');
+  if (footerSave) footerSave.hidden = !!document.querySelector('.settings-api-card.is-editing');
 }
 
 function parkInferenceDiagnostics() {
@@ -13458,6 +13623,10 @@ function setImageEditorOpen(open) {
 
 function setSttEditorOpen(open) {
   setEditorOpen('sttEditor', 'addSttBtn', open);
+}
+
+function setJevEditorOpen(open) {
+  setEditorOpen('jevEditor', 'addJevBtn', open);
 }
 
 function setWebEditorOpen(open) {
@@ -13644,6 +13813,42 @@ function renderSttVendorList(state) {
   }
 }
 
+function renderJevVendorList(state) {
+  const list = document.getElementById('jevVendorList');
+  if (!list) return;
+  list.innerHTML = '';
+  const vendors = listJevProviders(state?.providers);
+  const activeJevId = state?.activeJevProviderId || null;
+  const line = document.getElementById('jevStatusLine');
+  if (line) {
+    line.hidden = vendors.length > 0;
+    line.textContent = t('jevEmptyHint');
+  }
+  for (const p of vendors) {
+    const host = vendorHostFromUrl(p.baseURL);
+    const bits = [p.model || DEFAULT_JEV_MODEL, host].filter(Boolean);
+    const title = jevCardTitle(p);
+    list.appendChild(
+      renderVendorCard({
+        name: title,
+        meta: bits.join(' · '),
+        active: p.id === activeJevId,
+        onEdit: () => openJevEditor(p),
+        onSelect: () => {
+          void (async () => {
+            try {
+              await setActiveJevProviderId(p.id);
+            } catch (_) {}
+            setJevEditorOpen(false);
+            renderJevVendorList(await loadProvidersState());
+          })();
+        },
+        onDelete: () => confirmDeleteVendor(title, () => deleteJevVendor(p.id))
+      })
+    );
+  }
+}
+
 async function renderWebVendorList() {
   const list = document.getElementById('webVendorList');
   if (!list) return;
@@ -13709,6 +13914,7 @@ async function refreshVendorBoards() {
   renderInferenceVendorList(state);
   renderImageVendorList(state);
   renderSttVendorList(state);
+  renderJevVendorList(state);
   await fillWebAcquireForm();
   await renderWebVendorList();
   refreshAgentStatusBadge();
@@ -13719,6 +13925,7 @@ async function refreshVendorBoards() {
 function openInferenceEditor(provider) {
   setImageEditorOpen(false);
   setSttEditorOpen(false);
+  setJevEditorOpen(false);
   setWebEditorOpen(false);
   if (provider) {
     fillSettingsForm(provider);
@@ -13736,7 +13943,7 @@ function openInferenceEditor(provider) {
     applyInferencePreset('deepseek');
   }
   setInferenceEditorOpen(true);
-  document.getElementById('apiKeyInput')?.focus();
+  document.getElementById('apiKeyInput')?.focus({ preventScroll: true });
 }
 
 function fillImageForm(provider) {
@@ -13780,6 +13987,7 @@ function fillImageForm(provider) {
 function openImageEditor(provider) {
   setInferenceEditorOpen(false);
   setSttEditorOpen(false);
+  setJevEditorOpen(false);
   setWebEditorOpen(false);
   settingsImageUi.providerId = provider?.id || null;
   if (provider?.image?.enabled || provider?.image?.model) {
@@ -13805,9 +14013,7 @@ function setWebEditorKind(kind) {
   settingsWebUi.kind = next;
   const sel = document.getElementById('webSearchProviderSelect');
   if (sel && next !== 'firecrawl') sel.value = next;
-  document.querySelectorAll('#webVendorPresetRow [data-web-preset]').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-web-preset') === next);
-  });
+  setPresetSelect('webPresetSelect', next);
   const tavilyRow = document.getElementById('tavilyKeyRow');
   const braveRow = document.getElementById('braveKeyRow');
   const fireRow = document.getElementById('firecrawlKeyRow');
@@ -13820,6 +14026,7 @@ function openWebEditor(kind) {
   setInferenceEditorOpen(false);
   setImageEditorOpen(false);
   setSttEditorOpen(false);
+  setJevEditorOpen(false);
   setWebEditorKind(kind || 'tavily');
   setWebEditorOpen(true);
   const focusId =
@@ -13864,6 +14071,7 @@ async function saveInferenceEditor(opts = {}) {
         baseURL: form.baseURL,
         apiKey: form.apiKey,
         model: form.model,
+        protocol: form.protocol || DEFAULT_CHAT_PROTOCOL,
         chatMediaOverrides: form.chatMediaOverrides,
         createdAt: settingsConfigUi.createdAt || Date.now()
       },
@@ -13999,13 +14207,15 @@ function applySttPreset(presetId) {
   const base = document.getElementById('providerSttBaseInput');
   const key = document.getElementById('providerSttKeyInput');
   const model = document.getElementById('providerSttModelInput');
-  document.querySelectorAll('#sttPresetRow [data-stt-preset]').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-stt-preset') === presetId);
-  });
+  setPresetSelect('sttPresetSelect', presetId);
   if (presetId === 'openai') {
     if (base) base.value = DEFAULT_STT_BASE;
     if (model) model.value = DEFAULT_STT_MODEL;
     if (key && !settingsSttUi.hasStoredKey) key.placeholder = 'sk-...';
+  } else if (presetId === 'groq') {
+    if (base) base.value = 'https://api.groq.com/openai/v1';
+    if (model) model.value = 'whisper-large-v3';
+    if (key && !settingsSttUi.hasStoredKey) key.placeholder = 'gsk_...';
   } else if (presetId === 'openai-compatible') {
     if (base && !base.value.trim()) base.value = '';
     if (model && !model.value.trim()) model.value = DEFAULT_STT_MODEL;
@@ -14027,16 +14237,17 @@ function fillSttForm(provider) {
       ? `已配置 (…${settingsSttUi.keyTail})`
       : 'sk-...';
   }
-  const looksOpenAi = /openai\.com/i.test(String(provider?.baseURL || ''));
-  document.querySelectorAll('#sttPresetRow [data-stt-preset]').forEach((btn) => {
-    const id = btn.getAttribute('data-stt-preset');
-    btn.classList.toggle('active', looksOpenAi ? id === 'openai' : id === 'openai-compatible');
-  });
+  const rawBase = String(provider?.baseURL || '');
+  let sttPreset = 'openai-compatible';
+  if (/openai\.com/i.test(rawBase)) sttPreset = 'openai';
+  else if (/groq\.com/i.test(rawBase)) sttPreset = 'groq';
+  setPresetSelect('sttPresetSelect', sttPreset);
 }
 
 function openSttEditor(provider) {
   setInferenceEditorOpen(false);
   setImageEditorOpen(false);
+  setJevEditorOpen(false);
   setWebEditorOpen(false);
   settingsSttUi.providerId = provider?.id || null;
   if (provider && isSttOnlyProvider(provider)) {
@@ -14294,6 +14505,242 @@ async function deleteSttVendor(providerId) {
   }
 }
 
+function applyJevPreset(presetId) {
+  const base = document.getElementById('providerJevBaseInput');
+  const key = document.getElementById('providerJevKeyInput');
+  const model = document.getElementById('providerJevModelInput');
+  setPresetSelect('jevPresetSelect', presetId);
+  if (presetId === 'opencode') {
+    if (base) base.value = DEFAULT_JEV_BASE;
+    if (model) model.value = DEFAULT_JEV_MODEL;
+    if (key && !settingsJevUi.hasStoredKey) key.placeholder = 'sk-...';
+  } else if (presetId === 'openrouter') {
+    if (base) base.value = OPENROUTER_API_BASE;
+    if (model) model.value = DEFAULT_JEV_MODEL;
+    if (key && !settingsJevUi.hasStoredKey) key.placeholder = 'sk-or-...';
+  } else if (presetId === 'openai-compatible') {
+    if (base && !base.value.trim()) base.value = '';
+    if (model && !model.value.trim()) model.value = DEFAULT_JEV_MODEL;
+    if (key && !settingsJevUi.hasStoredKey) key.placeholder = 'sk-... / any key';
+  }
+}
+
+function fillJevForm(provider) {
+  const base = document.getElementById('providerJevBaseInput');
+  const key = document.getElementById('providerJevKeyInput');
+  const model = document.getElementById('providerJevModelInput');
+  fillNickname('jevNicknameInput', provider?.nickname);
+  settingsJevUi.hasStoredKey = !!provider?.apiKey;
+  settingsJevUi.keyTail = provider?.apiKey ? String(provider.apiKey).slice(-4) : '';
+  if (base) base.value = String(provider?.baseURL || DEFAULT_JEV_BASE).replace(/\/$/, '');
+  if (model) model.value = String(provider?.model || DEFAULT_JEV_MODEL);
+  if (key) {
+    key.value = '';
+    key.placeholder = settingsJevUi.hasStoredKey
+      ? `已配置 (…${settingsJevUi.keyTail})`
+      : 'sk-...';
+  }
+  const rawBase = String(provider?.baseURL || '');
+  let preset = 'openai-compatible';
+  if (/opencode\.ai/i.test(rawBase)) preset = 'opencode';
+  else if (/openrouter/i.test(rawBase)) preset = 'openrouter';
+  setPresetSelect('jevPresetSelect', preset);
+}
+
+function openJevEditor(provider) {
+  setInferenceEditorOpen(false);
+  setImageEditorOpen(false);
+  setSttEditorOpen(false);
+  setWebEditorOpen(false);
+  settingsJevUi.providerId = provider?.id || null;
+  if (provider && isJevProvider(provider)) {
+    fillJevForm(provider);
+  } else {
+    fillJevForm({
+      baseURL: DEFAULT_JEV_BASE,
+      model: DEFAULT_JEV_MODEL,
+      apiKey: ''
+    });
+    applyJevPreset('opencode');
+  }
+  paintJevProbeResult(null);
+  setJevEditorOpen(true);
+  document.getElementById('providerJevKeyInput')?.focus();
+}
+
+function paintJevProbeResult(result) {
+  const el = document.getElementById('jevProbeResult');
+  if (!el) return;
+  if (!result) {
+    el.hidden = true;
+    el.textContent = '';
+    el.classList.remove('is-ok', 'is-err');
+    return;
+  }
+  el.hidden = false;
+  el.classList.toggle('is-ok', result.ok === true);
+  el.classList.toggle('is-err', result.ok !== true);
+  if (result.ok) {
+    el.textContent = t('apiProbeJevOk');
+  } else if (result.code === 'NOT_JEV') {
+    el.textContent = t('apiProbeJevFail');
+  } else {
+    el.textContent = t('apiProbeFail').replace('{err}', String(result.error || 'error'));
+  }
+}
+
+async function resolveJevProbeCreds() {
+  let baseURL = document.getElementById('providerJevBaseInput')?.value?.trim() || '';
+  let apiKey = document.getElementById('providerJevKeyInput')?.value?.trim() || '';
+  let model = document.getElementById('providerJevModelInput')?.value?.trim() || '';
+  const hostId = settingsJevUi.providerId;
+  if ((!baseURL || !apiKey || !model) && hostId) {
+    try {
+      const state = await loadProvidersState();
+      const p = (state.providers || []).find((x) => x.id === hostId);
+      if (!baseURL) baseURL = String(p?.baseURL || '');
+      if (!apiKey) apiKey = String(p?.apiKey || '');
+      if (!model) model = String(p?.model || '');
+    } catch (_) {}
+  }
+  return {
+    baseURL: String(baseURL || '').replace(/\/$/, ''),
+    apiKey,
+    model: model || DEFAULT_JEV_MODEL
+  };
+}
+
+async function onProbeJevClick() {
+  const btn = document.getElementById('providerJevProbeBtn');
+  const { baseURL, apiKey, model } = await resolveJevProbeCreds();
+  if (!baseURL) {
+    paintJevProbeResult({
+      ok: false,
+      error: settingsLangEn() ? 'Enter selection Base URL.' : '请填写选择 Base URL。'
+    });
+    return;
+  }
+  if (!apiKey) {
+    paintJevProbeResult({
+      ok: false,
+      error: settingsLangEn() ? 'API key required.' : '需要 API Key。'
+    });
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = settingsLangEn() ? 'Probing…' : '探测中…';
+  }
+  try {
+    const url = jevSystemOneUrl(baseURL);
+    const probe = await probeJevSystemOne(
+      { apiKey, apiBase: baseURL, model },
+      async (_url, init) => {
+        const res = await proxyJsonRequest({
+          url,
+          method: 'POST',
+          headers: init?.headers || {
+            authorization: `Bearer ${apiKey}`,
+            'content-type': 'application/json'
+          },
+          body: init?.body || buildJevProbeBody({ model })
+        });
+        return {
+          ok: !!res.ok,
+          status: res.status,
+          json: async () => {
+            if (res.json != null) return res.json;
+            if (typeof res.text === 'string' && res.text) {
+              try {
+                return JSON.parse(res.text);
+              } catch {
+                throw new Error('non-JSON');
+              }
+            }
+            throw new Error('empty body');
+          }
+        };
+      }
+    );
+    paintJevProbeResult(probe);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = t('apiProbeJevBtn');
+    }
+  }
+}
+
+async function saveJevEditor(opts = {}) {
+  const baseURL = document.getElementById('providerJevBaseInput')?.value?.trim() || '';
+  const typedKey = document.getElementById('providerJevKeyInput')?.value?.trim() || '';
+  const model =
+    document.getElementById('providerJevModelInput')?.value?.trim() || DEFAULT_JEV_MODEL;
+  const nickname = readNickname('jevNicknameInput');
+  if (!baseURL) {
+    showSidepanelToast(settingsLangEn() ? 'Enter selection Base URL.' : '请填写选择 Base URL。', {
+      error: true
+    });
+    document.getElementById('providerJevBaseInput')?.focus();
+    return false;
+  }
+  const state = await loadProvidersState();
+  const host = (state.providers || []).find((p) => p.id === settingsJevUi.providerId) || null;
+  const prevKey = host && isJevProvider(host) ? String(host.apiKey || '').trim() : '';
+  const apiKey = typedKey || prevKey;
+  if (!apiKey) {
+    showSidepanelToast(settingsLangEn() ? 'Enter a selection API key.' : '请填写选择 API Key。', {
+      error: true
+    });
+    document.getElementById('providerJevKeyInput')?.focus();
+    return false;
+  }
+  try {
+    const id = host?.id || generateProviderId();
+    await upsertProvider(
+      {
+        id,
+        purpose: 'jev',
+        name: jevVendorLabel({ baseURL, name: host?.name }),
+        nickname,
+        baseURL,
+        apiKey,
+        model,
+        createdAt: host?.createdAt || Date.now()
+      },
+      { makeActive: false }
+    );
+    settingsJevUi.providerId = id;
+    settingsJevUi.hasStoredKey = true;
+    settingsJevUi.keyTail = apiKey.slice(-4);
+    if (!opts.keepOpen) setJevEditorOpen(false);
+    await refreshVendorBoards();
+    return true;
+  } catch (e) {
+    showSidepanelToast(
+      (settingsLangEn() ? 'Save failed: ' : '保存失败: ') + (e?.message || e),
+      { error: true }
+    );
+    return false;
+  }
+}
+
+async function deleteJevVendor(providerId) {
+  try {
+    await deleteProvider(providerId);
+    if (settingsJevUi.providerId === providerId) {
+      settingsJevUi.providerId = null;
+      setJevEditorOpen(false);
+    }
+    await refreshVendorBoards();
+  } catch (e) {
+    showSidepanelToast(
+      (settingsLangEn() ? 'Delete failed: ' : '删除失败: ') + (e?.message || e),
+      { error: true }
+    );
+  }
+}
+
 async function deleteWebVendor(kind) {
   try {
     const cfg = await loadWebAcquireSettings();
@@ -14324,6 +14771,7 @@ async function refreshSettingsForm() {
   setInferenceEditorOpen(false);
   setImageEditorOpen(false);
   setSttEditorOpen(false);
+  setJevEditorOpen(false);
   setWebEditorOpen(false);
   setSkillEditorOpen(false);
   await refreshVendorBoards();
@@ -14347,6 +14795,9 @@ function readSettingsForm() {
   const apiKey = document.getElementById('apiKeyInput')?.value?.trim() || '';
   const model = document.getElementById('providerModelInput')?.value?.trim() || '';
   const name = settingsConfigUi.providerName || 'Provider';
+  const chatProtocol =
+    normalizeChatProtocol(document.getElementById('providerChatProtocolSelect')?.value) ||
+    DEFAULT_CHAT_PROTOCOL;
 
   const imageEnabled = !!document.getElementById('providerImageEnabledCheck')?.checked;
   const protocolRaw = document.getElementById('providerImageProtocolInput')?.value?.trim();
@@ -14395,6 +14846,7 @@ function readSettingsForm() {
     baseURL,
     apiKey,
     model,
+    protocol: chatProtocol,
     image,
     chatMediaOverrides: chatMediaSettingsUi?.read() || {}
   };
@@ -14638,6 +15090,7 @@ async function saveAllSettings() {
   const infEd = document.getElementById('inferenceEditor');
   const imgEd = document.getElementById('imageEditor');
   const sttEd = document.getElementById('sttEditor');
+  const jevEd = document.getElementById('jevEditor');
   const webEd = document.getElementById('webAcquireEditor');
   try {
     if (infEd && !infEd.hidden) {
@@ -14652,6 +15105,10 @@ async function saveAllSettings() {
     }
     if (sttEd && !sttEd.hidden) {
       const ok = await saveSttEditor({ keepOpen: true });
+      if (!ok) return false;
+    }
+    if (jevEd && !jevEd.hidden) {
+      const ok = await saveJevEditor({ keepOpen: true });
       if (!ok) return false;
     }
     if (webEd && !webEd.hidden) {
@@ -14707,6 +15164,17 @@ function setupAgentSettingsModal() {
     });
   }
 
+  document.getElementById('agentSettingsModal')?.addEventListener('click', (ev) => {
+    const btn = ev.target?.closest?.('.api-key-reveal');
+    if (!btn) return;
+    const input = document.getElementById(btn.getAttribute('data-reveal-for') || '');
+    if (!input) return;
+    const reveal = input.type === 'password';
+    input.type = reveal ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+    btn.textContent = reveal ? t('apiKeyHide') : t('apiKeyShow');
+  });
+
   document.getElementById('addInferenceBtn')?.addEventListener('click', () => {
     openInferenceEditor(null);
   });
@@ -14744,15 +15212,19 @@ function setupAgentSettingsModal() {
     sttFilter.dataset.wired = '1';
     sttFilter.addEventListener('input', () => renderSettingsSttCatalog());
   }
-  const sttPresetRow = document.getElementById('sttPresetRow');
-  if (sttPresetRow) {
-    sttPresetRow.addEventListener('click', (ev) => {
-      const btn = ev.target?.closest?.('[data-stt-preset]');
-      if (!btn || !sttPresetRow.contains(btn)) return;
-      const id = btn.getAttribute('data-stt-preset');
-      if (id) applySttPreset(id);
-    });
-  }
+
+  document.getElementById('addJevBtn')?.addEventListener('click', () => {
+    openJevEditor(null);
+  });
+  document.getElementById('cancelJevEditorBtn')?.addEventListener('click', () => {
+    setJevEditorOpen(false);
+  });
+  document.getElementById('saveJevEditorBtn')?.addEventListener('click', () => {
+    void saveJevEditor();
+  });
+  document.getElementById('providerJevProbeBtn')?.addEventListener('click', () => {
+    void onProbeJevClick();
+  });
 
   document.getElementById('addWebAcquireBtn')?.addEventListener('click', () => {
     openWebEditor('tavily');
@@ -14770,15 +15242,7 @@ function setupAgentSettingsModal() {
     void onWebAcquireProbeClick();
   });
 
-  const presetRow = document.getElementById('inferencePresetRow');
-  if (presetRow) {
-    presetRow.addEventListener('click', (ev) => {
-      const btn = ev.target?.closest?.('.provider-preset-chip');
-      if (!btn || !presetRow.contains(btn)) return;
-      const presetId = btn.getAttribute('data-preset');
-      if (presetId) applyInferencePreset(presetId);
-    });
-  }
+  ensurePresetComboboxes();
 
   document.getElementById('providerModelRefreshBtn')?.addEventListener('click', () => {
     void onRefreshChatModelsClick();
@@ -14796,26 +15260,6 @@ function setupAgentSettingsModal() {
   if (imageFilter && !imageFilter.dataset.wired) {
     imageFilter.dataset.wired = '1';
     imageFilter.addEventListener('input', () => renderSettingsImageCatalog());
-  }
-
-  const imagePresetRow = document.getElementById('imagePresetRow');
-  if (imagePresetRow) {
-    imagePresetRow.addEventListener('click', (ev) => {
-      const btn = ev.target?.closest?.('[data-image-preset]');
-      if (!btn || !imagePresetRow.contains(btn)) return;
-      const id = btn.getAttribute('data-image-preset');
-      if (id && id !== 'off') applyImagePreset(id);
-    });
-  }
-
-  const webPresetRow = document.getElementById('webVendorPresetRow');
-  if (webPresetRow) {
-    webPresetRow.addEventListener('click', (ev) => {
-      const btn = ev.target?.closest?.('[data-web-preset]');
-      if (!btn || !webPresetRow.contains(btn)) return;
-      const id = btn.getAttribute('data-web-preset');
-      if (id) setWebEditorKind(id);
-    });
   }
 }
 

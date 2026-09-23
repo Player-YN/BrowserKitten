@@ -298,7 +298,7 @@ test('pointer point clicks via content script and never attaches debugger', asyn
   assert.ok(state.calls.some((c) => c.message.op === 'pointer'));
 });
 
-test('pointer cdp is raw-escape; without a ticket SW does not attach debugger', async () => {
+test('pointer cdp is an unknown commit; without a ticket SW does not attach debugger', async () => {
   const classified = classifyRisk({
     channel: 'action',
     op: 'pointer',
@@ -306,14 +306,15 @@ test('pointer cdp is raw-escape; without a ticket SW does not attach debugger', 
     url: 'https://example.com/a',
     tabId: 11
   });
-  assert.equal(classified.risk, 'raw-escape');
+  assert.equal(classified.risk, 'external-commit');
+  assert.equal(classified.confidence, 'unknown');
   const state = fixture();
   const snap = await handleWorkspacePageAction(request({ op: 'snapshot' }));
   const out = await handleWorkspacePageAction(request({
     op: 'pointer', method: 'cdp', x: 0.2, y: 0.2, rev: snap.rev
   }));
   assert.equal(out.ok, false);
-  assert.equal(out.code, 'RAW_ESCAPE_DENIED');
+  assert.equal(out.code, 'TICKET_REQUIRED');
   assert.equal(state.debuggerAttaches, 0);
 });
 

@@ -1,22 +1,24 @@
 /**
- * Provider settings for BYOK OpenAI-compatible HTTPS.
+ * Provider settings for BYOK HTTPS inference.
  * Inference goes through AI SDK (`createBrowserBotLanguageModel`), not this file.
  *
- *   browserbot_providers: [{ id, name, nickname?, baseURL, apiKey, model, createdAt, image?, lastProbe? }]
+ *   browserbot_providers: [{ id, name, nickname?, baseURL, apiKey, model, protocol?, purpose?, createdAt, image?, lastProbe? }]
  *   browserbot_active_provider_id: string
  * Flat copies (browserbot_api_key / browserbot_api_base / selected_model) stay in sync with the active chat provider.
  *
- * Chat baseURL + model are chat-only. Image APIs are a separate active id
- * (`browserbot_active_image_provider_id`): either purpose:'image' vendors or
- * a leftover nested `image` on a chat record. Never overwrite chat base
- * with an image path. Speech-to-text is purpose:'stt' +
- * `browserbot_active_stt_provider_id` (OpenAI-compatible POST /audio/transcriptions).
+ * Chat `protocol` is the wire for ANY user base URL:
+ *   openai-compatible (default) | anthropic | openai-responses | auto
+ * Explicit protocol always wins. Omitted → openai-compatible, except host
+ * api.anthropic.com → anthropic. `auto` is optional model-id multiplexing.
+ * Image keeps nested image.protocol. STT is purpose:'stt'. Jev is purpose:'jev'
+ * + /systemone and must never share the chat LanguageModel path.
  */
 
 import {
   STORAGE_ACTIVE_IMAGE_PROVIDER_ID,
   STORAGE_ACTIVE_PROVIDER_ID,
   STORAGE_ACTIVE_STT_PROVIDER_ID,
+  STORAGE_ACTIVE_JEV_PROVIDER_ID,
   STORAGE_PROVIDERS
 } from '../brand.js';
 import { normalizeMediaOverrides } from './chatMedia.js';
@@ -35,70 +37,138 @@ export const DEFAULT_OPENROUTER_IMAGE_PROTOCOL = 'openrouter-image';
 export const DEFAULT_OPENROUTER_IMAGE_PATH = '/images';
 export const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-2.5-flash-image';
 
+/** Suggested Jev base (OpenAI-compatible origin; client appends /systemone as needed). */
+export const DEFAULT_JEV_BASE = 'https://opencode.ai/zen/v1';
+export const DEFAULT_JEV_MODEL = 'jev-1.13';
+
+/** Chat wire on the provider record (applies to any base URL). */
+export const CHAT_PROTOCOL_OPENAI = 'openai-compatible';
+export const CHAT_PROTOCOL_ANTHROPIC = 'anthropic';
+export const CHAT_PROTOCOL_RESPONSES = 'openai-responses';
+export const CHAT_PROTOCOL_AUTO = 'auto';
+export const DEFAULT_CHAT_PROTOCOL = CHAT_PROTOCOL_OPENAI;
+
 /** chrome.storage.local keys */
 export const PROVIDERS_STORAGE_KEY = STORAGE_PROVIDERS;
 export const ACTIVE_PROVIDER_ID_KEY = STORAGE_ACTIVE_PROVIDER_ID;
 export const ACTIVE_IMAGE_PROVIDER_ID_KEY = STORAGE_ACTIVE_IMAGE_PROVIDER_ID;
 export const ACTIVE_STT_PROVIDER_ID_KEY = STORAGE_ACTIVE_STT_PROVIDER_ID;
+export const ACTIVE_JEV_PROVIDER_ID_KEY = STORAGE_ACTIVE_JEV_PROVIDER_ID;
 export const DEFAULT_STT_MODEL = 'whisper-1';
 export const DEFAULT_STT_BASE = 'https://api.openai.com/v1';
 
+/** UI presets — fill form templates; catalog lives in providerPresets.js. */
+export { PROVIDER_PRESETS } from './providerPresets.js';
+
 /**
- * UI presets — fill form templates; user still edits before save.
- * Protocol is OpenAI-compatible only (chat completions shape).
+ * Normalize a stored chat protocol. Empty → null (omitted; resolver applies defaults).
+ * @param {unknown} raw
+ * @returns {typeof CHAT_PROTOCOL_OPENAI | typeof CHAT_PROTOCOL_ANTHROPIC | typeof CHAT_PROTOCOL_RESPONSES | typeof CHAT_PROTOCOL_AUTO | null}
  */
-export const PROVIDER_PRESETS = [
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    baseURL: 'https://api.deepseek.com/v1',
-    model: 'deepseek-v4-flash',
-    apiKeyPlaceholder: 'sk-...'
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    baseURL: 'https://api.openai.com/v1',
-    model: 'gpt-4o',
-    apiKeyPlaceholder: 'sk-...'
-  },
-  {
-    id: 'openai-compatible',
-    name: 'OpenAI Compatible',
-    baseURL: '',
-    model: '',
-    apiKeyPlaceholder: 'sk-... / any key'
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    baseURL: OPENROUTER_API_BASE,
-    model: 'openai/gpt-4o',
-    apiKeyPlaceholder: 'sk-or-...',
-    // Image shares this origin; path is /images. Prefill so 生图 is not a scavenger hunt.
-    image: {
-      enabled: false,
-      protocol: DEFAULT_OPENROUTER_IMAGE_PROTOCOL,
-      path: DEFAULT_OPENROUTER_IMAGE_PATH,
-      model: DEFAULT_OPENROUTER_IMAGE_MODEL,
-      baseURL: OPENROUTER_API_BASE
-    }
-  },
-  {
-    id: 'minimax',
-    name: 'MiniMax',
-    baseURL: 'https://api.minimaxi.com/v1',
-    model: 'MiniMax-Text-01',
-    apiKeyPlaceholder: 'eyJ... / API key',
-    // Suggested image defaults when user enables image gen (chat base stays chat-only)
-    image: {
-      enabled: false,
-      protocol: DEFAULT_IMAGE_PROTOCOL,
-      path: DEFAULT_IMAGE_PATH,
-      model: DEFAULT_IMAGE_MODEL
-    }
+export function normalizeChatProtocol(raw) {
+  if (raw == null) return null;
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (!s) return null;
+  if (s === CHAT_PROTOCOL_ANTHROPIC || s === 'claude' || s === 'messages') {
+    return CHAT_PROTOCOL_ANTHROPIC;
   }
-];
+  if (s === CHAT_PROTOCOL_RESPONSES || s === 'responses' || s === 'openai-responses') {
+    return CHAT_PROTOCOL_RESPONSES;
+  }
+  if (s === CHAT_PROTOCOL_AUTO || s === 'model-auto' || s === 'by-model') {
+    return CHAT_PROTOCOL_AUTO;
+  }
+  if (
+    s === CHAT_PROTOCOL_OPENAI ||
+    s === 'openai' ||
+    s === 'chat' ||
+    s === 'openai-compatible'
+  ) {
+    return CHAT_PROTOCOL_OPENAI;
+  }
+  return null;
+}
+
+/**
+ * OpenAI-compatible chat completions URL. Base already ending in /chat/completions stays.
+ * @param {string} baseURL
+ */
+export function openaiChatCompletionsUrl(baseURL) {
+  const base = String(baseURL || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (!base) return '';
+  if (/\/chat\/completions$/i.test(base)) return base;
+  return `${base}/chat/completions`;
+}
+
+/**
+ * Anthropic Messages API URL. Base ending in /v1 → {base}/messages (no double /v1).
+ * Base already ending in /messages stays. Otherwise append /v1/messages.
+ * @param {string} baseURL
+ */
+export function anthropicMessagesUrl(baseURL) {
+  const base = String(baseURL || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (!base) return '';
+  if (/\/messages$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return `${base}/messages`;
+  return `${base}/v1/messages`;
+}
+
+/**
+ * OpenAI Responses API URL (generic). Adapter may still be unsupported.
+ * @param {string} baseURL
+ */
+export function openaiResponsesUrl(baseURL) {
+  const base = String(baseURL || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (!base) return '';
+  if (/\/responses$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return `${base}/responses`;
+  return `${base}/v1/responses`;
+}
+
+/**
+ * System One (Jev) URL — generic path rules, not a vendor allowlist.
+ * @param {string} baseURL
+ */
+export function systemOneUrl(baseURL) {
+  const base = String(baseURL || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (!base) return '';
+  if (/\/systemone$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return `${base}/systemone`;
+  return `${base}/v1/systemone`;
+}
+
+/**
+ * Build HTTPS endpoint for chat/jev from purpose + protocol + model.
+ * Prefer resolveChatWire from chatWireRoute.js for full routing.
+ * @param {string} baseURL
+ * @param {{ purpose?: string, protocol?: string, model?: string }} [opts]
+ */
+export function buildProviderEndpointUrl(baseURL, opts = {}) {
+  const purpose = opts.purpose || 'chat';
+  if (purpose === 'jev') return systemOneUrl(baseURL);
+  if (purpose === 'stt') {
+    const base = String(baseURL || '')
+      .trim()
+      .replace(/\/$/, '');
+    if (!base) return '';
+    if (/\/audio\/transcriptions$/i.test(base)) return base;
+    return `${base}/audio/transcriptions`;
+  }
+  const proto = normalizeChatProtocol(opts.protocol) || DEFAULT_CHAT_PROTOCOL;
+  if (proto === CHAT_PROTOCOL_ANTHROPIC) return anthropicMessagesUrl(baseURL);
+  if (proto === CHAT_PROTOCOL_RESPONSES) return openaiResponsesUrl(baseURL);
+  return openaiChatCompletionsUrl(baseURL);
+}
 
 /**
  * @typedef {{
@@ -124,7 +194,8 @@ export const PROVIDER_PRESETS = [
  *   apiKey: string,
  *   model: string,
  *   createdAt: number,
- *   purpose?: 'chat'|'image'|'stt',
+ *   purpose?: 'chat'|'image'|'stt'|'jev',
+ *   protocol?: string,
  *   image?: BrowserBotProviderImage,
  *   lastProbe?: BrowserBotProviderProbe
  * }} BrowserBotProvider
@@ -134,7 +205,7 @@ export const PROVIDER_PRESETS = [
 export function isImageOnlyProvider(provider) {
   if (!provider || typeof provider !== 'object') return false;
   if (provider.purpose === 'image') return true;
-  if (provider.purpose === 'stt') return false;
+  if (provider.purpose === 'stt' || provider.purpose === 'jev') return false;
   if (provider.purpose === 'chat') return false;
   const hasChat =
     !!String(provider.model || '').trim() || !!String(provider.apiKey || '').trim();
@@ -146,9 +217,14 @@ export function isSttOnlyProvider(provider) {
   return !!(provider && provider.purpose === 'stt');
 }
 
+/** Selection-only vendor. Never a chat or image model. */
+export function isJevProvider(provider) {
+  return !!(provider && provider.purpose === 'jev');
+}
+
 /** Appears in the inference settings list / chat picker. */
 export function isChatProvider(provider) {
-  return !!provider && !isImageOnlyProvider(provider) && !isSttOnlyProvider(provider);
+  return !!provider && !isImageOnlyProvider(provider) && !isSttOnlyProvider(provider) && !isJevProvider(provider);
 }
 
 /** Appears in the image settings list / 生图 picker. */
@@ -175,6 +251,19 @@ export function resolveActiveSttProvider(providers, activeSttProviderId) {
   const hit = want && list.find((p) => p.id === want);
   const activeStt = hit || list[0];
   return { activeSttProviderId: activeStt.id, activeStt };
+}
+
+export function listJevProviders(providers) {
+  return (Array.isArray(providers) ? providers : []).filter(isJevProvider);
+}
+
+export function resolveActiveJevProvider(providers, activeJevProviderId) {
+  const list = listJevProviders(providers);
+  if (!list.length) return { activeJevProviderId: null, activeJev: null };
+  const want = String(activeJevProviderId || '');
+  const hit = want && list.find((p) => p.id === want);
+  const activeJev = hit || list[0];
+  return { activeJevProviderId: activeJev.id, activeJev };
 }
 
 export function sttVendorLabel(provider) {
@@ -215,12 +304,23 @@ export function imageCardTitle(provider) {
   const img = provider?.image && typeof provider.image === 'object' ? provider.image : {};
   const imageNick = typeof img.nickname === 'string' ? img.nickname.trim() : '';
   if (imageNick) return imageNick;
-  if (provider?.purpose === 'image') return providerDisplayName(provider, imageVendorLabel(provider));
-  return imageVendorLabel(provider);
+  return providerDisplayName(provider, imageVendorLabel(provider));
 }
 
 export function sttCardTitle(provider) {
   return providerDisplayName(provider, sttVendorLabel(provider));
+}
+
+export function jevVendorLabel(provider) {
+  const base = String(provider?.baseURL || '');
+  if (/opencode\.ai/i.test(base)) return 'OpenCode Zen';
+  if (/openrouter/i.test(base)) return 'OpenRouter';
+  if (/typesafe/i.test(base)) return 'TypeSafe';
+  return provider?.name || 'Jev';
+}
+
+export function jevCardTitle(provider) {
+  return providerDisplayName(provider, jevVendorLabel(provider));
 }
 
 function normalizeLastProbe(raw) {
@@ -335,7 +435,7 @@ export function generateProviderId() {
 
 /**
  * Normalize one provider record.
- * Chat fields (baseURL, model) stay chat-only. Optional `image` is preserved/normalized.
+ * Chat fields (baseURL, model, protocol) stay chat-only. protocol is the wire for any base.
  * @param {Partial<BrowserBotProvider>} p
  * @returns {BrowserBotProvider|null}
  */
@@ -351,9 +451,14 @@ export function normalizeProvider(p) {
   /** @type {BrowserBotProvider} */
   const out = { id, name, baseURL, apiKey, model, createdAt };
   const purpose = /** @type {any} */ (p).purpose;
-  if (purpose === 'image' || purpose === 'chat' || purpose === 'stt') out.purpose = purpose;
+  if (purpose === 'image' || purpose === 'chat' || purpose === 'stt' || purpose === 'jev') out.purpose = purpose;
   const image = normalizeImageConfig(/** @type {any} */ (p).image);
   if (image) out.image = image;
+  // Optional chat wire override only — never invent a default that would pin auto-route.
+  if (out.purpose !== 'stt' && out.purpose !== 'jev' && out.purpose !== 'image') {
+    const protocol = normalizeChatProtocol(/** @type {any} */ (p).protocol);
+    if (protocol) out.protocol = protocol;
+  }
   const overrides = normalizeMediaOverrides(p.chatMediaOverrides);
   if (Object.keys(overrides).length) out.chatMediaOverrides = overrides;
   const contextWindowOverrides = normalizeContextWindowOverrides(p.contextWindowOverrides);
@@ -384,6 +489,7 @@ export async function loadProvidersState() {
     ACTIVE_PROVIDER_ID_KEY,
     ACTIVE_IMAGE_PROVIDER_ID_KEY,
     ACTIVE_STT_PROVIDER_ID_KEY,
+    ACTIVE_JEV_PROVIDER_ID_KEY,
     'browserbot_api_key',
     'browserbot_api_base',
     'selected_model',
@@ -453,6 +559,13 @@ export async function loadProvidersState() {
     await storageSet({ [ACTIVE_STT_PROVIDER_ID_KEY]: sttResolved.activeSttProviderId });
   }
 
+  const jevWant =
+    typeof res[ACTIVE_JEV_PROVIDER_ID_KEY] === 'string' ? res[ACTIVE_JEV_PROVIDER_ID_KEY] : null;
+  const jevResolved = resolveActiveJevProvider(providers, jevWant);
+  if (jevResolved.activeJevProviderId !== jevWant) {
+    await storageSet({ [ACTIVE_JEV_PROVIDER_ID_KEY]: jevResolved.activeJevProviderId });
+  }
+
   const active = providers.find((p) => p.id === activeProviderId) || null;
   return {
     providers,
@@ -462,6 +575,8 @@ export async function loadProvidersState() {
     activeImage: imageResolved.activeImage,
     activeSttProviderId: sttResolved.activeSttProviderId,
     activeStt: sttResolved.activeStt,
+    activeJevProviderId: jevResolved.activeJevProviderId,
+    activeJev: jevResolved.activeJev,
     migrated
   };
 }
@@ -477,13 +592,15 @@ export async function saveProvidersState(
   providers,
   activeProviderId,
   activeImageProviderId,
-  activeSttProviderId
+  activeSttProviderId,
+  activeJevProviderId
 ) {
   const list = (Array.isArray(providers) ? providers : []).map(normalizeProvider).filter(Boolean);
   const prev = await storageGet([
     ACTIVE_PROVIDER_ID_KEY,
     ACTIVE_IMAGE_PROVIDER_ID_KEY,
-    ACTIVE_STT_PROVIDER_ID_KEY
+    ACTIVE_STT_PROVIDER_ID_KEY,
+    ACTIVE_JEV_PROVIDER_ID_KEY
   ]);
   const chatList = listChatProviders(list);
   let activeId =
@@ -506,13 +623,20 @@ export async function saveProvidersState(
       : prev[ACTIVE_STT_PROVIDER_ID_KEY] || null;
   const sttResolved = resolveActiveSttProvider(list, sttWant);
 
+  const jevWant =
+    activeJevProviderId !== undefined
+      ? activeJevProviderId
+      : prev[ACTIVE_JEV_PROVIDER_ID_KEY] || null;
+  const jevResolved = resolveActiveJevProvider(list, jevWant);
+
   const active = list.find((p) => p.id === activeId) || null;
   /** @type {Record<string, unknown>} */
   const toStore = {
     [PROVIDERS_STORAGE_KEY]: list,
     [ACTIVE_PROVIDER_ID_KEY]: activeId,
     [ACTIVE_IMAGE_PROVIDER_ID_KEY]: imageResolved.activeImageProviderId,
-    [ACTIVE_STT_PROVIDER_ID_KEY]: sttResolved.activeSttProviderId
+    [ACTIVE_STT_PROVIDER_ID_KEY]: sttResolved.activeSttProviderId,
+    [ACTIVE_JEV_PROVIDER_ID_KEY]: jevResolved.activeJevProviderId
   };
 
   // Mirror the active chat provider onto flat copies.
@@ -543,7 +667,9 @@ export async function saveProvidersState(
     activeImageProviderId: imageResolved.activeImageProviderId,
     activeImage: imageResolved.activeImage,
     activeSttProviderId: sttResolved.activeSttProviderId,
-    activeStt: sttResolved.activeStt
+    activeStt: sttResolved.activeStt,
+    activeJevProviderId: jevResolved.activeJevProviderId,
+    activeJev: jevResolved.activeJev
   };
 }
 
@@ -573,6 +699,21 @@ export async function setActiveSttProviderId(providerId) {
     throw new Error('PROVIDER_NOT_FOUND');
   }
   return saveProvidersState(providers, activeProviderId, activeImageProviderId, providerId);
+}
+
+export async function setActiveJevProviderId(providerId) {
+  const { providers, activeProviderId, activeImageProviderId, activeSttProviderId } =
+    await loadProvidersState();
+  if (!listJevProviders(providers).some((p) => p.id === providerId)) {
+    throw new Error('PROVIDER_NOT_FOUND');
+  }
+  return saveProvidersState(
+    providers,
+    activeProviderId,
+    activeImageProviderId,
+    activeSttProviderId,
+    providerId
+  );
 }
 
 /**
@@ -662,6 +803,13 @@ export async function upsertProvider(provider, opts = {}) {
     if (next.lastProbe === undefined && providers[idx].lastProbe) {
       next.lastProbe = providers[idx].lastProbe;
     }
+    if (typeof provider.protocol !== 'string' && providers[idx].protocol) {
+      next.protocol = providers[idx].protocol;
+    } else if (typeof provider.protocol === 'string') {
+      const protocol = normalizeChatProtocol(provider.protocol);
+      if (protocol) next.protocol = protocol;
+      else delete next.protocol;
+    }
     if (typeof provider.nickname !== 'string' && providers[idx].nickname) {
       next.nickname = providers[idx].nickname;
     }
@@ -671,7 +819,7 @@ export async function upsertProvider(provider, opts = {}) {
     providers.push(next);
   }
   const makeActive =
-    opts.makeActive !== false && !isImageOnlyProvider(next) && !isSttOnlyProvider(next);
+    opts.makeActive !== false && !isImageOnlyProvider(next) && !isSttOnlyProvider(next) && !isJevProvider(next);
   const newActive = makeActive ? next.id : activeProviderId;
   const imageId = isImageProvider(next)
     ? (opts.makeImageActive === false ? undefined : next.id)
@@ -679,7 +827,10 @@ export async function upsertProvider(provider, opts = {}) {
   const sttId = isSttOnlyProvider(next)
     ? (opts.makeSttActive === false ? undefined : next.id)
     : undefined;
-  return saveProvidersState(providers, newActive, imageId, sttId);
+  const jevId = isJevProvider(next)
+    ? (opts.makeJevActive === false ? undefined : next.id)
+    : undefined;
+  return saveProvidersState(providers, newActive, imageId, sttId, jevId);
 }
 
 /**
@@ -687,7 +838,7 @@ export async function upsertProvider(provider, opts = {}) {
  * @param {string} providerId
  */
 export async function deleteProvider(providerId) {
-  const { providers, activeProviderId, activeImageProviderId, activeSttProviderId } =
+  const { providers, activeProviderId, activeImageProviderId, activeSttProviderId, activeJevProviderId } =
     await loadProvidersState();
   const list = providers.filter((p) => p.id !== providerId);
   let newActive = activeProviderId;
@@ -696,7 +847,8 @@ export async function deleteProvider(providerId) {
   }
   const imageId = activeImageProviderId === providerId ? null : activeImageProviderId;
   const sttId = activeSttProviderId === providerId ? null : activeSttProviderId;
-  return saveProvidersState(list, newActive, imageId, sttId);
+  const jevId = activeJevProviderId === providerId ? null : activeJevProviderId;
+  return saveProvidersState(list, newActive, imageId, sttId, jevId);
 }
 
 /**
@@ -726,6 +878,21 @@ function sttSettingsFields(activeStt) {
   };
 }
 
+function jevSettingsFields(activeJev) {
+  if (!activeJev?.apiKey) {
+    return { jev: undefined, jevProviderId: null, jevProviderName: '' };
+  }
+  return {
+    jev: {
+      apiKey: activeJev.apiKey,
+      apiBase: (activeJev.baseURL || DEFAULT_JEV_BASE).replace(/\/$/, ''),
+      model: activeJev.model || DEFAULT_JEV_MODEL
+    },
+    jevProviderId: activeJev.id,
+    jevProviderName: jevCardTitle(activeJev)
+  };
+}
+
 export async function loadLlmSettings() {
   const {
     providers,
@@ -733,15 +900,18 @@ export async function loadLlmSettings() {
     active,
     activeImageProviderId,
     activeImage,
-    activeStt
+    activeStt,
+    activeJev
   } = await loadProvidersState();
   const sttFields = sttSettingsFields(activeStt);
+  const jevFields = jevSettingsFields(activeJev);
 
   if (active) {
     return {
       apiKey: active.apiKey || '',
       apiBase: (active.baseURL || DEFAULT_BASE).replace(/\/$/, ''),
       model: active.model || 'deepseek-v4-flash',
+      protocol: normalizeChatProtocol(active.protocol),
       chatMediaOverrides: active.chatMediaOverrides,
       contextWindowOverrides: active.contextWindowOverrides,
       providerId: active.id,
@@ -752,7 +922,8 @@ export async function loadLlmSettings() {
       image: activeImage?.image || undefined,
       imageProviderId: activeImage?.id || null,
       imageProviderName: activeImage ? imageVendorLabel(activeImage) : '',
-      ...sttFields
+      ...sttFields,
+      ...jevFields
     };
   }
 
@@ -767,6 +938,7 @@ export async function loadLlmSettings() {
     apiKey: res.browserbot_api_key || res.DEEPSEEK_API_KEY || '',
     apiBase: (res.browserbot_api_base || DEFAULT_BASE).replace(/\/$/, ''),
     model: res.selected_model || 'deepseek-v4-flash',
+    protocol: null,
     providerId: null,
     providerName: '',
     providers,
@@ -775,6 +947,7 @@ export async function loadLlmSettings() {
     image: activeImage?.image || undefined,
     imageProviderId: activeImage?.id || null,
     imageProviderName: activeImage ? imageVendorLabel(activeImage) : '',
-    ...sttFields
+    ...sttFields,
+    ...jevFields
   };
 }

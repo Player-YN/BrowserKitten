@@ -23,13 +23,17 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   NO_CANVAS: 'create a website with write_artifact HTML marked data-browserbot-kind=site, then edit with web. There is no sheet canvas.',
   NO_DOCUMENT: 'register a document with run op=doc (createDocument), then edit with the doc tool. Documents are marked HTML.',
   OP_REMOVED: 'there is no canvas HTML op. Use run op=doc for a document, or write_artifact with data-browserbot-kind=site for a website.',
+  COORD_MISMATCH: 'snapshot again; x,y are 0–1 against the current CSS viewport',
+  FALLBACK_VISUAL:
+    'call action op=pointer on this tabId with x,y in 0–1 and method=cdp. The host does not choose the point',
   NO_TARGET:
-    'action op=snapshot and pass a current ref, or wait with matching text. If the control exists but the page forbids the act (no-select / no-copy / click has no effect), run + sys.eval world:"MAIN" on this tabId',
+    'action op=snapshot and pass a current ref, or wait with matching text. FALLBACK_VISUAL means op=pointer with x,y in 0–1 and method=cdp. If the page forbids the act, run + sys.eval world:"MAIN" on this tabId',
   PAYMENT_DENIED: 'stop; payment surfaces are not dispatched',
   RAW_ESCAPE_DENIED:
     'use pointer method=point or upload method=auto. To change page policy (eval / cdp) switch the session to Full Access, then run + sys.eval or sys.cdp on this tabId',
   SNAPSHOT_TOO_LARGE: 'pass a smaller a1; do not silently truncate',
   STALE_REF: 'action op=snapshot then retry with the new rev',
+  VISUAL_UNCHANGED: 'do not repeat the same pointer coordinates in this execution',
   SYS_DENIED: 'inspect view=sys and pick an allowed op; Guarded blocks raw eval/CDP',
   TAB_LEASED: 'wait for the other session to finish, or target a different tabId',
   TAB_NOT_VISIBLE: 'bring the tab into a visible window, then snapshot, listen or record again',

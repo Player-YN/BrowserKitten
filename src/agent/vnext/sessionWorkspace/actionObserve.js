@@ -149,6 +149,8 @@ export function actionResultToModelFacts(result) {
   if (compact.canvasCount != null) facts.canvasCount = compact.canvasCount;
   if (compact.after != null) facts.after = compact.after;
   if (compact.methodUsed) facts.methodUsed = compact.methodUsed;
+  if (compact.hint) facts.hint = compact.hint;
+  if (compact.cause) facts.cause = compact.cause;
   if (compact.code) facts.code = compact.code;
   if (compact.error) facts.error = compact.error;
   if (compact.observationError) facts.observationError = compact.observationError;
