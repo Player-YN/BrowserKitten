@@ -258,3 +258,24 @@ test('the client version tag reaches only the Browser Kitten API, with the manif
   }
   assert.deepEqual(seen.map((s) => s.client), ['browser-kitten/1.2.3', null, null, null]);
 });
+
+test('thinking switched off is said explicitly to Browser Kitten only; other providers still get no field', async () => {
+  const bodies = [];
+  const restore = withFetchChrome({
+    fetchImpl: async (target, init) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response('{}', { headers: { 'content-type': 'application/json' } });
+    }
+  });
+  try {
+    const off = createExtensionFetch({ reasoning: { enabled: false } });
+    const on = createExtensionFetch({ reasoning: { enabled: true, effort: 'high' } });
+    const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"model":"bk-auto","messages":[{"role":"user","content":"x"}]}' };
+    await off('https://browserkitten.com/api/v1/chat/completions', init);
+    await off('https://api.deepseek.com/v1/chat/completions', init);
+    await on('https://browserkitten.com/api/v1/chat/completions', init);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(bodies.map((b) => b.reasoning), [{ effort: 'none' }, undefined, { effort: 'high' }]);
+});

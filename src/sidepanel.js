@@ -285,6 +285,8 @@ let selectedModel = 'deepseek-v4-flash';
 let selectedImageModel = '';
 /** OpenRouter reasoning.effort; `none` = thinking off */
 let reasoningEffort = 'none';
+/** False until the user picks an effort (or one is stored): until then the model's own default applies. */
+let reasoningEffortChosen = false;
 /** @type {import('./agent/modelCatalog.js').ModelEntry[]} */
 let catalogModels = [];
 /** Last evidence/override for the composer chip. Never invents the 256k compacting default. */
@@ -869,6 +871,7 @@ function selectReasoningEffort(effort, levels) {
     return;
   }
   reasoningEffort = effort;
+  reasoningEffortChosen = true;
   chrome.storage.local.set({ browserbot_reasoning_effort: reasoningEffort });
   updateReasoningEffortSlider(steps);
 }
@@ -1018,7 +1021,15 @@ async function refreshReasoningCatalog(force = false) {
       console.warn('[reasoning] catalog probe failed', String(err?.message || err));
     }
   }
+  applyModelDefaultEffort();
   syncReasoningSwitch();
+}
+
+/** A user who never picked an effort gets the model's advertised default (e.g. Browser Kitten: on, medium). */
+function applyModelDefaultEffort() {
+  if (reasoningEffortChosen) return;
+  const info = findCatalogModel(catalogModels, selectedModel)?.reasoning;
+  if (info?.defaultEnabled) reasoningEffort = info.defaultEffort || 'medium';
 }
 
 function applyI18n() {
@@ -2684,6 +2695,7 @@ function loadSavedPreferences() {
         GATEWAY_REASONING_EFFORTS.includes(result.browserbot_reasoning_effort)
       ) {
         reasoningEffort = result.browserbot_reasoning_effort;
+        reasoningEffortChosen = true;
       }
       syncReasoningSwitch();
       void refreshReasoningCatalog(false);

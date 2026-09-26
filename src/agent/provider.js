@@ -230,6 +230,8 @@ export function stripUnsupportedFieldsFromRequestInit(init = {}, reasoning = nul
     );
     const cfg = openRouterReasoningBody(reasoning);
     if (cfg) body.reasoning = cfg;
+    // Browser Kitten decides the default per route, so "off" must be said, not implied by omission.
+    else if (opts.explicitOff && reasoning && reasoning.enabled === false) body.reasoning = { effort: 'none' };
     return { ...init, body: JSON.stringify(body) };
   } catch {
     return init;
@@ -362,6 +364,7 @@ export function createExtensionFetch(opts = {}) {
           headers: sanitizeLlmProxyHeaders(headers)
         }, opts.reasoning || null, {
           keepReasoning,
+          explicitOff: isCloudApiUrl(url),
           mediaCapabilities: opts.mediaContext?.current || opts.mediaCapabilities
         });
     const body = await serializeLlmProxyBody(cleanedInit.body);
