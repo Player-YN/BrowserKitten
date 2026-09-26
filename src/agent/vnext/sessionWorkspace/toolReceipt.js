@@ -29,6 +29,8 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   NO_TARGET:
     'action op=snapshot and pass a current ref, or wait with matching text. FALLBACK_VISUAL means op=pointer with x,y in 0–1 and method=cdp. If the page forbids the act, run + sys.eval world:"MAIN" on this tabId',
   PAYMENT_DENIED: 'stop; payment surfaces are not dispatched',
+  PERMISSION_REQUIRED:
+    'tell the user which ability is off (see permission) and that they can turn it on in Settings → Advanced abilities; meanwhile use action ops that do not need it',
   SNAPSHOT_TOO_LARGE: 'pass a smaller a1; do not silently truncate',
   STALE_REF: 'action op=snapshot then retry with the new rev',
   VISUAL_UNCHANGED: 'do not repeat the same pointer coordinates in this execution',

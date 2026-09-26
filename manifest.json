@@ -22,8 +22,10 @@
     "offscreen",
     "tabGroups",
     "webNavigation",
+    "debugger"
+  ],
+  "optional_permissions": [
     "userScripts",
-    "debugger",
     "tabCapture"
   ],
   "host_permissions": [

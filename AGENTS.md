@@ -145,7 +145,7 @@ src/
 ## 日常约定
 
 - 改代码 → `chrome://extensions` 点本扩展 **重新加载**。offscreen / SW 会重建；`action` 的 `rev` 在 SW 内存，重载后需重新 `snapshot`。
-- 权限见 `manifest.json`：`sidePanel` `activeTab` `tabs` `scripting` `storage` `identity` `alarms` `downloads` `offscreen` `tabGroups` `webNavigation` `userScripts` `debugger`；`host_permissions: <all_urls>`。`userScripts` / `debugger` 只服务 guest `sys`（[src/AGENTS.md](src/AGENTS.md)）。`identity` 只用于 Browser Kitten 账户登录（`launchWebAuthFlow`）。`alarms` 只唤醒 due task，不是 journal。
+- 权限见 `manifest.json`：`sidePanel` `activeTab` `tabs` `scripting` `storage` `identity` `alarms` `downloads` `offscreen` `tabGroups` `webNavigation` `debugger`；**可选** `userScripts` `tabCapture`；`host_permissions: <all_urls>`。`userScripts` / `debugger` 只服务 guest `sys`（[src/AGENTS.md](src/AGENTS.md)）。可选权限只能由用户点击授予：`tabCapture` 在侧栏听音/录屏授权条的点击里申请，`userScripts` 在设置「高级能力」里申请（Chrome 138+ 还要用户在扩展详情页打开「允许用户脚本」）；未授予时宿主返回 `PERMISSION_REQUIRED` + `permission`。`debugger` 按 Chrome 规定不能设为可选。`identity` 只用于 Browser Kitten 账户登录（`launchWebAuthFlow`）。`alarms` 只唤醒 due task，不是 journal。
 - 命令：`toggle-picker` = Alt+Shift+S；`capture-screenshot` = Alt+Shift+C。
 - Git：本地 `main`；`origin` = `https://github.com/Player-YN/BrowserKitten.git`。不要改 `git config`。不要 force-push `main`。
 - 逻辑回归：`node --test tests/*.test.mjs`（与 CI 同一 glob。覆盖原有磁盘/租约/task/`bot-*`，以及 Access Policy / approval / call journal / postcondition / host last-door）。

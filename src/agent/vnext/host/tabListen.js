@@ -137,7 +137,8 @@ export async function handleWorkspaceTabListen(request, deps = {}) {
   }
 
   if (typeof chromeLike?.tabCapture?.getMediaStreamId !== 'function') {
-    return { ok: false, code: 'NEED_PAGE', error: 'tabCapture unavailable', tabId };
+    // Optional permission; the side-panel capture grant requests it on the user's click.
+    return { ok: false, code: 'PERMISSION_REQUIRED', permission: 'tabCapture', error: 'Tab capture permission is not granted', tabId };
   }
   let streamId = '';
   try {

@@ -8377,6 +8377,10 @@ function setupCoreEventListeners() {
   });
   $('cloudCreditsDismiss')?.addEventListener('click', () => hideCloudCreditsBar());
   $('cloudSignInBtn')?.addEventListener('click', () => void startCloudSignIn());
+  $('advancedScriptsBtn')?.addEventListener('click', () => enablePageScripts());
+  $('advancedScriptsToggleBtn')?.addEventListener('click', () => {
+    void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}`, active: true });
+  });
   $('cloudManageBtn')?.addEventListener('click', () => openCloudAccountPage());
   $('cloudSignOutBtn')?.addEventListener('click', async () => {
     await signOutOfBrowserKitten().catch(() => {});
@@ -10936,6 +10940,18 @@ function showListenGrantBar(ev = {}) {
 
 async function confirmListenGrant() {
   if (!pendingListenGrant) return;
+  // tabCapture is optional. Ask inside this click, before anything else awaits, or Chrome
+  // no longer treats it as a user gesture. Already granted → resolves true without a prompt.
+  let captureAllowed = false;
+  try {
+    captureAllowed = await chrome.permissions.request({ permissions: ['tabCapture'] });
+  } catch {
+    captureAllowed = false;
+  }
+  if (!captureAllowed) {
+    showSidepanelToast(t('advancedCaptureDenied'), { error: true });
+    return;
+  }
   try {
     await putListenGrant(chrome.storage.session, pendingListenGrant.sessionId, pendingListenGrant.tabId, pendingListenGrant.captureKind);
   } catch (e) {
@@ -14026,8 +14042,44 @@ function hideCloudCreditsBar() {
   if (bar) bar.hidden = true;
 }
 
+/**
+ * userScripts is an optional permission, and Chrome 138+ also needs the per-extension
+ * "Allow User Scripts" toggle. Both are the user's to grant; this only reports and asks.
+ * @returns {Promise<'off'|'needs-toggle'|'on'>}
+ */
+async function pageScriptsState() {
+  const granted = await chrome.permissions.contains({ permissions: ['userScripts'] }).catch(() => false);
+  if (!granted) return 'off';
+  try {
+    await chrome.userScripts.getScripts();
+    return 'on';
+  } catch {
+    return 'needs-toggle';
+  }
+}
+
+async function renderAdvancedCard() {
+  const line = document.getElementById('advancedScriptsLine');
+  const enable = document.getElementById('advancedScriptsBtn');
+  const details = document.getElementById('advancedScriptsToggleBtn');
+  if (!line || !enable) return;
+  const state = await pageScriptsState();
+  line.textContent = t(state === 'on' ? 'advancedScriptsOn' : state === 'needs-toggle' ? 'advancedScriptsNeedsToggle' : 'advancedScriptsOff');
+  enable.hidden = state !== 'off';
+  if (details) details.hidden = state !== 'needs-toggle';
+}
+
+function enablePageScripts() {
+  // Must run synchronously inside the click so Chrome sees a user gesture.
+  chrome.permissions
+    .request({ permissions: ['userScripts'] })
+    .catch(() => false)
+    .then(() => renderAdvancedCard());
+}
+
 async function refreshVendorBoards() {
   void renderCloudAccountCard();
+  void renderAdvancedCard();
   const state = await loadProvidersState();
   renderInferenceVendorList(state);
   renderImageVendorList(state);

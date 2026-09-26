@@ -1098,10 +1098,12 @@ export function isSysInjectableUrl(url) {
 async function userScriptsDenied() {
   try {
     if (typeof chrome.userScripts?.getScripts !== 'function') {
+      // Optional permission not granted yet. Only the user can grant it (Settings → Advanced).
       return {
         ok: false,
-        code: 'SYS_DENIED',
-        error: 'chrome.userScripts unavailable (need userScripts permission and Chrome 120+; execute needs 135+)'
+        code: 'PERMISSION_REQUIRED',
+        permission: 'userScripts',
+        error: 'Page scripts are off. The user can turn them on in Browser Kitten settings → Advanced abilities.'
       };
     }
     await chrome.userScripts.getScripts();
