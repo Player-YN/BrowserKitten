@@ -158,7 +158,7 @@ Vercel Functions（官网同项目，单入口 api/index.js → server/router.js
 
 | # | 事项 | 说明 |
 |---|------|------|
-| A1 | ✅ **`bk-auto` 服务端模型路由**（已完成：后端 `feat/bk-auto` 分支、扩展 `main`；上游清单待 C5 填价格后配置） | 用户已同意方向：积分用户只看到一个模型；服务端按用途（主对话 / System1 / 压缩摘要 / 生图 / 转写）选上游，主模型失败自动切备用；扩展在活动服务商是 `bk_cloud_*` 时隐藏模型选择器。改 `catalog.json` 结构、`proxy/chat.js`、`/api/v1/models`、扩展侧栏。先给用户看方案再动手 |
+| A1 | ✅ **`bk-auto` 服务端模型路由** | 完成（site `server/modelRoutes.js`、扩展 `cloudModels.js`）。每个接口一个路由、按顺序试上游；首个响应头 30s 不来就切下一个（最后一个不切）；预扣按最贵、结算按实际应答者；客户端传的模型名一律忽略 |
 | A2 | **自助删除账号** | GDPR / 商店审核需要。后端：删 Better Auth 用户 + 设备 + 会话，保留计费记录（法律要求）但去标识；取消 Paddle 订阅；账户页按钮 + 二次确认；扩展同步登出。隐私政策里对应段落要一致 |
 | A3 | 账户页显示各窗口用量与限额 | `/api/me` 已返回 `limits` 与 `usage` |
 | A4 | 扩展设置卡片显示套餐 / 积分 / 本周用量 | 同上 |
@@ -190,17 +190,29 @@ Vercel Functions（官网同项目，单入口 api/index.js → server/router.js
 
 | # | 前置 | 事项 |
 |---|------|------|
-| C1 | 新会话已加载 Paddle MCP | 在**沙盒**建商品与价格。月付三档用户给过：Developer $5、Standard $12、Pro $20；**年付和两档加油包的价格还没定，先问用户**。建完把各 `pri_…` 列给用户填进 `PADDLE_PRICE_*` |
+| C1 | ✅ | Paddle 沙盒 6 商品 / 10 价格（Developer $10·$99、Standard $19.9·$199、Pro $49.9·$499、Max $99.9·$999、加油包 $10 / $29.9）。价格 ID 已填进 Vercel 预览环境。旧的两个 $9.9 价格待用户在后台归档 |
 | C2 | B2（Neon） | `npm run migrate` 建表；在 **Neon 分支**上跑 `npm run stress:ledger`，必须全绿 |
-| C3 | B2–B5、B8、B9 | 部署预览；Paddle 沙盒配置 webhook 地址 `/api/paddle/webhook`（事件：subscription.*、transaction.completed、adjustment.*）→ 用户填 `PADDLE_WEBHOOK_SECRET` |
-| C4 | C3 | **沙盒端到端**（内置浏览器 + Paddle 测试卡，不产生真实扣款）：Google 登录 → 自动建号 + 试用积分 → 扩展登录（`ALLOWED_EXTENSION_IDS` 需含 unpacked ID）→ 积分模式对话扣费 → 购买订阅 → 发积分 → 升级 → 加油包 → 退款撤回 → 触发限额。每步核对 `auditLedger` 为空 |
-| C5 | B6 | 从各服务商**官方价格页**填 `catalog.json`（不要猜价格）；跑基准任务集测出单任务成本，给出每档积分数建议 |
-| C6 | B13 决策 | 年付按月发放（需要定时任务）、设备数上限、限额数值、退款条款写回法律页面 |
+| C3 | ✅ | staging 已部署（`https://staging.browserkitten.com`，Neon 分支 `preview/feat/backend`）；Paddle 通知地址 `ntfset_01m3fb511bsfrfavmgb15mhhpe` 含模拟事件，`PADDLE_WEBHOOK_SECRET` 已设 |
+| C4 | 进行中 | 已验证：真实 Pro 月付 → webhook → 订阅 + 发积分；Paddle 手续费 = 含税总额 5% + $0.50；积分对话扣费（19 步 $0.0154 = 163 积分）。剩余步骤见下方 7.1 |
+| C5 | ✅ | 只接 OpenRouter：`bk-auto` = GPT-6 Luna（备用 MiMo V2.6 Flash），压缩/标题/System1 = MiMo（强制不思考），生图 = Gemini 3.1 Flash Image（备用 Lite）。按 OpenRouter 报告的真实花费扣积分。1 积分 = $0.0001；月积分 Standard 55k / Pro 140k / Max 280k，加油包 20k / 65k，试用 3k（按欧盟含税 + Paddle + OpenRouter 5.5% + Vercel 算，用满时成本约占净收入 40%）。每小时 cron 与 OpenRouter 账单对账（差 >5% 且 >$0.5 报 Sentry；每个环境必须单独一个 Key） |
+| C6 | ✅（设备数上限除外） | 年付按月发放（`bk_grant_schedule` + cron）；退款：14 天内、已用积分不退、每账号终身一次（`refundQuote` + `bk_refund`，Developer 全额）；周限额 = 月积分 40%、加油包不受限；条款已写回法律页面 |
 | C7 | B1 | 推送扩展到私有仓库 |
 | C8 | B11 + 全部通过 | 打包商店版、填商店后台、先以「不公开」提交；同步 Edge |
 | C9 | B8 选 Hobby 时 | 把 `vercel.json` 的 cron 临时改成每天一次（`0 3 * * *`），升 Pro 后改回每小时 |
 
 ---
+
+### 7.1 C4 剩余测试（用户在 staging 点，Claude 用 Paddle MCP + Neon MCP 核对）
+
+测试卡 `4242 4242 4242 4242`，任意未来有效期、任意 CVC。每步后 Claude 核对 `bk_subscription` / `bk_credit_grant` / `bk_grant_schedule` / `bk_refund`，并确认 `auditLedger` 为空。
+
+1. 打开 Developer 月付结账（不付款）→ Paddle 交易用的是 `pri_01m3feh7czw81gq1bk4s609pyn`（$10）。
+2. 买加油包 S → 发 20,000 积分（`source=booster`，不过期，不计入周限额）。
+3. 客户门户里 Pro → Max 升级 → `subscription_update` 交易按实付比例发积分，套餐变 max。
+4. 另一个测试账号买 Standard 年付 → 第 1 个月 55,000 立即到账，`bk_grant_schedule` 有 12 行。
+5. 对加油包那笔交易退款（先跑 `refundQuote` 看应退金额）→ 剩余积分收回，`bk_refund` 记一行；同账号再申请退款应被拒。
+6. 门户里取消订阅 → `subscription.canceled`，到期后回到免费档。
+7. （可选）Paddle 模拟事件：续费、付款失败 → 核对 webhook 记录。
 
 ## 8. 待定决策（问用户，不要替他定）
 
