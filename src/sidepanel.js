@@ -8458,6 +8458,7 @@ function setupCoreEventListeners() {
   $('listenGrantDismiss')?.addEventListener('click', () => {
     hideListenGrantBar();
   });
+  document.querySelectorAll('[data-byok-plans]').forEach((btn) => btn.addEventListener('click', () => openCloudAccountPage('/pricing.html')));
   $('advancedScriptsBtn')?.addEventListener('click', () => enablePageScripts());
   $('advancedScriptsToggleBtn')?.addEventListener('click', () => {
     void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}`, active: true });
@@ -14160,6 +14161,10 @@ async function renderByokPlanHints() {
     allowed = true;
   }
   for (const el of document.querySelectorAll('[data-byok-hint]')) el.hidden = allowed;
+  // Store build without a paid plan: own keys cannot be added or edited, only listed and
+  // removed (a lapsed plan keeps its saved keys for when it comes back). Unpacked builds
+  // are exempt in byokGate.
+  for (const el of document.querySelectorAll('[data-byok-section]')) el.classList.toggle('is-byok-locked', !allowed);
 }
 
 function hideCloudNotice() {

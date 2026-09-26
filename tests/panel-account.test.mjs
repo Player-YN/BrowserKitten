@@ -78,3 +78,14 @@ test('panel markup: sign-in and account menu in the top bar, no old credit bars 
   assert.doesNotMatch(html, /id="cloudCreditsBar"|id="cloudNoticeBar"|id="settingsCloudCard"/);
   assert.match(html, /id="pageStarters"/);
 });
+
+test('own-key settings sections can be locked, each with a plans link', () => {
+  const html = readFileSync(new URL('../src/sidepanel.html', import.meta.url), 'utf8');
+  for (const id of ['settingsInferenceCard', 'settingsImageCard', 'settingsSttCard', 'settingsJevCard', 'settingsWebAcquireCard']) {
+    const open = html.match(new RegExp(`<section[^>]*id="${id}"[^>]*>`))?.[0] || '';
+    assert.match(open, /data-byok-section/, id);
+  }
+  assert.equal((html.match(/data-byok-plans/g) || []).length, 5);
+  const css = readFileSync(new URL('../src/sidepanel.css', import.meta.url), 'utf8');
+  assert.match(css, /\.is-byok-locked \.api-add-btn/);
+});

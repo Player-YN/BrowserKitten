@@ -10121,3 +10121,13 @@ body[data-theme='light'] .session-edge-fab{
 #moreBtn[hidden],
 .starter-chips[hidden],
 .notice-card-actions[hidden] { display: none !important; }
+
+/* Own keys locked (store build, no paid plan): list and delete only (renderByokPlanHints). */
+.is-byok-locked .api-add-btn,
+.is-byok-locked .api-vendor-edit,
+.is-byok-locked .api-vendor-editor,
+.is-byok-locked [id$="EmptyHint"] { display: none !important; }
+.byok-plan-hint { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.byok-plan-hint[hidden] { display: none !important; }
+.byok-plan-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.byok-plan-link:hover { text-decoration: underline; }
