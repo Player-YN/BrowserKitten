@@ -42,6 +42,13 @@ import {
   defaultImageConfig
 } from './agent/llm.js';
 import {
+  CLOUD_ACCOUNT_URL,
+  fetchCloudAccount,
+  isCloudCreditsError,
+  signInWithBrowserKitten,
+  signOutOfBrowserKitten
+} from './agent/cloudAccount.js';
+import {
   IMAGE_PROVIDER_PRESETS,
   STT_PROVIDER_PRESETS,
   JEV_PROVIDER_PRESETS,
@@ -7167,6 +7174,7 @@ function handleSessionWorkspaceEvent(request) {
     if (ev.type === 'error') {
       const leaseNote = humanizeTabLeaseEvent(ev);
       const msg = leaseNote || streamEventText(ev.message) || String(ev.message || '').trim();
+      if (isCloudCreditsError({ message: msg, code: ev.code, statusCode: ev.statusCode })) showCloudCreditsBar();
       if (msg && !liveTurnSealed) {
         const prefix = currentLang === 'en' ? '**Error:** ' : '**错误:** ';
         const painted = msg.startsWith('**') ? msg : `${prefix}${msg}`;
@@ -7688,6 +7696,7 @@ async function runBrowserAgentTurn({ prompt, task, skipSend = false, preloadedRe
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (isCloudCreditsError({ message: msg, code: e?.code, statusCode: e?.statusCode })) showCloudCreditsBar();
     withSessionLive(runSessionId, () => {
       applyTaskUiStatus('failed');
       promoteFinalAnswer(msg, { force: true });
@@ -8375,6 +8384,17 @@ function setupCoreEventListeners() {
   });
   $('listenGrantDismiss')?.addEventListener('click', () => {
     hideListenGrantBar();
+  });
+  $('cloudCreditsBtn')?.addEventListener('click', () => {
+    hideCloudCreditsBar();
+    openCloudAccountPage();
+  });
+  $('cloudCreditsDismiss')?.addEventListener('click', () => hideCloudCreditsBar());
+  $('cloudSignInBtn')?.addEventListener('click', () => void startCloudSignIn());
+  $('cloudManageBtn')?.addEventListener('click', () => openCloudAccountPage());
+  $('cloudSignOutBtn')?.addEventListener('click', async () => {
+    await signOutOfBrowserKitten().catch(() => {});
+    await refreshVendorBoards();
   });
   $('moreBtn')?.addEventListener('click', () => {
     const sheet = /** @type {HTMLDialogElement|null} */ ($('moreSheet'));
@@ -13946,7 +13966,83 @@ async function renderWebVendorList() {
   }
 }
 
+/** Settings → Browser Kitten account. Plan and credits come from the server each time. */
+async function renderCloudAccountCard() {
+  const line = document.getElementById('cloudStatusLine');
+  const signIn = document.getElementById('cloudSignInBtn');
+  const manage = document.getElementById('cloudManageBtn');
+  const signOut = document.getElementById('cloudSignOutBtn');
+  if (!line || !signIn) return;
+  const show = (signedIn) => {
+    signIn.hidden = signedIn;
+    if (manage) manage.hidden = !signedIn;
+    if (signOut) signOut.hidden = !signedIn;
+  };
+  let acct;
+  try {
+    acct = await fetchCloudAccount();
+  } catch {
+    show(true);
+    line.textContent = t('cloudUnavailable');
+    return;
+  }
+  if (!acct.signedIn) {
+    show(false);
+    line.textContent = t('cloudSignedOutHint');
+    return;
+  }
+  if (acct.expired) {
+    show(false);
+    if (signOut) signOut.hidden = false;
+    line.textContent = t('cloudExpired');
+    return;
+  }
+  show(true);
+  const credits = Number(acct.credits || 0).toLocaleString(currentLang === 'en' ? 'en-US' : 'zh-CN');
+  line.textContent = t('cloudStatus').replace('{plan}', acct.planLabel || acct.plan).replace('{credits}', credits);
+  if (acct.credits > 0) hideCloudCreditsBar();
+}
+
+async function startCloudSignIn() {
+  const btn = document.getElementById('cloudSignInBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = t('cloudSigningIn');
+  }
+  try {
+    const out = await signInWithBrowserKitten();
+    showSidepanelToast(out.chatModel ? t('cloudSignedIn') : t('cloudNoModel'), { ms: 3600 });
+    await refreshVendorBoards();
+  } catch (error) {
+    // Closing the identity window is not an error worth shouting about.
+    const msg = String(error?.message || error);
+    if (!/did not approve|closed|canceled|cancelled/i.test(msg)) {
+      showSidepanelToast(t('cloudSignInFailed').replace('{error}', msg), { error: true, ms: 4200 });
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = t('cloudSignIn');
+    }
+  }
+}
+
+function openCloudAccountPage() {
+  void chrome.tabs.create({ url: CLOUD_ACCOUNT_URL, active: true });
+}
+
+function showCloudCreditsBar() {
+  const bar = document.getElementById('cloudCreditsBar');
+  if (bar) bar.hidden = false;
+}
+
+function hideCloudCreditsBar() {
+  const bar = document.getElementById('cloudCreditsBar');
+  if (bar) bar.hidden = true;
+}
+
 async function refreshVendorBoards() {
+  void renderCloudAccountCard();
   const state = await loadProvidersState();
   renderInferenceVendorList(state);
   renderImageVendorList(state);

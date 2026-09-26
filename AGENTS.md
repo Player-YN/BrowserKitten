@@ -145,13 +145,14 @@ src/
 ## 日常约定
 
 - 改代码 → `chrome://extensions` 点本扩展 **重新加载**。offscreen / SW 会重建；`action` 的 `rev` 在 SW 内存，重载后需重新 `snapshot`。
-- 权限见 `manifest.json`：`sidePanel` `activeTab` `tabs` `scripting` `storage` `alarms` `downloads` `offscreen` `tabGroups` `webNavigation` `userScripts` `debugger`；`host_permissions: <all_urls>`。`userScripts` / `debugger` 只服务 guest `sys`（[src/AGENTS.md](src/AGENTS.md)）。`alarms` 只唤醒 due task，不是 journal。
+- 权限见 `manifest.json`：`sidePanel` `activeTab` `tabs` `scripting` `storage` `identity` `alarms` `downloads` `offscreen` `tabGroups` `webNavigation` `userScripts` `debugger`；`host_permissions: <all_urls>`。`userScripts` / `debugger` 只服务 guest `sys`（[src/AGENTS.md](src/AGENTS.md)）。`identity` 只用于 Browser Kitten 账户登录（`launchWebAuthFlow`）。`alarms` 只唤醒 due task，不是 journal。
 - 命令：`toggle-picker` = Alt+Shift+S；`capture-screenshot` = Alt+Shift+C。
 - Git：本地 `main`；`origin` = `https://github.com/Player-YN/BrowserKitten.git`。不要改 `git config`。不要 force-push `main`。
 - 逻辑回归：`node --test tests/*.test.mjs`（与 CI 同一 glob。覆盖原有磁盘/租约/task/`bot-*`，以及 Access Policy / approval / call journal / postcondition / host last-door）。
 - 实机烟测（手动，CI 不跑）：`node tests/browser-smoke.cjs <playwright路径>`。默认加载根是仓库根；要验**真正发出去的那棵树**，先 `python scripts/pack_extension.py` 再 `BROWSERBOT_LOAD_ROOT=extension node tests/browser-smoke.cjs <playwright路径>`。独立 Chromium、一次性 profile，不碰你的浏览器状态。覆盖：IDB/OPFS 关闭重开、真实 QuickJS 错误往返、`run`→文件→artifact 登记、非 offscreen `sys` 请求拒绝、真实 localhost fetch 与正文超时、offscreen RPC 版本冲突拒绝。证据在 `output/playwright/`，不入库。
 - CI（`.github/workflows/ci.yml`）跑 `node --test tests/*.test.mjs` + pack 形状断言（含「pack 里必须带 TSV 修复」这条防漂移守卫），不装浏览器。
 - BYOK：侧栏填 Key → `browserbot_providers`。无 Key 时 offscreen 仍可启动，`sendMessage` 时再解析模型。
+- 积分（Browser Kitten 账户）：`src/agent/cloudAccount.js`。登录写入 4 条固定 id 的服务商记录（`bk_cloud_chat|image|stt|jev`，baseURL 指向 `browserkitten.com/api/v1`，apiKey = 设备令牌），Tavily / Firecrawl 为空时才填；不覆盖用户已配的 Key，不抢已可用的活动服务商。登出只撤回这些。套餐与积分每次请求由服务端判定，本地记录不授予任何权益。后端与上架清单见 [docs/COMMERCIAL_LAUNCH.md](docs/COMMERCIAL_LAUNCH.md)。
 
 ## Chrome BOT 1.2.0 候选版接线
 

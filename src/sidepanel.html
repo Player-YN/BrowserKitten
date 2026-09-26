@@ -127,6 +127,12 @@
       </div>
     </header>
 
+    <div id="cloudCreditsBar" class="listen-grant-bar" hidden>
+      <span class="listen-grant-copy" data-i18n="cloudCreditsOut">Browser Kitten 积分已用完</span>
+      <button type="button" class="btn btn-primary listen-grant-btn" id="cloudCreditsBtn" data-i18n="cloudAddCredits">添加积分</button>
+      <button type="button" class="btn btn-secondary listen-grant-dismiss" id="cloudCreditsDismiss" data-i18n="listenGrantDismiss">稍后</button>
+    </div>
+
     <div id="listenGrantBar" class="listen-grant-bar" hidden>
       <span class="listen-grant-copy" id="listenGrantCopy" data-i18n="listenGrantCopy">Agent 要听此标签正在播放的声音</span>
       <button type="button" class="btn btn-primary listen-grant-btn" id="listenGrantBtn" data-i18n="listenGrantBtn">允许听此标签</button>
@@ -670,6 +676,16 @@
         <button type="button" id="settingsModalCloseBtn" class="modal-close-btn" aria-label="关闭">&times;</button>
       </div>
       <div class="modal-body settings-modal-body">
+        <section class="settings-api-card" id="settingsCloudCard" aria-labelledby="settingsCloudTitle">
+          <h4 class="settings-api-card-title" id="settingsCloudTitle" data-i18n="cloudTitle">Browser Kitten 账户</h4>
+          <p class="settings-hint" id="cloudStatusLine" data-i18n="cloudSignedOutHint">登录后用积分，无需自己配置 Key。已配置的 Key 保持不变。</p>
+          <div class="api-editor-actions cloud-account-actions">
+            <button type="button" class="btn btn-primary" id="cloudSignInBtn" data-i18n="cloudSignIn">登录</button>
+            <button type="button" class="btn btn-secondary" id="cloudManageBtn" data-i18n="cloudManage" hidden>管理套餐</button>
+            <button type="button" class="btn btn-secondary" id="cloudSignOutBtn" data-i18n="cloudSignOut" hidden>退出登录</button>
+          </div>
+        </section>
+
         <section class="settings-api-card" id="settingsInferenceCard" aria-labelledby="settingsInferenceTitle">
           <h4 class="settings-api-card-title" id="settingsInferenceTitle" data-i18n="settingsInferenceTitle">推理</h4>
           <p class="settings-hint" id="inferenceEmptyHint" data-i18n="inferenceEmptyHint">尚未添加推理 API。</p>
