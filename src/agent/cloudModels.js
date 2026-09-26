@@ -35,3 +35,18 @@ export function pinnedCloudModel(id) {
   for (const [purpose, cloudId] of Object.entries(CLOUD_IDS)) if (cloudId === id) return CLOUD_MODELS[purpose];
   return null;
 }
+
+/**
+ * Names this build on every Browser Kitten API request so the server can ask old
+ * clients to update (HTTP 426 CLIENT_UPGRADE_REQUIRED). Only sent to our own API.
+ */
+export const BK_CLIENT_HEADER = 'x-bk-client';
+export function bkClientHeaderValue() {
+  let version = '';
+  try {
+    version = String(globalThis.chrome?.runtime?.getManifest?.()?.version || '');
+  } catch {
+    /* not in an extension context (tests) */
+  }
+  return `browser-kitten/${version || '0'}`;
+}

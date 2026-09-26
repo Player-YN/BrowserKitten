@@ -7917,6 +7917,11 @@ body[data-theme="light"] .chat-selection-chip {
   margin-top: 8px;
   line-height: 1.4;
 }
+.settings-hint.cloud-usage-line {
+  margin-top: 2px;
+  white-space: pre-line;
+  font-variant-numeric: tabular-nums;
+}
 .capability-status {
   display: flex;
   align-items: center;

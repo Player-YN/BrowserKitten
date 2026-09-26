@@ -43,8 +43,9 @@ import {
 } from './agent/llm.js';
 import {
   CLOUD_ACCOUNT_URL,
+  cloudNoticeFor,
+  cloudUsageRows,
   fetchCloudAccount,
-  isCloudCreditsError,
   isCloudProvider,
   signInWithBrowserKitten,
   signOutOfBrowserKitten
@@ -7161,7 +7162,7 @@ function handleSessionWorkspaceEvent(request) {
     if (ev.type === 'error') {
       const leaseNote = humanizeTabLeaseEvent(ev);
       const msg = leaseNote || streamEventText(ev.message) || String(ev.message || '').trim();
-      if (isCloudCreditsError({ message: msg, code: ev.code, statusCode: ev.statusCode })) showCloudCreditsBar();
+      showCloudNoticeFor({ message: msg, code: ev.code, statusCode: ev.statusCode });
       if (msg && !liveTurnSealed) {
         const prefix = currentLang === 'en' ? '**Error:** ' : '**错误:** ';
         const painted = msg.startsWith('**') ? msg : `${prefix}${msg}`;
@@ -7683,7 +7684,7 @@ async function runBrowserAgentTurn({ prompt, task, skipSend = false, preloadedRe
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (isCloudCreditsError({ message: msg, code: e?.code, statusCode: e?.statusCode })) showCloudCreditsBar();
+    showCloudNoticeFor({ message: msg, code: e?.code, statusCode: e?.statusCode });
     withSessionLive(runSessionId, () => {
       applyTaskUiStatus('failed');
       promoteFinalAnswer(msg, { force: true });
@@ -8377,6 +8378,8 @@ function setupCoreEventListeners() {
     openCloudAccountPage();
   });
   $('cloudCreditsDismiss')?.addEventListener('click', () => hideCloudCreditsBar());
+  $('cloudNoticeBtn')?.addEventListener('click', () => void updateExtensionForCloud());
+  $('cloudNoticeDismiss')?.addEventListener('click', () => hideCloudNotice());
   $('cloudSignInBtn')?.addEventListener('click', () => void startCloudSignIn());
   $('advancedScriptsBtn')?.addEventListener('click', () => enablePageScripts());
   $('advancedScriptsToggleBtn')?.addEventListener('click', () => {
@@ -13999,7 +14002,12 @@ async function renderCloudAccountCard() {
   const signIn = document.getElementById('cloudSignInBtn');
   const manage = document.getElementById('cloudManageBtn');
   const signOut = document.getElementById('cloudSignOutBtn');
+  const usageLine = document.getElementById('cloudUsageLine');
   if (!line || !signIn) return;
+  if (usageLine) {
+    usageLine.hidden = true;
+    usageLine.textContent = '';
+  }
   const show = (signedIn) => {
     signIn.hidden = signedIn;
     if (manage) manage.hidden = !signedIn;
@@ -14008,7 +14016,8 @@ async function renderCloudAccountCard() {
   let acct;
   try {
     acct = await fetchCloudAccount();
-  } catch {
+  } catch (error) {
+    showCloudNoticeFor(error);
     show(true);
     line.textContent = t('cloudUnavailable');
     return;
@@ -14027,6 +14036,11 @@ async function renderCloudAccountCard() {
   show(true);
   const credits = Number(acct.credits || 0).toLocaleString(currentLang === 'en' ? 'en-US' : 'zh-CN');
   line.textContent = t('cloudStatus').replace('{plan}', acct.planLabel || acct.plan).replace('{credits}', credits);
+  const usage = formatCloudUsage(acct.usage, acct.limits);
+  if (usageLine && usage) {
+    usageLine.textContent = usage;
+    usageLine.hidden = false;
+  }
   if (acct.credits > 0) hideCloudCreditsBar();
 }
 
@@ -14066,6 +14080,69 @@ function showCloudCreditsBar() {
 function hideCloudCreditsBar() {
   const bar = document.getElementById('cloudCreditsBar');
   if (bar) bar.hidden = true;
+}
+
+/** One line per usage window ("Weekly 40 / 100", "Monthly 120"). Unknown window keys get a generic label. */
+function formatCloudUsage(usage, limits) {
+  const locale = currentLang === 'en' ? 'en-US' : 'zh-CN';
+  const num = (n) => Number(n || 0).toLocaleString(locale);
+  const labels = { fiveHour: 'cloudUsageFiveHour', weekly: 'cloudUsageWeekly', monthly: 'cloudUsageMonthly' };
+  return cloudUsageRows(usage, limits)
+    .map(({ key, used, limit }) => {
+      const label = labels[key]
+        ? t(labels[key])
+        : t('cloudUsageOther').replace('{window}', key.replace(/([a-z])([A-Z0-9])/g, '$1 $2').toLowerCase());
+      const value = limit == null ? num(used) : `${num(used)} / ${num(limit)}`;
+      return `${label} ${value}`;
+    })
+    .join('\n');
+}
+
+/**
+ * Account notices from a failed Browser Kitten call: credits (unchanged bar),
+ * client too old (426), or credits paused by the operator (503).
+ */
+function showCloudNoticeFor(error) {
+  const notice = cloudNoticeFor(error);
+  if (!notice) return;
+  if (notice.kind === 'credits') {
+    showCloudCreditsBar();
+    return;
+  }
+  const bar = document.getElementById('cloudNoticeBar');
+  const copy = document.getElementById('cloudNoticeCopy');
+  const btn = document.getElementById('cloudNoticeBtn');
+  if (!bar || !copy) return;
+  const upgrade = notice.kind === 'upgrade';
+  copy.textContent = upgrade ? t('cloudUpgradeNeeded') : notice.message || t('cloudPausedDefault');
+  copy.title = copy.textContent;
+  if (btn) btn.hidden = !upgrade;
+  bar.dataset.kind = notice.kind;
+  bar.hidden = false;
+}
+
+function hideCloudNotice() {
+  const bar = document.getElementById('cloudNoticeBar');
+  if (bar) bar.hidden = true;
+}
+
+/** 426: ask Chrome for an update and apply it; otherwise send the user to the extension page. */
+async function updateExtensionForCloud() {
+  const btn = document.getElementById('cloudNoticeBtn');
+  if (btn) btn.disabled = true;
+  let status = '';
+  try {
+    status = (await chrome.runtime.requestUpdateCheck())?.status || '';
+  } catch {
+    /* unpacked or throttled: fall through to the extension page */
+  }
+  if (status === 'update_available') {
+    chrome.runtime.reload();
+    return;
+  }
+  if (btn) btn.disabled = false;
+  hideCloudNotice();
+  void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}`, active: true });
 }
 
 /**

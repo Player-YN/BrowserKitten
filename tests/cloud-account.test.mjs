@@ -5,7 +5,13 @@ import {
   CLOUD_FIRECRAWL_BASE,
   CLOUD_IDS,
   CLOUD_TAVILY_BASE,
+  cloudNoticeFor,
+  cloudPausedMessage,
+  cloudUsageRows,
+  fetchCloudAccount,
   isCloudCreditsError,
+  isCloudPausedError,
+  isCloudUpgradeError,
   planCloudSignIn,
   planCloudSignOut
 } from '../src/agent/cloudAccount.js';
@@ -97,4 +103,88 @@ test('the composer chip names the service, not the route id', () => {
   assert.equal(formatModelChipLabel('bk-auto', 'bk-image'), 'Browser Kitten');
   assert.equal(formatModelChipLabel('openai/gpt-x', 'bk-image'), 'gpt-x · Browser Kitten');
   assert.equal(formatModelChipLabel('openai/gpt-x', ''), 'gpt-x');
+});
+
+test('sign-in only writes records the server hosts; chat always', () => {
+  const plan = planCloudSignIn(empty, defaultWebAcquireSettings(), TOKEN, { chat: true, light: true, systemone: false, image: false, stt: true });
+  assert.deepEqual(plan.providers.map((p) => p.id), [CLOUD_IDS.chat, CLOUD_IDS.stt]);
+  assert.equal(plan.activeProviderId, CLOUD_IDS.chat);
+  assert.equal(plan.activeSttProviderId, CLOUD_IDS.stt);
+  assert.equal(plan.activeImageProviderId, null, 'no dangling active id for an unhosted service');
+  assert.equal(plan.activeJevProviderId, null);
+  assert.deepEqual(plan.filled, { tavily: true, firecrawl: true }, 'web slots unchanged');
+  const chatOnly = planCloudSignIn(empty, defaultWebAcquireSettings(), TOKEN, { chat: false });
+  assert.deepEqual(chatOnly.providers.map((p) => p.id), [CLOUD_IDS.chat], 'chat record is written even when chat is not hosted yet');
+});
+
+test('an older server without `hosted` still gets every record', () => {
+  for (const hosted of [undefined, null, 'x']) {
+    const plan = planCloudSignIn(empty, defaultWebAcquireSettings(), TOKEN, hosted);
+    assert.deepEqual(plan.providers.map((p) => p.id), Object.values(CLOUD_IDS));
+  }
+});
+
+test('re-sign-in after the server stops hosting a service drops the stale record but keeps the user’s own', () => {
+  const first = planCloudSignIn(empty, defaultWebAcquireSettings(), 'bk_dev_old');
+  const mineImg = { id: 'prov_img', name: 'Img', baseURL: '', apiKey: '', purpose: 'image', image: { apiKey: 'sk-img' } };
+  const state = { ...empty, providers: [...first.providers, mineImg], activeProviderId: CLOUD_IDS.chat, activeJevProviderId: CLOUD_IDS.jev, activeImageProviderId: 'prov_img', activeImage: mineImg };
+  const plan = planCloudSignIn(state, defaultWebAcquireSettings(), TOKEN, { image: false, stt: false, systemone: false });
+  assert.deepEqual(plan.providers.map((p) => p.id), ['prov_img', CLOUD_IDS.chat]);
+  assert.equal(plan.activeImageProviderId, 'prov_img');
+  assert.equal(plan.activeJevProviderId, null);
+});
+
+test('426 and 503 from the proxy are recognized; other vendors’ are not', () => {
+  assert.equal(isCloudUpgradeError({ statusCode: 426, message: 'Update Browser Kitten to keep using credits.' }), true);
+  assert.equal(isCloudUpgradeError({ code: 'CLIENT_UPGRADE_REQUIRED' }), true);
+  assert.equal(isCloudUpgradeError({ status: 426, responseBody: '{"error":{"code":"CLIENT_UPGRADE_REQUIRED","minVersion":"1.3.0"}}' }), true);
+  assert.equal(isCloudUpgradeError({ statusCode: 426, message: 'Upgrade Required' }), false);
+  assert.equal(isCloudPausedError({ statusCode: 503, message: 'SERVICE_PAUSED' }), true);
+  assert.equal(isCloudPausedError({ statusCode: 503, message: 'Browser Kitten credits are paused for maintenance.' }), true);
+  assert.equal(isCloudPausedError({ statusCode: 503, message: 'Service Unavailable' }), false);
+  assert.equal(isCloudPausedError({ message: 'Failed after 3 attempts. Last error: Browser Kitten image generation is paused.' }), true, 'SDK retry wrapper');
+  assert.equal(isCloudPausedError({ statusCode: 500, message: 'Browser Kitten paused' }), false);
+  assert.equal(isCloudPausedError({ statusCode: 402, message: 'Out of Browser Kitten credits' }), false);
+});
+
+test('cloudNoticeFor keeps credits first and carries the server’s pause message', () => {
+  assert.deepEqual(cloudNoticeFor({ code: 'CREDITS_EXHAUSTED' }), { kind: 'credits' });
+  assert.deepEqual(cloudNoticeFor({ code: 'CLIENT_UPGRADE_REQUIRED' }), { kind: 'upgrade' });
+  assert.deepEqual(cloudNoticeFor({ statusCode: 503, code: 'SERVICE_PAUSED', message: 'Image generation is paused until 18:00 UTC.' }), {
+    kind: 'paused',
+    message: 'Image generation is paused until 18:00 UTC.'
+  });
+  assert.equal(cloudNoticeFor({ statusCode: 500, message: 'boom' }), null);
+  assert.equal(cloudPausedMessage({ message: 'HTTP 503', code: 'SERVICE_PAUSED' }), '');
+  assert.equal(cloudPausedMessage({ message: 'Failed after 3 attempts. Last error: Browser Kitten is paused.' }), 'Browser Kitten is paused.');
+  assert.equal(cloudPausedMessage({ responseBody: '{"error":{"code":"SERVICE_PAUSED","message":"Back soon."}}', message: 'x' }), 'Back soon.');
+});
+
+test('usage rows follow whatever windows the server sends', () => {
+  assert.deepEqual(cloudUsageRows({ fiveHour: 12, weekly: 40 }, { fiveHour: 100, weekly: null, monthly: 900 }), [
+    { key: 'fiveHour', used: 12, limit: 100 },
+    { key: 'weekly', used: 40, limit: null },
+    { key: 'monthly', used: 0, limit: 900 }
+  ]);
+  assert.deepEqual(cloudUsageRows(undefined, undefined), []);
+});
+
+test('Browser Kitten API calls name the client, and /api/me passes usage and limits through', async () => {
+  const seen = [];
+  const store = { browserbot_cloud_account: { token: TOKEN, deviceId: 'd1' } };
+  const prevChrome = globalThis.chrome;
+  globalThis.chrome = { runtime: { getManifest: () => ({ version: '9.8.7' }) }, storage: { local: { get: async (k) => ({ [k]: store[k] }) } } };
+  try {
+    const fetchImpl = async (url, init) => {
+      seen.push({ url, headers: init.headers });
+      return { ok: true, status: 200, json: async () => ({ plan: 'pro', planLabel: 'Pro', credits: 5, usage: { weekly: 3 }, limits: { weekly: 10 } }) };
+    };
+    const acct = await fetchCloudAccount({ fetchImpl });
+    assert.equal(seen[0].headers['x-bk-client'], 'browser-kitten/9.8.7');
+    assert.equal(seen[0].headers.authorization, `Bearer ${TOKEN}`);
+    assert.deepEqual(acct.usage, { weekly: 3 });
+    assert.deepEqual(acct.limits, { weekly: 10 });
+  } finally {
+    globalThis.chrome = prevChrome;
+  }
 });
