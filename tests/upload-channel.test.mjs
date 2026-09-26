@@ -912,3 +912,30 @@ test('dispatchStagedUpload is the authorized send path: stage then apply without
   assert.equal(takeUploadStage('stg_test', owner).ok, true);
   resetUploadStages();
 });
+
+test('action upload via CDP detaches the debugger it attached, on success and on failure', async () => {
+  const { uploadViaCdpOnce } = await import('../src/agent/vnext/host/pageActionHost.js');
+  const calls = [];
+  const fakeChrome = (fail) => ({
+    debugger: {
+      attach: async (t) => { calls.push(['attach', t.tabId]); },
+      sendCommand: async (_t, method) => {
+        calls.push(['send', method]);
+        if (fail) throw new Error('boom');
+        return method === 'DOM.getDocument' ? { root: { nodeId: 1 } } : {};
+      },
+      detach: async (t) => { calls.push(['detach', t.tabId]); }
+    }
+  });
+  const spec = { tabId: 7, method: 'cdp', bytes: PNG, filename: 'a.png', mimeType: 'image/png' };
+  await uploadViaCdpOnce(fakeChrome(false), spec, 7).catch(() => {});
+  assert.deepEqual(calls.filter(([op]) => op !== 'send'), [['attach', 7], ['detach', 7]]);
+  calls.length = 0;
+  await uploadViaCdpOnce(fakeChrome(true), spec, 7).catch(() => {});
+  assert.deepEqual(calls.filter(([op]) => op !== 'send'), [['attach', 7], ['detach', 7]], 'detached even when the upload throws');
+  calls.length = 0;
+  const busy = { debugger: { attach: async () => { throw new Error('Another debugger is already attached'); }, detach: async () => calls.push(['detach']) } };
+  const out = await uploadViaCdpOnce(busy, spec, 7).catch((e) => e);
+  assert.equal(out.code, 'CDP_BUSY');
+  assert.equal(calls.length, 0, 'never detaches a debugger it did not attach (e.g. DevTools)');
+});

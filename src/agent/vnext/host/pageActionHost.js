@@ -1036,21 +1036,7 @@ async function executePageUpload(request, tabId, frameId, expectedFrame, localRe
   };
   let applied;
   if (String(request.method || 'auto').toLowerCase() === 'cdp') {
-    const debuggee = { tabId };
-    applied = await applyUploadToTab(chrome, spec, {
-      ensureAttached: async () => {
-        try {
-          await chrome.debugger.attach(debuggee, '1.3');
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          if (/Another debugger|already attached|attached/i.test(msg)) {
-            throw Object.assign(new Error(msg), { code: 'CDP_BUSY' });
-          }
-          throw Object.assign(new Error(msg), { code: 'SYS_DENIED' });
-        }
-      },
-      send: (method, params) => chrome.debugger.sendCommand(debuggee, method, params || {})
-    });
+    applied = await uploadViaCdpOnce(chrome, spec, tabId);
   } else {
     applied = await applyUploadToTab(chrome, spec);
   }
@@ -1073,6 +1059,38 @@ async function executePageUpload(request, tabId, frameId, expectedFrame, localRe
     siteAccepted: 'unknown',
     warning: applied.warning
   };
+}
+
+/**
+ * action op=upload method=cdp. Unlike sys.cdp, this attach is not registered to the
+ * execution, so nothing would detach it at the end of the turn: detach right here,
+ * like the other action paths that borrow the debugger. Only detaches what it attached.
+ */
+export async function uploadViaCdpOnce(chromeRef, spec, tabId) {
+  const debuggee = { tabId };
+  let attached = false;
+  try {
+    return await applyUploadToTab(chromeRef, spec, {
+      ensureAttached: async () => {
+        if (attached) return;
+        try {
+          await chromeRef.debugger.attach(debuggee, '1.3');
+          attached = true;
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (/Another debugger|already attached|attached/i.test(msg)) {
+            throw Object.assign(new Error(msg), { code: 'CDP_BUSY' });
+          }
+          throw Object.assign(new Error(msg), { code: 'SYS_DENIED' });
+        }
+      },
+      send: (method, params) => chromeRef.debugger.sendCommand(debuggee, method, params || {})
+    });
+  } finally {
+    if (attached) {
+      try { await chromeRef.debugger.detach(debuggee); } catch { /* already gone */ }
+    }
+  }
 }
 
 export function handleWorkspacePageAction(request) {
