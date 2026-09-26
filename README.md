@@ -48,7 +48,7 @@ Release packaging: `python scripts/pack_extension.py --zip dist/browserbot.zip`.
 
 ## Chrome BOT 架构优化候选版
 
-当前源码版本为 **1.2.0-bot-candidate**。保留原有模型工具、Task 语义和 Chrome 内运行边界；补充文档级页面目标、可跨 SW 重启的 tab 租约、执行归属/CDP 释放、RPC 方法清单与未知结果处理。
+当前源码版本为 **1.2.0**（商店版清单：英文描述、无 version_name）。保留原有模型工具、Task 语义和 Chrome 内运行边界；补充文档级页面目标、可跨 SW 重启的 tab 租约、执行归属/CDP 释放、RPC 方法清单与未知结果处理。
 
 架构取舍、修改清单、验证范围及本地验收见 [docs/CHROME_BOT_OPTIMIZATION.md](docs/CHROME_BOT_OPTIMIZATION.md)。
 **Node 测试通过不代表真机验收通过**：本轮受管理策略限制，Chromium 未加载待测扩展。

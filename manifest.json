@@ -2,8 +2,7 @@
   "manifest_version": 3,
   "name": "Browser Kitten",
   "version": "1.2.0",
-  "version_name": "1.2.0-bot-candidate",
-  "description": "Browser Kitten — 开发者模式本地实验：把已登录浏览器当成可编程层（live-page action；run 内 sys）。不面向 CWS，不出售。",
+  "description": "An AI assistant in your side panel. It reads, clicks, and fills the pages you are signed in to, and hands back finished work.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -37,14 +36,14 @@
         "default": "Alt+Shift+S",
         "mac": "Alt+Shift+S"
       },
-      "description": "开启/关闭 点选（页面点选）"
+      "description": "Pick content on the page"
     },
     "capture-screenshot": {
       "suggested_key": {
         "default": "Alt+Shift+C",
         "mac": "Alt+Shift+C"
       },
-      "description": "区域截图 → 剪贴板 + 对话附件"
+      "description": "Capture a screen region to the clipboard and the chat"
     }
   },
   "side_panel": {
@@ -83,7 +82,7 @@
     }
   ],
   "action": {
-    "default_title": "打开 Browser Kitten",
+    "default_title": "Open Browser Kitten",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
