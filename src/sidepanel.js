@@ -44,6 +44,7 @@ import {
 import { byokStatus } from './agent/byokGate.js';
 import {
   CLOUD_ACCOUNT_URL,
+  cloudAccountUrl,
   cloudNoticeFor,
   isByokPlanError,
   cloudUsageRows,
@@ -14081,7 +14082,7 @@ async function startCloudSignIn() {
 }
 
 function openCloudAccountPage() {
-  void chrome.tabs.create({ url: CLOUD_ACCOUNT_URL, active: true });
+  void cloudAccountUrl().then((url) => chrome.tabs.create({ url, active: true }), () => chrome.tabs.create({ url: CLOUD_ACCOUNT_URL, active: true }));
 }
 
 function showCloudCreditsBar() {

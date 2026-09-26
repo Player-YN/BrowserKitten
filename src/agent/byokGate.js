@@ -24,7 +24,7 @@
  * can all use it without cycles. Storage goes direct when chrome.storage exists
  * (SW, side panel) and through the SW bridge otherwise (offscreen).
  */
-import { BK_CLIENT_HEADER, CLOUD_ORIGIN, bkClientHeaderValue, isCloudProviderId } from './cloudModels.js';
+import { BK_CLIENT_HEADER, CLOUD_ORIGIN, bkClientHeaderValue, cloudOriginOf, isCloudProviderId } from './cloudModels.js';
 
 export const BYOK_ENTITLEMENT_KEY = 'browserbot_cloud_entitlement';
 export const BYOK_ENFORCE_UNPACKED_KEY = 'browserbot_byok_enforce_unpacked';
@@ -85,7 +85,7 @@ export function isByokProviderId(id) {
 /** A web slot base URL that is ours (credits), not the user's own Tavily / Firecrawl account. */
 export function isCloudWebBase(baseURL) {
   try {
-    return new URL(String(baseURL || '')).origin === CLOUD_ORIGIN;
+    return !!cloudOriginOf(new URL(String(baseURL || '')).origin);
   } catch {
     return false;
   }
@@ -190,9 +190,9 @@ export function resetByokGateState() {
   lastRefreshAt = 0;
 }
 
-async function refreshEntitlement(token, { fetchImpl, now }) {
+async function refreshEntitlement(token, { fetchImpl, now, origin = CLOUD_ORIGIN }) {
   const client = bkClientHeaderValue();
-  const res = await fetchImpl(`${CLOUD_ORIGIN}/api/me`, {
+  const res = await fetchImpl(`${origin}/api/me`, {
     headers: { ...(client ? { [BK_CLIENT_HEADER]: client } : {}), authorization: `Bearer ${token}` }
   });
   if (res.status === 401) {
@@ -233,7 +233,8 @@ export async function byokStatus({ now = Date.now(), fetchImpl = globalThis.fetc
     if (refreshing || stale || now - lastRefreshAt >= DENIED_REFRESH_MIN_MS) {
       if (!refreshing) {
         lastRefreshAt = now;
-        refreshing = refreshEntitlement(token, { fetchImpl, now }).finally(() => {
+        const origin = cloudOriginOf(bag[BYOK_ACCOUNT_KEY]?.origin) || CLOUD_ORIGIN;
+        refreshing = refreshEntitlement(token, { fetchImpl, now, origin }).finally(() => {
           refreshing = null;
         });
       }

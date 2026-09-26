@@ -14,7 +14,7 @@
  *   chrome.storage.local  browserbot_cloud_account = { token, deviceId, filled: { tavily, firecrawl }, connectedAt }
  *   chrome.storage.local  browserbot_cloud_entitlement = { plan, checkedAt }  (byokGate.js: own keys need a paid plan)
  */
-import { BK_CLIENT_HEADER, CLOUD_IDS, CLOUD_MODELS, CLOUD_ORIGIN, bkClientHeaderValue, isCloudProvider } from './cloudModels.js';
+import { BK_CLIENT_HEADER, CLOUD_IDS, CLOUD_MODELS, CLOUD_ORIGIN, bkClientHeaderValue, cloudOriginOf, isCloudProvider, resolveCloudOrigin } from './cloudModels.js';
 import { defaultImageConfig, loadProvidersState, saveProvidersState } from './llm.js';
 import { loadWebAcquireSettings, saveWebAcquireSettings } from './webAcquireSettings.js';
 import { BYOK_REQUIRES_PLAN, clearByokEntitlement, writeByokEntitlement } from './byokGate.js';
@@ -23,6 +23,17 @@ export const CLOUD_API_BASE = `${CLOUD_ORIGIN}/api/v1`;
 export const CLOUD_TAVILY_BASE = `${CLOUD_ORIGIN}/api/tavily`;
 export const CLOUD_FIRECRAWL_BASE = `${CLOUD_ORIGIN}/api/firecrawl`;
 export const CLOUD_ACCOUNT_URL = `${CLOUD_ORIGIN}/account.html`;
+
+/** API bases for one backend origin (production or, for unpacked builds, staging). */
+export function cloudBases(origin = CLOUD_ORIGIN) {
+  return { api: `${origin}/api/v1`, tavily: `${origin}/api/tavily`, firecrawl: `${origin}/api/firecrawl`, account: `${origin}/account.html` };
+}
+
+/** A Tavily / Firecrawl slot filled by sign-in (points at one of our origins), not the user's own. */
+const isCloudSlot = (baseURL, kind) => {
+  const origin = cloudOriginOf(baseURL);
+  return !!origin && String(baseURL).replace(/\/$/, '') === cloudBases(origin)[kind];
+};
 export const CLOUD_ACCOUNT_KEY = 'browserbot_cloud_account';
 export const CLOUD_NAME = 'Browser Kitten';
 
@@ -32,7 +43,8 @@ export { CLOUD_IDS, CLOUD_MODELS, CLOUD_ORIGIN, isCloudProvider };
  * Each record always sends its route (bk-auto, …); the server picks the real model.
  * @returns {Record<'chat'|'image'|'stt'|'jev', object>}
  */
-export function cloudProviderRecords(token) {
+export function cloudProviderRecords(token, origin = CLOUD_ORIGIN) {
+  const CLOUD_API_BASE = cloudBases(origin).api;
   const createdAt = Date.now();
   return {
     chat: { id: CLOUD_IDS.chat, name: CLOUD_NAME, baseURL: CLOUD_API_BASE, apiKey: token, model: CLOUD_MODELS.chat, purpose: 'chat', protocol: 'openai-compatible', createdAt },
@@ -72,8 +84,9 @@ export function cloudHostedPurposes(hosted) {
  * @param {string} token
  * @param {{ chat?: boolean, light?: boolean, systemone?: boolean, image?: boolean, stt?: boolean } | null} [hosted] /api/me `hosted`
  */
-export function planCloudSignIn(state, web, token, hosted = null) {
-  const records = cloudProviderRecords(token);
+export function planCloudSignIn(state, web, token, hosted = null, origin = CLOUD_ORIGIN) {
+  const records = cloudProviderRecords(token, origin);
+  const bases = cloudBases(origin);
   const on = cloudHostedPurposes(hosted);
   const added = ['chat', 'image', 'stt', 'jev'].filter((k) => on[k]).map((k) => records[k]);
   const providers = [...(state.providers || []).filter((p) => !isCloudProvider(p)), ...added];
@@ -85,13 +98,13 @@ export function planCloudSignIn(state, web, token, hosted = null) {
   };
   const webPatch = {};
   const filled = { tavily: false, firecrawl: false };
-  if (!web.tavilyKey || web.tavilyBaseURL === CLOUD_TAVILY_BASE) {
-    Object.assign(webPatch, { tavilyKey: token, tavilyBaseURL: CLOUD_TAVILY_BASE, tavilyNickname: CLOUD_NAME });
+  if (!web.tavilyKey || isCloudSlot(web.tavilyBaseURL, 'tavily')) {
+    Object.assign(webPatch, { tavilyKey: token, tavilyBaseURL: bases.tavily, tavilyNickname: CLOUD_NAME });
     if (!web.braveKey) webPatch.searchProvider = 'tavily';
     filled.tavily = true;
   }
-  if (!web.firecrawlKey || web.firecrawlBaseURL === CLOUD_FIRECRAWL_BASE) {
-    Object.assign(webPatch, { firecrawlKey: token, firecrawlBaseURL: CLOUD_FIRECRAWL_BASE, firecrawlNickname: CLOUD_NAME });
+  if (!web.firecrawlKey || isCloudSlot(web.firecrawlBaseURL, 'firecrawl')) {
+    Object.assign(webPatch, { firecrawlKey: token, firecrawlBaseURL: bases.firecrawl, firecrawlNickname: CLOUD_NAME });
     filled.firecrawl = true;
   }
   return {
@@ -110,8 +123,8 @@ export function planCloudSignOut(state, web) {
   const providers = (state.providers || []).filter((p) => !isCloudProvider(p));
   const keep = (id) => (id && !String(id).startsWith('bk_cloud_') ? id : null);
   const webPatch = {};
-  if (web.tavilyBaseURL === CLOUD_TAVILY_BASE) Object.assign(webPatch, { tavilyKey: '', tavilyBaseURL: '', tavilyNickname: '' });
-  if (web.firecrawlBaseURL === CLOUD_FIRECRAWL_BASE) Object.assign(webPatch, { firecrawlKey: '', firecrawlBaseURL: '', firecrawlNickname: '' });
+  if (isCloudSlot(web.tavilyBaseURL, 'tavily')) Object.assign(webPatch, { tavilyKey: '', tavilyBaseURL: '', tavilyNickname: '' });
+  if (isCloudSlot(web.firecrawlBaseURL, 'firecrawl')) Object.assign(webPatch, { firecrawlKey: '', firecrawlBaseURL: '', firecrawlNickname: '' });
   return {
     providers,
     activeProviderId: keep(state.activeProviderId),
@@ -223,8 +236,16 @@ export async function getCloudAccount() {
   }
 }
 
-async function cloudJson(path, { token, method = 'GET', body, fetchImpl = fetch } = {}) {
-  const res = await fetchImpl(`${CLOUD_ORIGIN}${path}`, {
+/** The backend this signed-in browser uses: the origin chosen at sign-in (production by default). */
+export const accountOrigin = (acct) => cloudOriginOf(acct?.origin) || CLOUD_ORIGIN;
+
+/** Account page of the backend this browser is signed in to. */
+export async function cloudAccountUrl() {
+  return cloudBases(accountOrigin(await getCloudAccount())).account;
+}
+
+async function cloudJson(path, { token, method = 'GET', body, fetchImpl = fetch, origin = CLOUD_ORIGIN } = {}) {
+  const res = await fetchImpl(`${origin}${path}`, {
     method,
     headers: {
       ...(bkClientHeaderValue() ? { [BK_CLIENT_HEADER]: bkClientHeaderValue() } : {}),
@@ -257,19 +278,20 @@ function deviceLabel() {
  */
 export async function signInWithBrowserKitten({ fetchImpl = fetch } = {}) {
   if (!chrome?.identity?.launchWebAuthFlow) throw new Error('chrome.identity is unavailable. Reload the extension.');
+  const origin = await resolveCloudOrigin();
   const state = crypto.randomUUID();
   const redirectUri = chrome.identity.getRedirectURL('bk');
-  const url = `${CLOUD_ORIGIN}/connect.html?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+  const url = `${origin}/connect.html?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
   const responseUrl = await chrome.identity.launchWebAuthFlow({ url, interactive: true });
   const back = new URL(String(responseUrl || ''));
   if (back.searchParams.get('state') !== state) throw new Error('Sign-in was interrupted. Try again.');
   const code = back.searchParams.get('code');
   if (!code) throw new Error('Sign-in did not return a code.');
-  const { token, deviceId } = await cloudJson('/api/device/exchange', { method: 'POST', body: { code, label: deviceLabel() }, fetchImpl });
+  const { token, deviceId } = await cloudJson('/api/device/exchange', { method: 'POST', body: { code, label: deviceLabel() }, fetchImpl, origin });
   // Which services the server hosts; absent (older server) or unreadable → all, as before.
   let services = null;
   try {
-    const me = await cloudJson('/api/me', { token, fetchImpl });
+    const me = await cloudJson('/api/me', { token, fetchImpl, origin });
     services = me?.hosted ?? null;
     await writeByokEntitlement(me);
   } catch {
@@ -278,20 +300,20 @@ export async function signInWithBrowserKitten({ fetchImpl = fetch } = {}) {
   // Only to tell the user whether chat on credits works yet; the record always sends bk-auto.
   let chatWorks = false;
   try {
-    chatWorks = (await cloudJson('/api/v1/models', { token, fetchImpl }))?.data?.length > 0;
+    chatWorks = (await cloudJson('/api/v1/models', { token, fetchImpl, origin }))?.data?.length > 0;
   } catch {
     /* unknown: say so like "not offered yet" rather than fail the sign-in */
   }
-  const plan = planCloudSignIn(await loadProvidersState(), await loadWebAcquireSettings(), token, services);
+  const plan = planCloudSignIn(await loadProvidersState(), await loadWebAcquireSettings(), token, services, origin);
   await saveProvidersState(plan.providers, plan.activeProviderId, plan.activeImageProviderId, plan.activeSttProviderId, plan.activeJevProviderId);
   if (Object.keys(plan.webPatch).length) await saveWebAcquireSettings(plan.webPatch);
-  await chrome.storage.local.set({ [CLOUD_ACCOUNT_KEY]: { token, deviceId, filled: plan.filled, connectedAt: Date.now() } });
+  await chrome.storage.local.set({ [CLOUD_ACCOUNT_KEY]: { token, deviceId, origin, filled: plan.filled, connectedAt: Date.now() } });
   return { deviceId, hosted: chatWorks };
 }
 
 export async function signOutOfBrowserKitten({ fetchImpl = fetch } = {}) {
   const acct = await getCloudAccount();
-  if (acct?.token) await cloudJson('/api/device/revoke', { token: acct.token, method: 'POST', body: {}, fetchImpl }).catch(() => {});
+  if (acct?.token) await cloudJson('/api/device/revoke', { token: acct.token, method: 'POST', body: {}, fetchImpl, origin: accountOrigin(acct) }).catch(() => {});
   const plan = planCloudSignOut(await loadProvidersState(), await loadWebAcquireSettings());
   await saveProvidersState(plan.providers, plan.activeProviderId, plan.activeImageProviderId, plan.activeSttProviderId, plan.activeJevProviderId);
   if (Object.keys(plan.webPatch).length) await saveWebAcquireSettings(plan.webPatch);
@@ -308,7 +330,7 @@ export async function fetchCloudAccount({ fetchImpl = fetch } = {}) {
   const acct = await getCloudAccount();
   if (!acct) return { signedIn: false };
   try {
-    const me = await cloudJson('/api/me', { token: acct.token, fetchImpl });
+    const me = await cloudJson('/api/me', { token: acct.token, fetchImpl, origin: accountOrigin(acct) });
     await writeByokEntitlement(me);
     return {
       signedIn: true,
