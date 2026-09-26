@@ -22,6 +22,7 @@ import { captureVisibleJpeg } from './pageScreenshot.js';
 import { handleWorkspaceTabListen } from './tabListen.js';
 import { loadLlmSettings } from '../../llm.js';
 import { fetchJevChoice, runChooseLoop } from './jevSelect.js';
+import { BYOK_PLAN_MESSAGE, BYOK_REQUIRES_PLAN, byokAllowedForProvider } from '../../byokGate.js';
 import {
   shouldAttachPageScreenshot,
   screenshotToModelParts,
@@ -1168,6 +1169,9 @@ async function runChooseAction(request, tabId) {
           code: 'NEED_JEV',
           error: 'No active System1 provider. Add one in Settings, or click with ref yourself.'
         };
+      }
+      if (!(await byokAllowedForProvider('jev', settings.jevProviderId))) {
+        return { code: BYOK_REQUIRES_PLAN, error: BYOK_PLAN_MESSAGE };
       }
       const chosen = await fetchJevChoice(
         {

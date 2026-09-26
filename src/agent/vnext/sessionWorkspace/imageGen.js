@@ -6,6 +6,7 @@
 
 import { BRAND_NAME } from '../../../brand.js';
 import { loadLlmSettings } from '../../llm.js';
+import { byokAllowedForProvider, byokPlanFailure } from '../../byokGate.js';
 import { createArtifact, listArtifacts, safeArtifactFileName } from './artifacts.js';
 import { assertItemReadable, isItemBoundToSession } from './auth.js';
 import { ensureItemPixels, looksLikeImageItem } from './itemPixels.js';
@@ -107,6 +108,9 @@ export async function generateSessionImage(env) {
   }
   if (!cfg.apiKey) return fail('NO_API_KEY: 生图需要 API Key。', 'NO_API_KEY');
   if (!cfg.baseURL) return fail('生图 Base URL 未配置', 'NO_IMAGE_BASE');
+  if (!(await byokAllowedForProvider('image', settings.imageProviderId))) {
+    return byokPlanFailure('image', { action: 'image' });
+  }
 
   const sources = await collectBoundImageSources(store, sessionId, env.itemIds, {
     fetchImpl: env.fetchImpl,

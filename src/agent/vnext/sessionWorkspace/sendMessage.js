@@ -61,6 +61,7 @@ import {
 } from './contextCompact.js';
 import { resolveContextWindow } from '../../modelCatalog.js';
 import { loadWebAcquireSettings } from '../../webAcquireSettings.js';
+import { gateWebAcquire } from '../../byokGate.js';
 import { resolveFocusPage, rememberVisitedPage } from './pageContext.js';
 
 /**
@@ -381,10 +382,12 @@ export async function sendMessage(store, input) {
     })
   });
 
-  const webAcquire =
+  // Own Tavily / Brave / Firecrawl keys need a paid plan; credit slots pass (byokGate.js).
+  const webAcquire = await gateWebAcquire(
     input.webAcquire && typeof input.webAcquire === 'object'
       ? input.webAcquire
-      : await loadWebAcquireSettings();
+      : await loadWebAcquireSettings()
+  );
   const tools = createSessionTools({
     store,
     execution,

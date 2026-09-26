@@ -1,6 +1,7 @@
 import { BRAND_NAME } from '../brand.js';
 import { findCatalogModel, loadCachedModelsForBase, normalizeModelsBaseURL, parseContextWindow, resolveContextWindow } from './modelCatalog.js';
 import { loadLlmSettings } from './llm.js';
+import { byokAllowedForProvider } from './byokGate.js';
 import {
   CONTEXT_WINDOW_AUTO_KEY,
   CONTEXT_WINDOW_CACHE_KEY,
@@ -316,9 +317,10 @@ export class ContextWindowChecks {
     run = runContextWindowProbe,
     now = Date.now,
     firstByteMs = PROBE_FIRST_BYTE_MS,
-    totalMs = PROBE_TOTAL_MS
+    totalMs = PROBE_TOTAL_MS,
+    byokAllowed = byokAllowedForProvider
   } = {}) {
-    Object.assign(this, { getSettings, getModels, get, set, run, now, firstByteMs, totalMs });
+    Object.assign(this, { getSettings, getModels, get, set, run, now, firstByteMs, totalMs, byokAllowed });
     this.tail = Promise.resolve();
     this.writes = Promise.resolve();
     this.job = null;
@@ -390,10 +392,16 @@ export class ContextWindowChecks {
     const models = (await this.getModels(settings.apiBase)).models || [];
     const { key, entry } = await this.read(settings, models);
     const prefs = await this.get([CONTEXT_WINDOW_AUTO_KEY]);
+    // A probe against the user's own key is BYOK use: skipped silently without a plan.
+    const byokOk = !settings.apiKey || await this.byokAllowed('probe', settings.providerId);
     if (seq !== this.sequence) return { queued: false };
     if (!settings.apiKey || (!force && prefs[CONTEXT_WINDOW_AUTO_KEY] === false)) {
       this.job?.controller.abort();
       return { queued: false };
+    }
+    if (!byokOk) {
+      this.job?.controller.abort();
+      return { queued: false, reason: 'BYOK_REQUIRES_PLAN' };
     }
     if (Number(entry?.contextWindow) >= 2048) return { queued: false, reason: 'catalog' };
     if (this.overrideFor(settings)) return { queued: false, reason: 'user' };

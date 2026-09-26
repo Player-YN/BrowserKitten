@@ -2,6 +2,7 @@
  * Public-web search adapters. Host maps settings → one provider.
  * Output is always { results: [{ title, url, snippet, content }] }.
  */
+import { byokPlanFailure } from '../../byokGate.js';
 
 function clip(s, n) {
   const t = String(s || '').replace(/\s+/g, ' ').trim();
@@ -138,6 +139,7 @@ export async function runConfiguredSearch(settings, { query, limit, fetchImpl, s
     });
     return { ok: true, provider: 'firecrawl', results };
   }
+  if (settings?.byokBlocked?.length) return byokPlanFailure('search', { action: 'search' });
   return {
     ok: false,
     action: 'search',

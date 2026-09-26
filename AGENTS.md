@@ -152,6 +152,7 @@ src/
 - 实机烟测（手动，CI 不跑）：`node tests/browser-smoke.cjs <playwright路径>`。默认加载根是仓库根；要验**真正发出去的那棵树**，先 `python scripts/pack_extension.py` 再 `BROWSERBOT_LOAD_ROOT=extension node tests/browser-smoke.cjs <playwright路径>`。独立 Chromium、一次性 profile，不碰你的浏览器状态。覆盖：IDB/OPFS 关闭重开、真实 QuickJS 错误往返、`run`→文件→artifact 登记、非 offscreen `sys` 请求拒绝、真实 localhost fetch 与正文超时、offscreen RPC 版本冲突拒绝。证据在 `output/playwright/`，不入库。
 - CI（`.github/workflows/ci.yml`）跑 `node --test tests/*.test.mjs` + pack 形状断言（含「pack 里必须带 TSV 修复」这条防漂移守卫），不装浏览器。
 - BYOK：侧栏填 Key → `browserbot_providers`。无 Key 时 offscreen 仍可启动，`sendMessage` 时再解析模型。
+- **BYOK 需要付费套餐**（`src/agent/byokGate.js`）：自己的 Key（非 `bk_cloud_*` 记录、非 base 指向 browserkitten.com 的 Tavily/Firecrawl 槽）只在已登录且套餐为 developer / standard / pro / max 时可用；free/试用只能用积分。BYOK 调用不经我们服务器、不扣积分。缓存 `browserbot_cloud_entitlement = { plan, checkedAt }`：读 `/api/me` 时写，退出登录与 401 时清；72 h 内有效，超过 6 h 先刷新（网络失败按 72 h）。拒绝码 `BYOK_REQUIRES_PLAN`，侧栏通知条给「查看套餐」/「登录」。**unpacked 构建豁免**（manifest 无 `update_url`，Web Store 才会加），商店构建才受限；想在 unpacked 上试门，设 `browserbot_byok_enforce_unpacked = true`。这是客户端门，不是服务器强制。不调模型的路径（个人库工具、结构化 Workflow 回放、用户自己的页面操作）不受限。
 - 积分（Browser Kitten 账户）：`src/agent/cloudAccount.js`。登录写入 4 条固定 id 的服务商记录（`bk_cloud_chat|image|stt|jev`，baseURL 指向 `browserkitten.com/api/v1`，apiKey = 设备令牌），Tavily / Firecrawl 为空时才填；不覆盖用户已配的 Key，不抢已可用的活动服务商。登出只撤回这些。套餐与积分每次请求由服务端判定，本地记录不授予任何权益。后端与上架清单见 [docs/COMMERCIAL_LAUNCH.md](docs/COMMERCIAL_LAUNCH.md)。
 
 ## Chrome BOT 1.2.0 候选版接线

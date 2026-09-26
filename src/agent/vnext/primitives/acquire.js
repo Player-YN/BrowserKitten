@@ -8,6 +8,7 @@
 
 import { assertPublicHttpUrl } from './netGuard.js';
 import { runConfiguredSearch } from './webSearch.js';
+import { byokPlanFailure } from '../../byokGate.js';
 import {
   scrapeFirecrawl,
   shouldTryFirecrawl,
@@ -137,6 +138,7 @@ async function mapSite(ctx, input, fetchImpl) {
   const gate = assertPublicHttpUrl(url);
   if (!gate.ok) return { ok: false, error: gate.error, code: gate.code, action: 'map' };
   const web = siteReadKey(ctx);
+  if (!web && ctx.webAcquire?.byokBlocked?.includes('firecrawl')) return byokPlanFailure('map', { action: 'map' });
   if (!web) {
     return {
       ok: false,
@@ -176,6 +178,7 @@ async function crawlSite(ctx, input, fetchImpl) {
   const gate = assertPublicHttpUrl(url);
   if (!gate.ok) return { ok: false, error: gate.error, code: gate.code, action: 'crawl' };
   const web = siteReadKey(ctx);
+  if (!web && ctx.webAcquire?.byokBlocked?.includes('firecrawl')) return byokPlanFailure('crawl', { action: 'crawl' });
   if (!web) {
     return {
       ok: false,

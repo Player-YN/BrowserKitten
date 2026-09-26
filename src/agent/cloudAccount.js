@@ -12,10 +12,12 @@
  * on every request; nothing stored here grants anything (see site server/router.js).
  *
  *   chrome.storage.local  browserbot_cloud_account = { token, deviceId, filled: { tavily, firecrawl }, connectedAt }
+ *   chrome.storage.local  browserbot_cloud_entitlement = { plan, checkedAt }  (byokGate.js: own keys need a paid plan)
  */
 import { BK_CLIENT_HEADER, CLOUD_IDS, CLOUD_MODELS, CLOUD_ORIGIN, bkClientHeaderValue, isCloudProvider } from './cloudModels.js';
 import { defaultImageConfig, loadProvidersState, saveProvidersState } from './llm.js';
 import { loadWebAcquireSettings, saveWebAcquireSettings } from './webAcquireSettings.js';
+import { BYOK_REQUIRES_PLAN, clearByokEntitlement, writeByokEntitlement } from './byokGate.js';
 
 export const CLOUD_API_BASE = `${CLOUD_ORIGIN}/api/v1`;
 export const CLOUD_TAVILY_BASE = `${CLOUD_ORIGIN}/api/tavily`;
@@ -169,12 +171,21 @@ export function cloudPausedMessage(error) {
   return msg;
 }
 
+/** A BYOK call refused because the account has no paid plan (byokGate.js), however it surfaced. */
+export function isByokPlanError(error) {
+  if (!error || typeof error !== 'object') return false;
+  const text = `${error.code || ''} ${error.message || ''} ${error.error || ''}`;
+  return new RegExp(`${BYOK_REQUIRES_PLAN}|needs a Browser Kitten plan`, 'i').test(text);
+}
+
 /**
- * Which account notice an error calls for, if any. Credits first (unchanged behavior).
- * @returns {{ kind: 'credits' } | { kind: 'upgrade' } | { kind: 'paused', message: string } | null}
+ * Which account notice an error calls for, if any. Credits first (unchanged behavior),
+ * then own keys without a plan.
+ * @returns {{ kind: 'credits' } | { kind: 'byok' } | { kind: 'upgrade' } | { kind: 'paused', message: string } | null}
  */
 export function cloudNoticeFor(error) {
   if (isCloudCreditsError(error)) return { kind: 'credits' };
+  if (isByokPlanError(error)) return { kind: 'byok' };
   if (isCloudUpgradeError(error)) return { kind: 'upgrade' };
   if (isCloudPausedError(error)) return { kind: 'paused', message: cloudPausedMessage(error) };
   return null;
@@ -258,7 +269,9 @@ export async function signInWithBrowserKitten({ fetchImpl = fetch } = {}) {
   // Which services the server hosts; absent (older server) or unreadable → all, as before.
   let services = null;
   try {
-    services = (await cloudJson('/api/me', { token, fetchImpl }))?.hosted ?? null;
+    const me = await cloudJson('/api/me', { token, fetchImpl });
+    services = me?.hosted ?? null;
+    await writeByokEntitlement(me);
   } catch {
     /* keep null: write every record rather than fail the sign-in */
   }
@@ -283,6 +296,7 @@ export async function signOutOfBrowserKitten({ fetchImpl = fetch } = {}) {
   await saveProvidersState(plan.providers, plan.activeProviderId, plan.activeImageProviderId, plan.activeSttProviderId, plan.activeJevProviderId);
   if (Object.keys(plan.webPatch).length) await saveWebAcquireSettings(plan.webPatch);
   await chrome.storage.local.remove(CLOUD_ACCOUNT_KEY);
+  await clearByokEntitlement();
 }
 
 /**
@@ -295,6 +309,7 @@ export async function fetchCloudAccount({ fetchImpl = fetch } = {}) {
   if (!acct) return { signedIn: false };
   try {
     const me = await cloudJson('/api/me', { token: acct.token, fetchImpl });
+    await writeByokEntitlement(me);
     return {
       signedIn: true,
       plan: me.plan,
@@ -305,7 +320,10 @@ export async function fetchCloudAccount({ fetchImpl = fetch } = {}) {
       limits: me.limits && typeof me.limits === 'object' ? me.limits : {}
     };
   } catch (error) {
-    if (error.status === 401) return { signedIn: true, expired: true, plan: 'free', planLabel: '', credits: 0, periodEnd: null, usage: {}, limits: {} };
+    if (error.status === 401) {
+      await clearByokEntitlement();
+      return { signedIn: true, expired: true, plan: 'free', planLabel: '', credits: 0, periodEnd: null, usage: {}, limits: {} };
+    }
     throw error;
   }
 }

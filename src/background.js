@@ -12,6 +12,7 @@ import { createWorkspaceRpcTransport } from './agent/vnext/host/workspaceRpcTran
 // Static import only — dynamic import() is disallowed on ServiceWorkerGlobalScope
 // (https://github.com/w3c/ServiceWorker/issues/1356) and surfaces as Workspace RPC errors.
 import { loadLlmSettings } from './agent/llm.js';
+import { byokAllowedForProvider } from './agent/byokGate.js';
 import { executeLlmProxyFetch } from './agent/llmProxyFetch.js';
 import { htmlTabMatches } from './sidepanel/sessionIsolation.js';
 import { previewEntryForItem } from './agent/vnext/sessionWorkspace/openClassify.js';
@@ -1355,6 +1356,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'browserbot_screenshot_ocr') {
     runScreenshotOcr(request.dataUrl, {
       loadSettings: loadLlmSettings,
+      // Vision OCR on the user's own chat key needs a paid plan; on-device text detection does not.
+      byokAllowed: (settings) => byokAllowedForProvider('ocr', settings.providerId),
       lang: request.lang === 'en' ? 'en' : 'zh'
     })
       .then((result) => sendResponse(result))

@@ -49,6 +49,7 @@ import {
   resolveContextWindow
 } from '../../modelCatalog.js';
 import { loadLlmSettings } from '../../llm.js';
+import { assertByokForProvider } from '../../byokGate.js';
 import { createListenRuntime } from '../sessionWorkspace/listenRuntime.js';
 import {
   getDurableSkillStore,
@@ -233,10 +234,14 @@ export class SessionWorkspaceService {
   }
 
   async resolveLanguageModel(opts = {}) {
+    // Every chat model call (turn, compaction, titles, /learn, selection chips) comes
+    // from here: own keys need a paid Browser Kitten plan; credit records pass.
+    const settings = opts.settings || await loadLlmSettings();
+    if (settings.apiKey) await assertByokForProvider('chat', settings.providerId);
     try {
       const built = await createBrowserBotLanguageModel({
         reasoning: opts.reasoning || null,
-        settings: opts.settings,
+        settings,
         mediaCapabilities: opts.mediaCapabilities,
         mediaContext: opts.mediaContext
       });

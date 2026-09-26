@@ -419,6 +419,7 @@
       ocrNeedKey: en
         ? 'OCR uses the current chat model. Add an inference key in Settings first.'
         : 'OCR 使用当前对话模型，请先在设置里填推理 Key',
+      ocrNeedPlan: en ? 'Your own keys need a Browser Kitten plan' : '使用自己的 Key 需要 Browser Kitten 套餐',
       ocrFail: en ? 'Could not read text' : '识别失败',
       qrNeedApi: en ? 'Local QR scanning is not available here' : '此环境没有本地扫码能力'
     };
@@ -813,6 +814,10 @@
       }
       if (found?.code === 'NEED_KEY') {
         showToast(copy.ocrNeedKey);
+        return;
+      }
+      if (found?.code === 'BYOK_REQUIRES_PLAN') {
+        showToast(copy.ocrNeedPlan);
         return;
       }
       if (!found?.ok || !found.text) {

@@ -28,6 +28,7 @@ sidepanel workspaceRpc('sendMessage')
 | `llm.js` `provider.js` `modelCatalog.js` | BYOK OpenAI-compatible HTTPS；每轮 `resolveLanguageModel` |
 | `contextWindowProbe.js` `contextWindowStore.js` | 目录无窗口时的独立 chat 探测与 `browserbot_context_window_evidence_v1`；不进 ToolLoopAgent，发送不 await |
 | `webAcquireSettings.js` | `browserbot_web_acquire` |
+| `byokGate.js` | 自己的 Key 需要付费套餐：`browserbot_cloud_entitlement` 缓存、`byokAllowed`、`BYOK_REQUIRES_PLAN`；unpacked 豁免 |
 | `skills.js` | 用户固化 skill（`browserbot_user_skills`），侧栏用；与 `vnext/skills` 不同 |
 | `artifacts.js` `draftStore.js` `state.js` `trajectory.js` `documentRender.js` `render/` | 旧表面。产品交付物走 `sessionWorkspace/artifacts.js`。改功能前先确认调用方 |
 
@@ -117,6 +118,8 @@ System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v23-browser-kitten'`�
 | `web` | 同上 | `data-browserbot-kind=site`：`act` = read / write / undo / clone / capture。画布是静态 HTML+CSS；宿主 bridge 在 sandbox frame，用户脚本仍被剥 |
 
 网站没有对应页时返回 `NO_CANVAS`。文档未登记返回 `NO_DOCUMENT`。网站复刻走 `web act=clone`。
+
+BYOK 门（`byokGate.js`）：非 `bk_cloud_*` 的供应商与非 browserkitten.com 的 Tavily/Firecrawl 槽，只在已登录且套餐为 developer/standard/pro/max 时可用。卡点：`SessionWorkspaceService.resolveLanguageModel`（回合、压缩、标题、/learn、选区 chips 都从这里拿模型，抛 `BYOK_REQUIRES_PLAN`）· `imageGen.generateSessionImage` · `transcribe.transcribeSessionAudio` · `sendMessage` 里 `gateWebAcquire`（本轮把自有 web 槽置空并记 `byokBlocked`；search/map/crawl 返回 `BYOK_REQUIRES_PLAN`，fetch 回退匿名 GET）· SW `pageActionHost.runChooseAction`（System1）· SW 截图 OCR · 后台探测（`MediaCapabilityChecks` / `ContextWindowChecks` 无套餐时静默跳过）。设置里的「测试 / 拉模型列表」不受限（配置行为）。缓存 `browserbot_cloud_entitlement = { plan, checkedAt }`（72 h 有效，>6 h 先刷新 `/api/me`，网络失败按 72 h；退出登录/401 清除）。**unpacked（manifest 无 `update_url`）豁免**；`browserbot_byok_enforce_unpacked = true` 可在 unpacked 上打开门。
 
 BYOK：`llm.js` → `browserbot_providers`。推理 / 生图 / 转写各有独立 active id（`browserbot_active_provider_id` · `browserbot_active_image_provider_id` · `browserbot_active_stt_provider_id`）。转写供应商 `purpose:'stt'`，POST `{base}/audio/transcriptions`。`run`：`vnext/adapters`（QuickJS / esbuild-wasm / AI SDK loader）+ `src/sandbox/`。Offscreen 经 `sandboxClient.js` postMessage；channel `browserbot-code-sandbox-v1`。`fs` 与 `sys` 都是同一条 RPC。
 

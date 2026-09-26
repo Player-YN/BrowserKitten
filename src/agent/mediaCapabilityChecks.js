@@ -1,4 +1,5 @@
 import { loadLlmSettings } from './llm.js';
+import { byokAllowedForProvider } from './byokGate.js';
 import { loadCachedModelsForBase } from './modelCatalog.js';
 import { resolveChatMediaCapabilities } from './chatMedia.js';
 import { MEDIA_AUTO_KEY, MEDIA_CACHE_KEY, mediaStorageGet, mediaStorageSet, mediaConnectionKey, evidenceDue } from './mediaCapabilityStore.js';
@@ -46,8 +47,8 @@ export async function runMediaCheck({ settings, caps, kind, signal, sampleFactor
 export class MediaCapabilityChecks {
   constructor({ getSettings = loadLlmSettings, getModels = loadCachedModelsForBase,
     get = mediaStorageGet, set = mediaStorageSet, run = runMediaCheck, now = Date.now,
-    timeoutMs = 20000 } = {}) {
-    Object.assign(this, { getSettings, getModels, get, set, run, now, timeoutMs });
+    timeoutMs = 20000, byokAllowed = byokAllowedForProvider } = {}) {
+    Object.assign(this, { getSettings, getModels, get, set, run, now, timeoutMs, byokAllowed });
     this.tail = Promise.resolve(); this.writes = Promise.resolve(); this.job = null; this.sequence = 0;
   }
   async identify(settings, models) {
@@ -95,9 +96,14 @@ export class MediaCapabilityChecks {
     const models = (await this.getModels(settings.apiBase)).models || [];
     const { key, caps } = await this.read(settings, models);
     const prefs = await this.get([MEDIA_AUTO_KEY]);
+    // A probe against the user's own key is BYOK use: skipped silently without a plan.
+    const byokOk = !settings.apiKey || await this.byokAllowed('probe', settings.providerId);
     if (seq !== this.sequence) return { queued: false };
     if (!settings.apiKey || (!force && prefs[MEDIA_AUTO_KEY] === false)) {
       this.job?.controller.abort(); return { queued: false };
+    }
+    if (!byokOk) {
+      this.job?.controller.abort(); return { queued: false, reason: 'BYOK_REQUIRES_PLAN' };
     }
     const configTag = JSON.stringify(settings.chatMediaOverrides || {});
     if (this.job?.key === key && this.job.configTag === configTag && !this.job.done && !this.job.controller.signal.aborted) return { queued: true };

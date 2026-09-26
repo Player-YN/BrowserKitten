@@ -4,6 +4,7 @@
  */
 
 import { loadLlmSettings, DEFAULT_STT_MODEL, DEFAULT_STT_BASE } from '../../llm.js';
+import { byokAllowedForProvider, byokPlanFailure } from '../../byokGate.js';
 import { listArtifacts } from './artifacts.js';
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -123,6 +124,9 @@ export async function transcribeSessionAudio(env) {
     return fail('no speech-to-text API configured', 'NEED_STT', {
       hint: 'add a transcription API in Settings'
     });
+  }
+  if (!(await byokAllowedForProvider('stt', settings.sttProviderId))) {
+    return byokPlanFailure('stt', { action: 'transcribe' });
   }
 
   const source = await loadAudioSource(env, env);

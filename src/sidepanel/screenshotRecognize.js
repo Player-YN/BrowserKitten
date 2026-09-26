@@ -255,6 +255,9 @@ export async function runScreenshotOcr(dataUrl, deps = {}) {
   if (!String(settings?.apiKey || '').trim()) {
     return { ok: false, code: 'NEED_KEY', text: '' };
   }
+  if (typeof deps.byokAllowed === 'function' && !(await deps.byokAllowed(settings))) {
+    return { ok: false, code: 'BYOK_REQUIRES_PLAN', text: '' };
+  }
   const url = chatCompletionsUrl(settings.apiBase || settings.baseURL);
   if (!url) return { ok: false, code: 'VISION_FAILED', text: '' };
   const fetchImpl = deps.fetchImpl || globalThis.fetch;

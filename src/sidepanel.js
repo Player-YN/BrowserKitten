@@ -41,11 +41,14 @@ import {
   normalizeChatProtocol,
   defaultImageConfig
 } from './agent/llm.js';
+import { byokStatus } from './agent/byokGate.js';
 import {
   CLOUD_ACCOUNT_URL,
   cloudNoticeFor,
+  isByokPlanError,
   cloudUsageRows,
   fetchCloudAccount,
+  getCloudAccount,
   isCloudProvider,
   signInWithBrowserKitten,
   signOutOfBrowserKitten
@@ -7197,6 +7200,7 @@ function handleSessionWorkspaceEvent(request) {
       ev.type === 'model-start' ||
       ev.type === 'model-end'
     ) {
+      if (ev.type === 'tool-result' && ev.ok === false && isByokPlanError(ev.result)) showCloudNoticeFor(ev.result);
       const leaseNote = ev.type === 'tool-result' ? humanizeTabLeaseEvent(ev) : '';
       if (leaseNote && !liveTurnSealed) {
         const prefix = currentLang === 'en' ? '**Notice:** ' : '**提示:** ';
@@ -8380,6 +8384,14 @@ function setupCoreEventListeners() {
   $('cloudCreditsDismiss')?.addEventListener('click', () => hideCloudCreditsBar());
   $('cloudNoticeBtn')?.addEventListener('click', () => void updateExtensionForCloud());
   $('cloudNoticeDismiss')?.addEventListener('click', () => hideCloudNotice());
+  $('cloudNoticePlansBtn')?.addEventListener('click', () => {
+    hideCloudNotice();
+    openCloudAccountPage();
+  });
+  $('cloudNoticeSignInBtn')?.addEventListener('click', () => {
+    hideCloudNotice();
+    void startCloudSignIn();
+  });
   $('cloudSignInBtn')?.addEventListener('click', () => void startCloudSignIn());
   $('advancedScriptsBtn')?.addEventListener('click', () => enablePageScripts());
   $('advancedScriptsToggleBtn')?.addEventListener('click', () => {
@@ -14112,13 +14124,33 @@ function showCloudNoticeFor(error) {
   const bar = document.getElementById('cloudNoticeBar');
   const copy = document.getElementById('cloudNoticeCopy');
   const btn = document.getElementById('cloudNoticeBtn');
+  const plans = document.getElementById('cloudNoticePlansBtn');
+  const signIn = document.getElementById('cloudNoticeSignInBtn');
   if (!bar || !copy) return;
   const upgrade = notice.kind === 'upgrade';
-  copy.textContent = upgrade ? t('cloudUpgradeNeeded') : notice.message || t('cloudPausedDefault');
+  const byok = notice.kind === 'byok';
+  copy.textContent = byok ? t('byokPlanNeeded') : upgrade ? t('cloudUpgradeNeeded') : notice.message || t('cloudPausedDefault');
   copy.title = copy.textContent;
   if (btn) btn.hidden = !upgrade;
+  if (plans) plans.hidden = !byok;
+  if (signIn) {
+    signIn.hidden = true;
+    // Sign-in only when there is no account on this browser.
+    if (byok) void getCloudAccount().then((acct) => { if (bar.dataset.kind === 'byok') signIn.hidden = !!acct; });
+  }
   bar.dataset.kind = notice.kind;
   bar.hidden = false;
+}
+
+/** Settings: one hint line per BYOK section while own keys are not allowed. Saved keys stay. */
+async function renderByokPlanHints() {
+  let allowed = true;
+  try {
+    allowed = (await byokStatus({ refresh: false })).allowed;
+  } catch {
+    allowed = true;
+  }
+  for (const el of document.querySelectorAll('[data-byok-hint]')) el.hidden = allowed;
 }
 
 function hideCloudNotice() {
@@ -14181,7 +14213,8 @@ function enablePageScripts() {
 }
 
 async function refreshVendorBoards() {
-  void renderCloudAccountCard();
+  // /api/me refreshes the plan cache first; the BYOK hints read it after.
+  void renderCloudAccountCard().finally(() => renderByokPlanHints());
   void renderAdvancedCard();
   const state = await loadProvidersState();
   renderInferenceVendorList(state);
