@@ -56,7 +56,8 @@ Browser Kitten 从 unpacked + 纯 BYOK 走向 Chrome 应用商店 + 订阅。
 - 管理：`POST /api/billing/portal` → Paddle 客户门户（换档、换卡、取消、发票）。
 - webhook `POST /api/paddle/webhook`，校验 `Paddle-Signature`（HMAC-SHA256，5 分钟时效，支持轮换期多签名）：
   - `subscription.*` → 自有表 `bk_subscription`，按 `occurred_at` 排序，迟到的旧事件不会覆盖新状态；`past_due` 期间保留权益。
-  - `transaction.completed` → 按 transaction id 发积分：首单 / 续费发整期（年付 ×12）；中途升级按实付比例；加油包按包。
+  - `transaction.completed` → 按 transaction id 发积分：月付首单 / 续费发整期；**年付按月发放**（第 1 个月随付款发，其余由 cron 每月到期再发，每月额度有效到下个月 + 宽限）；中途换档按实付比例并取消旧套餐未发的月份；加油包按包。
+  - 退款规则（全部套餐）：14 天内、每账号终身一次、已用积分不退（可退 = 实付 × 未用 / 所购积分；无积分的 Developer 全额）。`refundQuote` 按此计算，供管理脚本在 Paddle 手动退款前使用；Paddle 本身不执行这条规则。
   - `adjustment.*` 退款（已批准）或拒付 → 该笔交易的 grant 清零剩余。
 
 套餐与价格 ID 在 `server/plans.js`：Developer（0 积分，只 BYOK）、Standard、Pro、两档加油包。**积分数是草稿**，等成本基准跑完再定。免费用户注册送一次性试用积分。
