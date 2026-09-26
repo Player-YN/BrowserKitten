@@ -10,6 +10,8 @@ import {
   cloudUsageRows,
   fetchCloudAccount,
   isCloudCreditsError,
+  isCloudUsageLimitError,
+  cloudLimitResetAt,
   isCloudPausedError,
   isCloudUpgradeError,
   planCloudSignIn,
@@ -177,14 +179,27 @@ test('Browser Kitten API calls name the client, and /api/me passes usage and lim
   try {
     const fetchImpl = async (url, init) => {
       seen.push({ url, headers: init.headers });
-      return { ok: true, status: 200, json: async () => ({ plan: 'pro', planLabel: 'Pro', credits: 5, usage: { weekly: 3 }, limits: { weekly: 10 } }) };
+      return { ok: true, status: 200, json: async () => ({ email: 'a@b.c', plan: 'pro', planLabel: 'Pro', credits: 5, usage: { weekly: 3 }, limits: { weekly: 10 } }) };
     };
     const acct = await fetchCloudAccount({ fetchImpl });
     assert.equal(seen[0].headers['x-bk-client'], 'browser-kitten/9.8.7');
     assert.equal(seen[0].headers.authorization, `Bearer ${TOKEN}`);
     assert.deepEqual(acct.usage, { weekly: 3 });
     assert.deepEqual(acct.limits, { weekly: 10 });
+    assert.equal(acct.email, 'a@b.c');
   } finally {
     globalThis.chrome = prevChrome;
   }
+});
+
+test('a weekly usage limit is its own notice, with when it frees up', () => {
+  const at = '2026-10-04T03:00:00.000Z';
+  const body = JSON.stringify({ error: { code: 'USAGE_LIMIT', message: 'You reached your weekly Browser Kitten usage limit on plan credits.', window: 'weekly', resetAt: at, boosterAvailable: 0 } });
+  const fromBody = { statusCode: 429, responseBody: body };
+  assert.equal(isCloudUsageLimitError(fromBody), true);
+  assert.equal(isCloudCreditsError(fromBody), false);
+  assert.deepEqual(cloudNoticeFor(fromBody), { kind: 'limit', resetAt: at });
+  const fromText = { message: `USAGE_LIMIT: You reached your weekly Browser Kitten usage limit on plan credits. It frees up by ${at}. Booster credits are not limited.` };
+  assert.equal(cloudLimitResetAt(fromText), at);
+  assert.equal(cloudNoticeFor({ statusCode: 429, message: 'Rate limit from some other provider' }), null);
 });

@@ -149,6 +149,27 @@ function cloudErrorParts(error) {
   return { status, text, body };
 }
 
+/** The proxy's 429 USAGE_LIMIT: the weekly cap on plan credits. Booster credits still work. */
+export function isCloudUsageLimitError(error) {
+  const { status, text } = cloudErrorParts(error);
+  return /USAGE_LIMIT|usage limit on plan credits/i.test(text) || (status === 429 && /browser ?kitten/i.test(text) && /limit/i.test(text));
+}
+
+/** When a usage limit frees up, from the error body or the server's sentence ("frees up by <ISO>"); '' if unknown. */
+export function cloudLimitResetAt(error) {
+  const { body, text } = cloudErrorParts(error);
+  if (body) {
+    try {
+      const at = JSON.parse(body)?.error?.resetAt;
+      if (typeof at === 'string' && !Number.isNaN(Date.parse(at))) return at;
+    } catch {
+      /* not JSON */
+    }
+  }
+  const m = text.match(/\bby (\d{4}-\d{2}-\d{2}T[\d:.]+Z?)/);
+  return m && !Number.isNaN(Date.parse(m[1])) ? m[1] : '';
+}
+
 /** The proxy's 426: this build is older than the server's minVersion. */
 export function isCloudUpgradeError(error) {
   const { status, text } = cloudErrorParts(error);
@@ -194,10 +215,11 @@ export function isByokPlanError(error) {
 /**
  * Which account notice an error calls for, if any. Credits first (unchanged behavior),
  * then own keys without a plan.
- * @returns {{ kind: 'credits' } | { kind: 'byok' } | { kind: 'upgrade' } | { kind: 'paused', message: string } | null}
+ * @returns {{ kind: 'credits' } | { kind: 'limit', resetAt: string } | { kind: 'byok' } | { kind: 'upgrade' } | { kind: 'paused', message: string } | null}
  */
 export function cloudNoticeFor(error) {
   if (isCloudCreditsError(error)) return { kind: 'credits' };
+  if (isCloudUsageLimitError(error)) return { kind: 'limit', resetAt: cloudLimitResetAt(error) };
   if (isByokPlanError(error)) return { kind: 'byok' };
   if (isCloudUpgradeError(error)) return { kind: 'upgrade' };
   if (isCloudPausedError(error)) return { kind: 'paused', message: cloudPausedMessage(error) };
@@ -334,6 +356,7 @@ export async function fetchCloudAccount({ fetchImpl = fetch } = {}) {
     await writeByokEntitlement(me);
     return {
       signedIn: true,
+      email: typeof me.email === 'string' ? me.email : '',
       plan: me.plan,
       planLabel: me.planLabel,
       credits: Number(me.credits) || 0,

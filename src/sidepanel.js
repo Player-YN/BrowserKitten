@@ -47,7 +47,6 @@ import {
   cloudAccountUrl,
   cloudNoticeFor,
   isByokPlanError,
-  cloudUsageRows,
   fetchCloudAccount,
   getCloudAccount,
   isCloudProvider,
@@ -153,6 +152,12 @@ import { createContextUsageUi, projectContextUsage } from './sidepanel/contextUs
 import { createPersonalLibraryUi, collectPersonalLibraryInput } from './sidepanel/personalLibraryUi.js';
 import { createWorkflowUi } from './sidepanel/workflowUi.js';
 import { getHomeHints } from './sidepanel/homeHints.js';
+import { mountAccountMenu, tasksFor as accountTasksFor } from './sidepanel/accountMenu.js';
+import { isProbeableUrl, pickStarters, probePage } from './sidepanel/pageStarters.js';
+import { clearNoticeCards, noticeCardModel, showNoticeCard } from './sidepanel/noticeCards.js';
+
+/** Top-right account control (accountMenu.js); set once the panel wires its buttons. */
+let accountMenu = null;
 import { createApprovalUi } from './sidepanel/approvalUi.js';
 import { approvalBelongsToSession } from './sidepanel/sessionIsolation.js';
 import { buildZipStore } from './agent/vnext/sessionWorkspace/pptxExport.js';
@@ -739,11 +744,15 @@ function initSidePanel() {
   });
   chrome.tabs.onActivated?.addListener(() => {
     updateActivePageListeningBanner();
+    void refreshPageStarters();
     syncPickerStateFromActiveTab();
     void refreshOpenMentionPages();
   });
   chrome.tabs.onUpdated?.addListener((_tabId, changeInfo) => {
-    if (changeInfo.status === 'complete') updateActivePageListeningBanner();
+    if (changeInfo.status === 'complete') {
+      updateActivePageListeningBanner();
+      void refreshPageStarters();
+    }
     if (changeInfo.url || changeInfo.title || changeInfo.status || changeInfo.discarded != null) {
       void refreshOpenMentionPages();
     }
@@ -4257,11 +4266,13 @@ function showWelcome() {
     <div class="home-center" id="homeCenter">
       <a class="home-mark home-mark-hero site-link" href="https://browserkitten.com" target="_blank" rel="noopener" title="BrowserKitten.com" aria-label="BrowserKitten.com"></a>
       <div class="home-composer-slot" id="homeComposerSlot"></div>
+      <div class="starter-chips" id="pageStarters" hidden></div>
       <div class="hint-chips" id="hintChips"></div>
     </div>
   `;
   taskStream.appendChild(w);
   renderHintChips(getGuideOnlyHints());
+  void refreshPageStarters();
   setHomeEmptyMode(true);
   applyI18n();
   try {
@@ -4406,6 +4417,54 @@ function renderHintChips(items) {
     });
     host.appendChild(btn);
   });
+}
+
+let pageStartersToken = 0;
+
+/**
+ * Home screen: up to three tasks that fit the active tab (pageStarters.js). The probe
+ * only counts tables, inputs and text in the page; nothing is sent anywhere.
+ */
+async function refreshPageStarters() {
+  const host = document.getElementById('pageStarters');
+  if (!host) return;
+  const token = ++pageStartersToken;
+  let items = [];
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id != null && isProbeableUrl(tab.url)) {
+      let probe = null;
+      try {
+        const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: probePage });
+        probe = res?.result || null;
+      } catch {
+        probe = null; // restricted page or still loading: URL-only starters
+      }
+      items = pickStarters(probe, tab.url, t);
+    }
+  } catch {
+    items = [];
+  }
+  if (token !== pageStartersToken || !document.getElementById('pageStarters')) return;
+  host.replaceChildren(
+    ...items.map((item) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'starter-chip';
+      btn.textContent = item.label;
+      btn.dataset.starterId = item.id;
+      btn.addEventListener('click', () => {
+        if (isCurrentSessionRunning()) return;
+        const input = composerEl();
+        if (input) {
+          setComposerPlainText(item.prompt, input);
+          submitUserPrompt();
+        }
+      });
+      return btn;
+    })
+  );
+  host.hidden = items.length === 0;
 }
 
 /**
@@ -7474,6 +7533,8 @@ async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
     currentAttach = [...pendingAttachments];
     composerNodes = cloneComposerNodes(promptInput);
   }
+  // Account notices belong to the turn that hit them; a new turn starts clean.
+  clearNoticeCards(document.getElementById('taskStream'));
   // mode/composerSubmitMode is decorative only — architecture is always sendMessage
 
   await refreshSelectedElementsFromActiveTab();
@@ -8390,31 +8451,24 @@ function setupCoreEventListeners() {
   $('listenGrantDismiss')?.addEventListener('click', () => {
     hideListenGrantBar();
   });
-  $('cloudCreditsBtn')?.addEventListener('click', () => {
-    hideCloudCreditsBar();
-    openCloudAccountPage();
-  });
-  $('cloudCreditsDismiss')?.addEventListener('click', () => hideCloudCreditsBar());
-  $('cloudNoticeBtn')?.addEventListener('click', () => void updateExtensionForCloud());
-  $('cloudNoticeDismiss')?.addEventListener('click', () => hideCloudNotice());
-  $('cloudNoticePlansBtn')?.addEventListener('click', () => {
-    hideCloudNotice();
-    openCloudAccountPage();
-  });
-  $('cloudNoticeSignInBtn')?.addEventListener('click', () => {
-    hideCloudNotice();
-    void startCloudSignIn();
-  });
-  $('cloudSignInBtn')?.addEventListener('click', () => void startCloudSignIn());
   $('advancedScriptsBtn')?.addEventListener('click', () => enablePageScripts());
   $('advancedScriptsToggleBtn')?.addEventListener('click', () => {
     void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}`, active: true });
   });
-  $('cloudManageBtn')?.addEventListener('click', () => openCloudAccountPage());
-  $('cloudSignOutBtn')?.addEventListener('click', async () => {
-    await signOutOfBrowserKitten().catch(() => {});
-    await refreshVendorBoards();
+  accountMenu = mountAccountMenu({
+    t,
+    locale: () => (currentLang === 'en' ? 'en-US' : 'zh-CN'),
+    load: () => fetchCloudAccount(),
+    signIn: () => startCloudSignIn(),
+    signOut: async () => {
+      await signOutOfBrowserKitten().catch(() => {});
+      await refreshVendorBoards();
+    },
+    openAccount: (path) => openCloudAccountPage(path),
+    openSettings: () => openMoreSheet()
   });
+  void accountMenu.refresh();
+  void refreshPageStarters();
   $('moreBtn')?.addEventListener('click', () => {
     const sheet = /** @type {HTMLDialogElement|null} */ ($('moreSheet'));
     if (sheet?.open) closeMoreSheet();
@@ -14021,138 +14075,73 @@ async function renderWebVendorList() {
   }
 }
 
-/** Settings → Browser Kitten account. Plan and credits come from the server each time. */
 async function renderCloudAccountCard() {
-  const line = document.getElementById('cloudStatusLine');
-  const signIn = document.getElementById('cloudSignInBtn');
-  const manage = document.getElementById('cloudManageBtn');
-  const signOut = document.getElementById('cloudSignOutBtn');
-  const usageLine = document.getElementById('cloudUsageLine');
-  if (!line || !signIn) return;
-  if (usageLine) {
-    usageLine.hidden = true;
-    usageLine.textContent = '';
-  }
-  const show = (signedIn) => {
-    signIn.hidden = signedIn;
-    if (manage) manage.hidden = !signedIn;
-    if (signOut) signOut.hidden = !signedIn;
-  };
-  let acct;
-  try {
-    acct = await fetchCloudAccount();
-  } catch (error) {
-    showCloudNoticeFor(error);
-    show(true);
-    line.textContent = t('cloudUnavailable');
-    return;
-  }
-  if (!acct.signedIn) {
-    show(false);
-    line.textContent = t('cloudSignedOutHint');
-    return;
-  }
-  if (acct.expired) {
-    show(false);
-    if (signOut) signOut.hidden = false;
-    line.textContent = t('cloudExpired');
-    return;
-  }
-  show(true);
-  const credits = Number(acct.credits || 0).toLocaleString(currentLang === 'en' ? 'en-US' : 'zh-CN');
-  line.textContent = t('cloudStatus').replace('{plan}', acct.planLabel || acct.plan).replace('{credits}', credits);
-  const usage = formatCloudUsage(acct.usage, acct.limits);
-  if (usageLine && usage) {
-    usageLine.textContent = usage;
-    usageLine.hidden = false;
-  }
-  if (acct.credits > 0) hideCloudCreditsBar();
+  const view = await accountMenu?.refresh();
+  if (view?.state === 'signed-in' && view.credits > 0) hideCloudCreditsBar();
 }
 
 async function startCloudSignIn() {
-  const btn = document.getElementById('cloudSignInBtn');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = t('cloudSigningIn');
-  }
   try {
     const out = await signInWithBrowserKitten();
-    showSidepanelToast(out.hosted ? t('cloudSignedIn') : t('cloudNoModel'), { ms: 3600 });
     await refreshVendorBoards();
+    if (!out.hosted) {
+      showSidepanelToast(t('cloudNoModel'), { ms: 4200 });
+      return;
+    }
+    const acct = await fetchCloudAccount().catch(() => null);
+    const credits = Number(acct?.credits) || 0;
+    const num = (n) => Number(n).toLocaleString(currentLang === 'en' ? 'en-US' : 'zh-CN');
+    showSidepanelToast(
+      credits > 0
+        ? t('accountWelcome').replace('{credits}', num(credits)).replace('{n}', num(accountTasksFor(credits)))
+        : t('cloudSignedIn'),
+      { ms: 5200 }
+    );
   } catch (error) {
     // Closing the identity window is not an error worth shouting about.
     const msg = String(error?.message || error);
     if (!/did not approve|closed|canceled|cancelled/i.test(msg)) {
       showSidepanelToast(t('cloudSignInFailed').replace('{error}', msg), { error: true, ms: 4200 });
     }
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = t('cloudSignIn');
-    }
   }
 }
 
-function openCloudAccountPage() {
-  void cloudAccountUrl().then((url) => chrome.tabs.create({ url, active: true }), () => chrome.tabs.create({ url: CLOUD_ACCOUNT_URL, active: true }));
-}
-
-function showCloudCreditsBar() {
-  const bar = document.getElementById('cloudCreditsBar');
-  if (bar) bar.hidden = false;
+/** @param {string} [path] e.g. '/account.html#plans'; default the account page. */
+function openCloudAccountPage(path = '') {
+  const withPath = (url) => (path ? new URL(path, url).toString() : url);
+  void cloudAccountUrl().then(
+    (url) => chrome.tabs.create({ url: withPath(url), active: true }),
+    () => chrome.tabs.create({ url: withPath(CLOUD_ACCOUNT_URL), active: true })
+  );
 }
 
 function hideCloudCreditsBar() {
-  const bar = document.getElementById('cloudCreditsBar');
-  if (bar) bar.hidden = true;
-}
-
-/** One line per usage window ("Weekly 40 / 100", "Monthly 120"). Unknown window keys get a generic label. */
-function formatCloudUsage(usage, limits) {
-  const locale = currentLang === 'en' ? 'en-US' : 'zh-CN';
-  const num = (n) => Number(n || 0).toLocaleString(locale);
-  const labels = { fiveHour: 'cloudUsageFiveHour', weekly: 'cloudUsageWeekly', monthly: 'cloudUsageMonthly' };
-  return cloudUsageRows(usage, limits)
-    .map(({ key, used, limit }) => {
-      const label = labels[key]
-        ? t(labels[key])
-        : t('cloudUsageOther').replace('{window}', key.replace(/([a-z])([A-Z0-9])/g, '$1 $2').toLowerCase());
-      const value = limit == null ? num(used) : `${num(used)} / ${num(limit)}`;
-      return `${label} ${value}`;
-    })
-    .join('\n');
+  document.querySelectorAll('.notice-card[data-kind="credits"]').forEach((el) => el.remove());
 }
 
 /**
- * Account notices from a failed Browser Kitten call: credits (unchanged bar),
- * client too old (426), or credits paused by the operator (503).
+ * Account notices from a failed Browser Kitten call (credits, weekly limit, own keys
+ * without a plan, client too old, paused) as a card after the turn (noticeCards.js).
  */
 function showCloudNoticeFor(error) {
   const notice = cloudNoticeFor(error);
   if (!notice) return;
-  if (notice.kind === 'credits') {
-    showCloudCreditsBar();
-    return;
-  }
-  const bar = document.getElementById('cloudNoticeBar');
-  const copy = document.getElementById('cloudNoticeCopy');
-  const btn = document.getElementById('cloudNoticeBtn');
-  const plans = document.getElementById('cloudNoticePlansBtn');
-  const signIn = document.getElementById('cloudNoticeSignInBtn');
-  if (!bar || !copy) return;
-  const upgrade = notice.kind === 'upgrade';
-  const byok = notice.kind === 'byok';
-  copy.textContent = byok ? t('byokPlanNeeded') : upgrade ? t('cloudUpgradeNeeded') : notice.message || t('cloudPausedDefault');
-  copy.title = copy.textContent;
-  if (btn) btn.hidden = !upgrade;
-  if (plans) plans.hidden = !byok;
-  if (signIn) {
-    signIn.hidden = true;
-    // Sign-in only when there is no account on this browser.
-    if (byok) void getCloudAccount().then((acct) => { if (bar.dataset.kind === 'byok') signIn.hidden = !!acct; });
-  }
-  bar.dataset.kind = notice.kind;
-  bar.hidden = false;
+  void getCloudAccount().then((acct) => {
+    const model = noticeCardModel(notice, {
+      t,
+      signedIn: !!acct,
+      formatDate: (iso) =>
+        new Date(iso).toLocaleString(currentLang === 'en' ? 'en-US' : 'zh-CN', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    });
+    showNoticeCard(document.getElementById('taskStream'), model, (action, card) => {
+      if (action === 'booster') openCloudAccountPage('/account.html?buy=booster:small');
+      else if (action === 'plans') openCloudAccountPage('/account.html#plans');
+      else if (action === 'sign-in') void startCloudSignIn();
+      else if (action === 'update') void updateExtensionForCloud();
+      if (action !== 'update') card.remove();
+    }, t('cloudNoticeDismiss'));
+    if (notice.kind === 'credits' || notice.kind === 'limit') void accountMenu?.refresh();
+  });
 }
 
 /** Settings: one hint line per BYOK section while own keys are not allowed. Saved keys stay. */
@@ -14167,13 +14156,12 @@ async function renderByokPlanHints() {
 }
 
 function hideCloudNotice() {
-  const bar = document.getElementById('cloudNoticeBar');
-  if (bar) bar.hidden = true;
+  document.querySelectorAll('.notice-card[data-kind="upgrade"]').forEach((el) => el.remove());
 }
 
 /** 426: ask Chrome for an update and apply it; otherwise send the user to the extension page. */
 async function updateExtensionForCloud() {
-  const btn = document.getElementById('cloudNoticeBtn');
+  const btn = document.querySelector('.notice-card[data-kind="upgrade"] .btn-primary');
   if (btn) btn.disabled = true;
   let status = '';
   try {

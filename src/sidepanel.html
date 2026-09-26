@@ -109,7 +109,33 @@
         <span id="pageFavicon" hidden></span>
       </div>
       <div class="topbar-right">
-        <button type="button" class="icon-btn" id="moreBtn" data-i18n-title="moreTitle" data-i18n-aria="moreTitle" title="设置" aria-label="设置" aria-expanded="false" aria-haspopup="dialog" aria-controls="moreSheet">⚙︎</button>
+        <button type="button" class="btn btn-primary account-signin-btn" id="accountSignInBtn" data-i18n="cloudSignIn">登录</button>
+        <button type="button" class="account-chip" id="accountChip" hidden data-i18n-aria="accountMenuLabel" aria-label="账户">
+          <span class="account-avatar" aria-hidden="true">?</span>
+          <span class="account-chip-credits"></span>
+        </button>
+        <div class="account-menu" id="accountMenu" role="menu" hidden>
+          <div class="account-menu-head">
+            <span class="account-menu-avatar" aria-hidden="true">?</span>
+            <div class="account-menu-who">
+              <p class="account-menu-email"></p>
+              <p class="account-menu-plan"></p>
+            </div>
+          </div>
+          <div class="account-menu-credits" hidden>
+            <p class="account-menu-credits-row"><b class="account-menu-credits-num">0</b> <span data-i18n="accountCreditsLabel">积分</span></p>
+            <p class="account-menu-credits-tasks"></p>
+            <div class="account-menu-meter" hidden><span class="account-meter-track"><i></i></span><small></small></div>
+          </div>
+          <div class="account-menu-items">
+            <button type="button" role="menuitem" class="account-menu-item is-accent" data-account-action="add-credits" data-i18n="cloudAddCredits">添加积分</button>
+            <button type="button" role="menuitem" class="account-menu-item is-accent" data-account-action="reconnect" data-i18n="accountReconnect" hidden>重新登录</button>
+            <button type="button" role="menuitem" class="account-menu-item" data-account-action="manage" data-i18n="cloudManage">管理套餐</button>
+            <button type="button" role="menuitem" class="account-menu-item" data-account-action="settings" data-i18n="moreTitle">设置</button>
+            <button type="button" role="menuitem" class="account-menu-item is-quiet" data-account-action="sign-out" data-i18n="cloudSignOut">退出登录</button>
+          </div>
+        </div>
+        <button type="button" class="icon-btn" id="moreBtn" data-i18n-title="moreTitle" data-i18n-aria="moreTitle" title="设置" aria-label="设置" aria-expanded="false" aria-haspopup="dialog" aria-controls="moreSheet">⋯</button>
         <!-- Hidden legacy hooks (settings/lang/theme/status still driven by JS via more sheet) -->
         <button type="button" id="gearBtn" hidden aria-hidden="true" aria-haspopup="dialog" aria-controls="agentSettingsModal"></button>
         <button type="button" id="langToggle" hidden aria-hidden="true"></button>
@@ -120,20 +146,6 @@
         </div>
       </div>
     </header>
-
-    <div id="cloudCreditsBar" class="listen-grant-bar" hidden>
-      <span class="listen-grant-copy" data-i18n="cloudCreditsOut">Browser Kitten 积分已用完</span>
-      <button type="button" class="btn btn-primary listen-grant-btn" id="cloudCreditsBtn" data-i18n="cloudAddCredits">添加积分</button>
-      <button type="button" class="btn btn-secondary listen-grant-dismiss" id="cloudCreditsDismiss" data-i18n="listenGrantDismiss">稍后</button>
-    </div>
-
-    <div id="cloudNoticeBar" class="listen-grant-bar" role="status" hidden>
-      <span class="listen-grant-copy" id="cloudNoticeCopy"></span>
-      <button type="button" class="btn btn-primary listen-grant-btn" id="cloudNoticeBtn" data-i18n="cloudUpdateNow" hidden>更新</button>
-      <button type="button" class="btn btn-primary listen-grant-btn" id="cloudNoticePlansBtn" data-i18n="byokSeePlans" hidden>查看套餐</button>
-      <button type="button" class="btn btn-secondary listen-grant-btn" id="cloudNoticeSignInBtn" data-i18n="cloudSignIn" hidden>登录</button>
-      <button type="button" class="btn btn-secondary listen-grant-dismiss" id="cloudNoticeDismiss" data-i18n="cloudNoticeDismiss">关闭</button>
-    </div>
 
     <div id="listenGrantBar" class="listen-grant-bar" hidden>
       <span class="listen-grant-copy" id="listenGrantCopy" data-i18n="listenGrantCopy">Agent 要听此标签正在播放的声音</span>
@@ -333,6 +345,7 @@
           <div class="home-center" id="homeCenter">
             <a class="home-mark home-mark-hero site-link" href="https://browserkitten.com" target="_blank" rel="noopener" title="BrowserKitten.com" aria-label="BrowserKitten.com"></a>
             <div class="home-composer-slot" id="homeComposerSlot"></div>
+            <div class="starter-chips" id="pageStarters" hidden></div>
             <div class="hint-chips" id="hintChips">
               <button type="button" class="hint-chip" data-hint-id="create-personal-tool" data-i18n="teachCreateToolLabel">如何创造一个新工具？</button>
               <button type="button" class="hint-chip" data-hint-id="create-workflow" data-i18n="teachCreateWorkflowLabel">如何创造一个新 workflow？</button>
@@ -678,17 +691,6 @@
         <button type="button" id="settingsModalCloseBtn" class="modal-close-btn" aria-label="关闭">&times;</button>
       </div>
       <div class="modal-body settings-modal-body">
-        <section class="settings-api-card" id="settingsCloudCard" aria-labelledby="settingsCloudTitle">
-          <h4 class="settings-api-card-title" id="settingsCloudTitle" data-i18n="cloudTitle">Browser Kitten 账户</h4>
-          <p class="settings-hint" id="cloudStatusLine" data-i18n="cloudSignedOutHint">登录后用积分，无需自己配置 Key。已配置的 Key 保持不变。</p>
-          <p class="settings-hint cloud-usage-line" id="cloudUsageLine" hidden></p>
-          <div class="api-editor-actions cloud-account-actions">
-            <button type="button" class="btn btn-primary" id="cloudSignInBtn" data-i18n="cloudSignIn">登录</button>
-            <button type="button" class="btn btn-secondary" id="cloudManageBtn" data-i18n="cloudManage" hidden>管理套餐</button>
-            <button type="button" class="btn btn-secondary" id="cloudSignOutBtn" data-i18n="cloudSignOut" hidden>退出登录</button>
-          </div>
-        </section>
-
         <section class="settings-api-card" id="settingsAdvancedCard" aria-labelledby="settingsAdvancedTitle">
           <h4 class="settings-api-card-title" id="settingsAdvancedTitle" data-i18n="advancedTitle">高级能力</h4>
           <p class="settings-hint" id="advancedScriptsLine" data-i18n="advancedScriptsOff">页面脚本：关闭。开启后助手可以在网页里直接运行脚本，处理普通点击填不了的页面。</p>

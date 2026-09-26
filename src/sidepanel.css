@@ -9978,3 +9978,146 @@ body[data-theme='light'] .session-edge-fab{
   background: color-mix(in srgb, var(--ink) 88%, var(--paper));
 }
 .personal-library-dialog button:focus-visible, .library-draft-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Account (top right): Sign in → avatar chip + menu (sidepanel/accountMenu.js) ── */
+.account-signin-btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.account-chip:hover { border-color: var(--border-strong); background: var(--bg-elevated-2); }
+.account-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.account-avatar,
+.account-menu-avatar {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #120800;
+  font-size: 11px;
+  font-weight: 700;
+}
+.account-chip-credits { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.account-chip.is-low .account-chip-credits { color: var(--amber); }
+.account-chip.is-expired .account-chip-credits { color: var(--rose); }
+
+.account-menu {
+  width: 248px;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  animation: fade-up 0.16s ease both;
+}
+.account-menu-head { display: flex; align-items: center; gap: 10px; padding: 8px 8px 10px; }
+.account-menu-avatar { width: 30px; height: 30px; font-size: 13px; flex: none; }
+.account-menu-who { min-width: 0; }
+.account-menu-email { margin: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu-plan { margin: 2px 0 0; font-size: 11.5px; color: var(--text-muted); }
+.account-menu-credits { margin: 0 2px 6px; padding: 10px; border-radius: 9px; background: var(--bg-elevated-2); }
+.account-menu-credits-row { margin: 0; font-size: 12px; color: var(--text-muted); }
+.account-menu-credits-num { font-size: 18px; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.account-menu-credits-tasks { margin: 2px 0 0; font-size: 11.5px; color: var(--text-faint); }
+.account-menu-meter { margin-top: 10px; }
+.account-meter-track { display: block; height: 5px; border-radius: 99px; background: var(--border); overflow: hidden; }
+.account-meter-track i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--text); transition: width 0.4s ease; }
+.account-meter-track i.is-high { background: var(--accent); }
+.account-menu-meter small { display: block; margin-top: 5px; font-size: 11px; color: var(--text-faint); }
+.account-menu-items { display: grid; padding-top: 4px; border-top: 1px solid var(--border); }
+.account-menu-item {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.account-menu-item:hover,
+.account-menu-item:focus-visible { background: var(--bg-elevated-2); outline: none; }
+.account-menu-item.is-accent { color: var(--accent); font-weight: 600; }
+.account-menu-item.is-quiet { color: var(--text-muted); }
+
+/* ── Home: page-aware starters above the how-to chips (sidepanel/pageStarters.js) ── */
+.starter-chips { display: flex; flex-direction: column; gap: 6px; width: 100%; margin-bottom: 10px; }
+.starter-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  animation: fade-up 0.25s ease both;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.starter-chip::before { content: '→'; color: var(--accent); font-weight: 600; }
+.starter-chip:hover { border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--bg-elevated-2); transform: translateY(-1px); }
+.starter-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Account notices as a card after the turn (sidepanel/noticeCards.js) ── */
+.notice-card {
+  position: relative;
+  margin: 10px 12px 4px;
+  padding: 12px 36px 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--bg-soft));
+  animation: fade-up 0.25s ease both;
+}
+.notice-card[data-kind="paused"],
+.notice-card[data-kind="upgrade"] { border-color: var(--border-strong); background: var(--bg-soft); }
+.notice-card-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.notice-card-body { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.notice-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.notice-card-btn { height: 28px; padding: 0 12px; font-size: 12px; }
+.notice-card-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.notice-card-close:hover { background: var(--bg-elevated-2); color: var(--text); }
+/* These set display, so `hidden` needs to win explicitly. */
+.account-signin-btn[hidden],
+.account-chip[hidden],
+.account-menu[hidden],
+#moreBtn[hidden],
+.starter-chips[hidden],
+.notice-card-actions[hidden] { display: none !important; }
