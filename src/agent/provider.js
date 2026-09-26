@@ -3,7 +3,7 @@
  * BYOK from active provider in chrome.storage; HTTPS inference only (no cloud agent orchestrator).
  */
 
-import { BK_PURPOSE_HEADER, isCloudApiUrl } from './cloudModels.js';
+import { BK_CLIENT_HEADER, BK_PURPOSE_HEADER, bkClientHeaderValue, isCloudApiUrl } from './cloudModels.js';
 import { createOpenAICompatible } from './vnext/adapters/vendor/ai-sdk-loader.mjs';
 import {
   loadLlmSettings,
@@ -330,21 +330,6 @@ export async function createBrowserBotLanguageModel(opts = {}) {
   };
 }
 
-export const BK_CLIENT_HEADER = 'x-bk-client';
-
-/**
- * `browser-kitten/<manifest version>` for the Browser Kitten API's version gate,
- * or '' outside an extension (no manifest → no header). Never sent to BYOK hosts.
- */
-export function browserKittenClientTag() {
-  try {
-    const version = globalThis.chrome?.runtime?.getManifest?.()?.version;
-    return version ? `browser-kitten/${version}` : '';
-  } catch {
-    return '';
-  }
-}
-
 /**
  * Fetch for AI SDK. Extension pages with host_permissions usually succeed
  * directly (and must, for live SSE). Offscreen can still throw TypeError
@@ -362,7 +347,7 @@ export function createExtensionFetch(opts = {}) {
     headers.delete('x-paw-internal-no-retry');
     const url = resolveLlmFetchUrl(input);
     if (isCloudApiUrl(url)) {
-      const client = browserKittenClientTag();
+      const client = bkClientHeaderValue();
       if (client) headers.set(BK_CLIENT_HEADER, client);
       else headers.delete(BK_CLIENT_HEADER);
     } else {

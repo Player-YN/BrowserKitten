@@ -39,14 +39,14 @@ export function pinnedCloudModel(id) {
 /**
  * Names this build on every Browser Kitten API request so the server can ask old
  * clients to update (HTTP 426 CLIENT_UPGRADE_REQUIRED). Only sent to our own API.
+ * '' outside an extension (no manifest): callers then send no header at all.
  */
 export const BK_CLIENT_HEADER = 'x-bk-client';
 export function bkClientHeaderValue() {
-  let version = '';
   try {
-    version = String(globalThis.chrome?.runtime?.getManifest?.()?.version || '');
+    const version = globalThis.chrome?.runtime?.getManifest?.()?.version;
+    return version ? `browser-kitten/${version}` : '';
   } catch {
-    /* not in an extension context (tests) */
+    return '';
   }
-  return `browser-kitten/${version || '0'}`;
 }

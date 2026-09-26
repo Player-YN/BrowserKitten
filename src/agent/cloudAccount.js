@@ -216,7 +216,7 @@ async function cloudJson(path, { token, method = 'GET', body, fetchImpl = fetch 
   const res = await fetchImpl(`${CLOUD_ORIGIN}${path}`, {
     method,
     headers: {
-      [BK_CLIENT_HEADER]: bkClientHeaderValue(),
+      ...(bkClientHeaderValue() ? { [BK_CLIENT_HEADER]: bkClientHeaderValue() } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(body ? { 'content-type': 'application/json' } : {})
     },
