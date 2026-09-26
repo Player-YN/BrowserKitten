@@ -2723,6 +2723,13 @@ if (chrome.storage?.onChanged) {
         changes.browserbot_active_provider_id) {
       void refreshComposerContextWindowState();
     }
+    // Sign-in / sign-out (or another view) switched the active chat provider: the chip
+    // and effort chips must follow, or they keep showing the previous provider's model.
+    if (changes.browserbot_active_provider_id || changes.browserbot_providers) {
+      // The effort chips read the model catalog of the active base: drop the old one first.
+      catalogModels = [];
+      void syncToolbarFromActiveProvider().then(() => refreshReasoningCatalog(false));
+    }
   });
 }
 
