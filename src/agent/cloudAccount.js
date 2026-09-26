@@ -12,10 +12,10 @@
  *
  *   chrome.storage.local  browserbot_cloud_account = { token, deviceId, filled: { tavily, firecrawl }, connectedAt }
  */
+import { CLOUD_IDS, CLOUD_MODELS, CLOUD_ORIGIN, isCloudProvider } from './cloudModels.js';
 import { defaultImageConfig, loadProvidersState, saveProvidersState } from './llm.js';
 import { loadWebAcquireSettings, saveWebAcquireSettings } from './webAcquireSettings.js';
 
-export const CLOUD_ORIGIN = 'https://browserkitten.com';
 export const CLOUD_API_BASE = `${CLOUD_ORIGIN}/api/v1`;
 export const CLOUD_TAVILY_BASE = `${CLOUD_ORIGIN}/api/tavily`;
 export const CLOUD_FIRECRAWL_BASE = `${CLOUD_ORIGIN}/api/firecrawl`;
@@ -23,20 +23,16 @@ export const CLOUD_ACCOUNT_URL = `${CLOUD_ORIGIN}/account.html`;
 export const CLOUD_ACCOUNT_KEY = 'browserbot_cloud_account';
 export const CLOUD_NAME = 'Browser Kitten';
 
-export const CLOUD_IDS = {
-  chat: 'bk_cloud_chat',
-  image: 'bk_cloud_image',
-  stt: 'bk_cloud_stt',
-  jev: 'bk_cloud_jev'
-};
+export { CLOUD_IDS, CLOUD_MODELS, CLOUD_ORIGIN, isCloudProvider };
 
-export const isCloudProvider = (p) => typeof p?.id === 'string' && p.id.startsWith('bk_cloud_');
-
-/** @returns {Record<'chat'|'image'|'stt'|'jev', object>} */
-export function cloudProviderRecords(token, { chatModel = '' } = {}) {
+/**
+ * Each record always sends its route (bk-auto, …); the server picks the real model.
+ * @returns {Record<'chat'|'image'|'stt'|'jev', object>}
+ */
+export function cloudProviderRecords(token) {
   const createdAt = Date.now();
   return {
-    chat: { id: CLOUD_IDS.chat, name: CLOUD_NAME, baseURL: CLOUD_API_BASE, apiKey: token, model: chatModel, purpose: 'chat', protocol: 'openai-compatible', createdAt },
+    chat: { id: CLOUD_IDS.chat, name: CLOUD_NAME, baseURL: CLOUD_API_BASE, apiKey: token, model: CLOUD_MODELS.chat, purpose: 'chat', protocol: 'openai-compatible', createdAt },
     image: {
       id: CLOUD_IDS.image,
       name: CLOUD_NAME,
@@ -45,10 +41,10 @@ export function cloudProviderRecords(token, { chatModel = '' } = {}) {
       model: '',
       purpose: 'image',
       createdAt,
-      image: defaultImageConfig({ enabled: true, protocol: 'openai-image', path: '/images/generations', baseURL: CLOUD_API_BASE, apiKey: token, model: 'bk-image' })
+      image: defaultImageConfig({ enabled: true, protocol: 'openai-image', path: '/images/generations', baseURL: CLOUD_API_BASE, apiKey: token, model: CLOUD_MODELS.image })
     },
-    stt: { id: CLOUD_IDS.stt, name: CLOUD_NAME, baseURL: CLOUD_API_BASE, apiKey: token, model: 'bk-stt', purpose: 'stt', createdAt },
-    jev: { id: CLOUD_IDS.jev, name: CLOUD_NAME, baseURL: CLOUD_API_BASE, apiKey: token, model: 'bk-system1', purpose: 'jev', createdAt }
+    stt: { id: CLOUD_IDS.stt, name: CLOUD_NAME, baseURL: CLOUD_API_BASE, apiKey: token, model: CLOUD_MODELS.stt, purpose: 'stt', createdAt },
+    jev: { id: CLOUD_IDS.jev, name: CLOUD_NAME, baseURL: CLOUD_API_BASE, apiKey: token, model: CLOUD_MODELS.jev, purpose: 'jev', createdAt }
   };
 }
 
@@ -59,8 +55,8 @@ const usable = (p) => !!p && (!!String(p.apiKey || '').trim() || !!String(p.imag
  * @param {Awaited<ReturnType<typeof loadProvidersState>>} state
  * @param {ReturnType<typeof import('./webAcquireSettings.js').normalizeWebAcquireSettings>} web
  */
-export function planCloudSignIn(state, web, token, { chatModel = '' } = {}) {
-  const records = cloudProviderRecords(token, { chatModel });
+export function planCloudSignIn(state, web, token) {
+  const records = cloudProviderRecords(token);
   const providers = [...(state.providers || []).filter((p) => !isCloudProvider(p)), records.chat, records.image, records.stt, records.jev];
   const pick = (activeId, active, cloudId) => (usable(active) && !isCloudProvider(active) ? activeId : cloudId);
   const webPatch = {};
@@ -158,19 +154,18 @@ export async function signInWithBrowserKitten({ fetchImpl = fetch } = {}) {
   const code = back.searchParams.get('code');
   if (!code) throw new Error('Sign-in did not return a code.');
   const { token, deviceId } = await cloudJson('/api/device/exchange', { method: 'POST', body: { code, label: deviceLabel() }, fetchImpl });
-
-  let chatModel = '';
+  // Only to tell the user whether chat on credits works yet; the record always sends bk-auto.
+  let hosted = false;
   try {
-    const models = await cloudJson('/api/v1/models', { token, fetchImpl });
-    chatModel = models?.data?.[0]?.id || '';
+    hosted = (await cloudJson('/api/v1/models', { token, fetchImpl }))?.data?.length > 0;
   } catch {
-    /* no hosted models yet: the chat record stays without a model until one is offered */
+    /* unknown: say so like "not offered yet" rather than fail the sign-in */
   }
-  const plan = planCloudSignIn(await loadProvidersState(), await loadWebAcquireSettings(), token, { chatModel });
+  const plan = planCloudSignIn(await loadProvidersState(), await loadWebAcquireSettings(), token);
   await saveProvidersState(plan.providers, plan.activeProviderId, plan.activeImageProviderId, plan.activeSttProviderId, plan.activeJevProviderId);
   if (Object.keys(plan.webPatch).length) await saveWebAcquireSettings(plan.webPatch);
   await chrome.storage.local.set({ [CLOUD_ACCOUNT_KEY]: { token, deviceId, filled: plan.filled, connectedAt: Date.now() } });
-  return { deviceId, chatModel };
+  return { deviceId, hosted };
 }
 
 export async function signOutOfBrowserKitten({ fetchImpl = fetch } = {}) {

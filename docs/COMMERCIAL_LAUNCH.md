@@ -71,6 +71,16 @@ Browser Kitten 从 unpacked + 纯 BYOK 走向 Chrome 应用商店 + 订阅。
 - 函数崩溃留下的预扣由每小时 cron 按预扣额结算。
 - Workflow 回放不经过代理，**不扣积分**。
 
+## 模型路由（bk-auto）
+
+- 积分用户不选模型。扩展的积分记录固定发送路由名：对话 `bk-auto`、生图 `bk-image`、转写 `bk-stt`、System1 `bk-system1`（`src/agent/cloudModels.js`；`normalizeProvider` 钉死，选择器 / 设置页改不动）。
+- 服务端按接口和用途选路由（`server/modelRoutes.js`），**忽略客户端传来的模型名**。每个路由是一串上游条目，按顺序尝试；在向用户转发任何字节之前失败（5xx / 429 / 我们的 Key 被拒 / 网络错误）才切下一个，400 直接返回，流式一旦开始不再切换。套餐层级可以有自己的一串（`routes.chat.tiers.pro`）。
+- 上下文压缩和标题生成带 `x-bk-purpose: compact|title`，走便宜的 `bk-auto-light`；这个请求头只发往 browserkitten.com，其他服务商在 fetch 层剥掉。
+- 带图片的请求只走标了 `vision: true` 的条目；`reasoning` 参数只留给标了 `reasoning: true` 的条目。
+- 预扣按整串里最贵的条目算，结算按实际应答的条目算（`units.routedTo`，用于和上游账单对账）。
+- `/api/v1/models` 只返回 `bk-auto` 一行（上下文长度、最大输出、输入类型、推理档位取整串的交集），扩展据此决定压缩时机、推理滑块和能否发图。
+- 侧栏：积分服务商在模型列表里只显示一项「自动选择模型」，顶部标签显示 Browser Kitten。
+
 ## 扩展侧改动（上架必需的最小集）
 
 - 设置页：每一类加一个「Browser Kitten Cloud（积分）」预设，登录后自动填好 baseURL + 设备令牌（地址见上表）。完整的「每类积分/自带」开关界面可以后做。

@@ -10,17 +10,19 @@ import {
   planCloudSignOut
 } from '../src/agent/cloudAccount.js';
 import { defaultWebAcquireSettings, normalizeWebAcquireSettings } from '../src/agent/webAcquireSettings.js';
+import { normalizeProvider } from '../src/agent/llm.js';
+import { formatModelChipLabel } from '../src/agent/modelCatalog.js';
 
 const empty = { providers: [], activeProviderId: null, active: null, activeImageProviderId: null, activeImage: null, activeSttProviderId: null, activeStt: null, activeJevProviderId: null, activeJev: null };
 const TOKEN = 'bk_dev_abc';
 
 test('a fresh install gets every service on credits and all cloud records active', () => {
-  const plan = planCloudSignIn(empty, defaultWebAcquireSettings(), TOKEN, { chatModel: 'bk-default' });
+  const plan = planCloudSignIn(empty, defaultWebAcquireSettings(), TOKEN);
   assert.deepEqual(plan.providers.map((p) => p.id), Object.values(CLOUD_IDS));
   const chat = plan.providers.find((p) => p.id === CLOUD_IDS.chat);
   assert.equal(chat.baseURL, CLOUD_API_BASE);
   assert.equal(chat.apiKey, TOKEN);
-  assert.equal(chat.model, 'bk-default');
+  assert.equal(chat.model, 'bk-auto', 'credit chat always sends the bk-auto route');
   const image = plan.providers.find((p) => p.id === CLOUD_IDS.image);
   assert.equal(image.image.protocol, 'openai-image');
   assert.equal(image.image.apiKey, TOKEN);
@@ -74,4 +76,25 @@ test('credit exhaustion is recognized from the proxy’s 402 however it was surf
   assert.equal(isCloudCreditsError({ statusCode: 402, responseBody: '{"error":{"code":"CREDITS_EXHAUSTED"}}' }), true);
   assert.equal(isCloudCreditsError({ statusCode: 402, message: 'Insufficient balance' }), false, "another vendor's 402 is not ours");
   assert.equal(isCloudCreditsError({ statusCode: 500, message: 'boom' }), false);
+});
+
+test('credit records always send their route, whatever a picker, editor or old record wrote', () => {
+  const chat = normalizeProvider({ id: CLOUD_IDS.chat, baseURL: CLOUD_API_BASE, apiKey: TOKEN, model: 'deepseek-v4-flash', purpose: 'chat' });
+  assert.equal(chat.model, 'bk-auto');
+  assert.equal(normalizeProvider({ id: CLOUD_IDS.chat, model: '', purpose: 'chat' }).model, 'bk-auto', 'an empty model never falls back to a vendor default');
+  assert.equal(normalizeProvider({ id: CLOUD_IDS.stt, model: 'whisper-1', purpose: 'stt' }).model, 'bk-stt');
+  assert.equal(normalizeProvider({ id: CLOUD_IDS.jev, model: 'x', purpose: 'jev' }).model, 'bk-system1');
+  const records = planCloudSignIn(empty, defaultWebAcquireSettings(), TOKEN).providers;
+  const image = normalizeProvider({ ...records.find((p) => p.id === CLOUD_IDS.image), image: { ...records.find((p) => p.id === CLOUD_IDS.image).image, model: 'dall-e-3' } });
+  assert.equal(image.image.model, 'bk-image');
+  assert.equal(image.model, '');
+  const mine = normalizeProvider({ id: 'prov_me', model: 'deepseek-chat', purpose: 'chat' });
+  assert.equal(mine.model, 'deepseek-chat', 'the user’s own providers keep their model');
+});
+
+test('the composer chip names the service, not the route id', () => {
+  assert.equal(formatModelChipLabel('bk-auto', ''), 'Browser Kitten');
+  assert.equal(formatModelChipLabel('bk-auto', 'bk-image'), 'Browser Kitten');
+  assert.equal(formatModelChipLabel('openai/gpt-x', 'bk-image'), 'gpt-x · Browser Kitten');
+  assert.equal(formatModelChipLabel('openai/gpt-x', ''), 'gpt-x');
 });

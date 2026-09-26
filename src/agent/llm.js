@@ -23,6 +23,7 @@ import {
 } from '../brand.js';
 import { normalizeMediaOverrides } from './chatMedia.js';
 import { normalizeContextWindowOverrides } from './contextWindowStore.js';
+import { CLOUD_IDS, pinnedCloudModel } from './cloudModels.js';
 
 export const DEFAULT_BASE = 'https://api.deepseek.com/v1';
 
@@ -470,6 +471,13 @@ export function normalizeProvider(p) {
   const lastProbe = normalizeLastProbe(/** @type {any} */ (p).lastProbe);
   if (lastProbe) out.lastProbe = lastProbe;
   if (typeof p.nickname === 'string' && p.nickname.trim()) out.nickname = p.nickname.trim();
+  // Credit records always send their route; no picker, editor or migration can change it.
+  const pinned = pinnedCloudModel(id);
+  if (pinned && id === CLOUD_IDS.image) {
+    if (out.image) out.image.model = pinned;
+  } else if (pinned) {
+    out.model = pinned;
+  }
   return out;
 }
 

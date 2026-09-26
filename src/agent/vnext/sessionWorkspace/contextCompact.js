@@ -6,6 +6,7 @@
  * recent tail kept on a user boundary.
  */
 
+import { BK_PURPOSE_HEADER } from '../../cloudModels.js';
 import { DEFAULT_CONTEXT_WINDOW } from '../../modelCatalog.js';
 import { USER_REQUESTS_PATH, excerptWithOmission, isGreetingOrFiller } from './sessionIntent.js';
 
@@ -356,6 +357,7 @@ export async function generateCompactText(opts = {}) {
         { role: 'user', content: [{ type: 'text', text: body }] }
       ],
       maxOutputTokens: 1500,
+      headers: { [BK_PURPOSE_HEADER]: 'compact' },
       abortSignal: opts.signal
     });
     const parts = Array.isArray(out?.content) ? out.content : [];

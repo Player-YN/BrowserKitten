@@ -2,6 +2,7 @@
  * Task titles: default 任务 N / Task N, then a short name from the first user prompt.
  * A user rename (titleLocked) always wins over auto-naming.
  */
+import { BK_PURPOSE_HEADER } from '../../cloudModels.js';
 
 export const SESSION_TITLE_MAX = 60;
 
@@ -66,7 +67,8 @@ export async function generateTaskTitle(opts = {}) {
         { role: 'system', content: [{ type: 'text', text: sys }] },
         { role: 'user', content: [{ type: 'text', text: String(opts.text || '').slice(0, 500) }] }
       ],
-      maxOutputTokens: 32
+      maxOutputTokens: 32,
+      headers: { [BK_PURPOSE_HEADER]: 'title' }
     });
     const parts = Array.isArray(out?.content) ? out.content : [];
     const joined = parts.map((p) => (p?.type === 'text' ? p.text : '')).join('');

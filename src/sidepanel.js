@@ -45,6 +45,7 @@ import {
   CLOUD_ACCOUNT_URL,
   fetchCloudAccount,
   isCloudCreditsError,
+  isCloudProvider,
   signInWithBrowserKitten,
   signOutOfBrowserKitten
 } from './agent/cloudAccount.js';
@@ -12361,6 +12362,29 @@ async function renderModelPickerList() {
     const accordion = rows.length > 1;
     let anyRow = false;
     for (const p of rows) {
+      if (isCloudProvider(p)) {
+        // Credits: the server picks the model, so there is one entry to switch to, not a list.
+        const wrap = document.createElement('div');
+        wrap.className = 'model-select-provider';
+        wrap.dataset.providerId = p.id;
+        wrap.dataset.kind = kind;
+        const lab = document.createElement('div');
+        lab.className = 'model-select-group is-static' + (p.id === activeId ? ' is-active' : '');
+        const name = document.createElement('span');
+        name.className = 'model-select-group-label';
+        name.textContent = providerDisplayName(p, p.name || 'Browser Kitten');
+        lab.appendChild(name);
+        const row = document.createElement('div');
+        row.className = 'model-select-group-row';
+        row.appendChild(lab);
+        const ul = document.createElement('ul');
+        ul.className = 'model-select-pane-list';
+        addItem(ul, kind === 'image' ? p.image?.model : p.model, t('cloudAutoModel'), p.id, kind);
+        wrap.append(row, ul);
+        section.appendChild(wrap);
+        anyRow = true;
+        continue;
+      }
       const pack = await modelsForProvider(p);
       const items = kind === 'image' ? pack.image : pack.chat;
       const n = kind === 'image' ? pack.imageTotal || items.length : pack.chatTotal || items.length;
@@ -12967,6 +12991,8 @@ function fillSettingsForm(provider, opts = {}) {
 
   if (baseInput) baseInput.value = provider?.baseURL != null ? provider.baseURL : isNew ? '' : baseURL;
   if (modelInput) modelInput.value = provider?.model != null ? provider.model : isNew ? '' : model;
+  // Credits: the server picks the model; the record always sends bk-auto.
+  if (modelInput) modelInput.readOnly = isCloudProvider(provider);
   if (protocolSelect) {
     const proto =
       normalizeChatProtocol(provider?.protocol) || DEFAULT_CHAT_PROTOCOL;
@@ -14012,7 +14038,7 @@ async function startCloudSignIn() {
   }
   try {
     const out = await signInWithBrowserKitten();
-    showSidepanelToast(out.chatModel ? t('cloudSignedIn') : t('cloudNoModel'), { ms: 3600 });
+    showSidepanelToast(out.hosted ? t('cloudSignedIn') : t('cloudNoModel'), { ms: 3600 });
     await refreshVendorBoards();
   } catch (error) {
     // Closing the identity window is not an error worth shouting about.

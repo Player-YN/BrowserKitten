@@ -15,6 +15,7 @@
  * Never log or export API keys.
  */
 
+import { CLOUD_MODELS } from './cloudModels.js';
 import { BRAND_NAME } from '../brand.js';
 
 /**
@@ -796,11 +797,15 @@ export function shortModelId(modelId) {
  * @returns {string}
  */
 export function formatModelChipLabel(chatModel, imageModel) {
-  const chat = shortModelId(chatModel);
-  const image = shortModelId(imageModel);
-  if (chat && image) return `${chat} · ${image}`;
+  // Credit routes (bk-auto, bk-image) are not models the user picked: show the service.
+  const shown = (id) => (CLOUD_ROUTE_IDS.has(String(id || '').trim()) ? 'Browser Kitten' : shortModelId(id));
+  const chat = shown(chatModel);
+  const image = shown(imageModel);
+  if (chat && image && chat !== image) return `${chat} · ${image}`;
   return chat || image || '';
 }
+
+const CLOUD_ROUTE_IDS = new Set(Object.values(CLOUD_MODELS));
 
 /**
  * Split one provider's catalog into picker groups.

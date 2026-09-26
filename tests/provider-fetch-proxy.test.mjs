@@ -215,3 +215,23 @@ test('llmProxyFailure keeps both direct and proxy causes', () => {
   assert.equal(err.directError.message, 'Failed to fetch');
   assert.equal(err.cause.message, 'empty');
 });
+
+test('the purpose tag reaches only the Browser Kitten API, never the user\'s own provider', async () => {
+  const seen = [];
+  const restore = withFetchChrome({
+    fetchImpl: async (target, init) => {
+      seen.push({ target: String(target), purpose: new Headers(init.headers).get('x-bk-purpose') });
+      return new Response('{}', { headers: { 'content-type': 'application/json' } });
+    }
+  });
+  try {
+    const doFetch = createExtensionFetch();
+    const init = { method: 'POST', headers: { 'content-type': 'application/json', 'x-bk-purpose': 'compact' }, body: '{"model":"m","messages":[]}' };
+    await doFetch('https://browserkitten.com/api/v1/chat/completions', init);
+    await doFetch('https://api.deepseek.com/v1/chat/completions', init);
+    await doFetch('https://browserkitten.com.evil.test/api/v1/chat/completions', init);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(seen.map((s) => s.purpose), ['compact', null, null]);
+});

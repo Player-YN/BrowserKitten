@@ -3,6 +3,7 @@
  * BYOK from active provider in chrome.storage; HTTPS inference only (no cloud agent orchestrator).
  */
 
+import { BK_PURPOSE_HEADER, isCloudApiUrl } from './cloudModels.js';
 import { createOpenAICompatible } from './vnext/adapters/vendor/ai-sdk-loader.mjs';
 import {
   loadLlmSettings,
@@ -345,6 +346,7 @@ export function createExtensionFetch(opts = {}) {
     const requestNoRetry = headers.get('x-paw-internal-no-retry') === '1';
     headers.delete('x-paw-internal-no-retry');
     const url = resolveLlmFetchUrl(input);
+    if (!isCloudApiUrl(url)) headers.delete(BK_PURPOSE_HEADER);
     const keepReasoning = /openrouter\.ai/i.test(String(url));
     const cleanedInit = opts.anthropic
       ? { ...init, headers: sanitizeLlmProxyHeaders(headers) }
