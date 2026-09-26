@@ -11,6 +11,7 @@ import {
   jevSystemOneUrl,
   interpretJevProbeResponse,
   probeJevSystemOne,
+  buildJevProbeBody,
   JEV_PROBE_CHOICES
 } from '../src/agent/vnext/host/jevSelect.js';
 import { isChatProvider, isJevProvider, normalizeProvider } from '../src/agent/llm.js';
@@ -143,20 +144,91 @@ test('systemone URL rules: /v1 appends /systemone; already /systemone stays; oth
 
 test('Jev posts to the active provider systemone URL and a jev-only record is not a chat model', async () => {
   let posted = '';
+  let body = null;
   const missing = await fetchJevChoice({}, { subgoal: '下一页', candidates: [] }, async () => { throw new Error('no fetch'); });
   assert.equal(missing.code, 'NEED_JEV');
   await fetchJevChoice(
-    { apiKey: 'sk-or', apiBase: 'https://openrouter.ai/api/v1', model: 'jev-1.13' },
+    { apiKey: 'sk-or', apiBase: 'https://openrouter.ai/api/v1', model: 'typesafe/jev-1.13' },
     { subgoal: '下一页', candidates: [{ ref: 'f0.a1', name: '下一页', role: 'button' }] },
-    async (url) => {
+    async (url, init) => {
       posted = url;
+      body = JSON.parse(init.body);
       return { ok: true, json: async () => ({ answers: { pick: { choice: 'f0.a1', probability: 0.8 } } }) };
     }
   );
   assert.equal(posted, 'https://openrouter.ai/api/v1/systemone');
+  assert.equal(body.model, 'typesafe/jev-1.13');
   const jev = normalizeProvider({ id: 'j1', purpose: 'jev', name: 'Jev', baseURL: 'https://opencode.ai/zen/v1', apiKey: 'k', model: 'jev-1.13' });
   assert.equal(isJevProvider(jev), true);
   assert.equal(isChatProvider(jev), false);
+});
+
+test('custom gateway posts its own model id; empty model is NEED_MODEL and never rewritten to jev-1.13', async () => {
+  let body = null;
+  const ok = await fetchJevChoice(
+    { apiKey: 'k', apiBase: 'https://gateway.example.com/v1', model: 'acme/jev-custom' },
+    { subgoal: '下一页', candidates: [{ ref: 'f0.a1', name: '下一页', role: 'button' }] },
+    async (_url, init) => {
+      body = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ answers: { pick: { choice: 'f0.a1', probability: 0.7 } } }) };
+    }
+  );
+  assert.equal(ok.ok, true);
+  assert.equal(body.model, 'acme/jev-custom');
+
+  const emptyProbe = await probeJevSystemOne(
+    { apiKey: 'k', apiBase: 'https://gateway.example.com/v1', model: '' },
+    async () => {
+      throw new Error('must not fetch when model is empty');
+    }
+  );
+  assert.equal(emptyProbe.ok, false);
+  assert.equal(emptyProbe.code, 'NEED_MODEL');
+
+  const emptyChoose = await fetchJevChoice(
+    { apiKey: 'k', apiBase: 'https://gateway.example.com/v1' },
+    { subgoal: '下一页', candidates: [{ ref: 'f0.a1', name: '下一页', role: 'button' }] },
+    async () => {
+      throw new Error('must not fetch when model is empty');
+    }
+  );
+  assert.equal(emptyChoose.ok, false);
+  assert.equal(emptyChoose.code, 'NEED_MODEL');
+
+  assert.equal(buildJevProbeBody({ model: '' }).model, '');
+  assert.equal(buildJevProbeBody({}).model, '');
+  assert.notEqual(buildJevProbeBody({}).model, 'jev-1.13');
+});
+
+test('local Laya model id is posted to systemone as-is and is never replaced with jev-1.13', async () => {
+  let url = '';
+  let body = null;
+  const ok = await fetchJevChoice(
+    { apiKey: 'local', apiBase: 'http://localhost:8000/v1', model: 'Laya' },
+    { subgoal: '下一页', candidates: [{ ref: 'f0.a1', name: '下一页', role: 'button' }] },
+    async (postedUrl, init) => {
+      url = postedUrl;
+      body = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ answers: { pick: { choice: 'f0.a1', probability: 0.8 } } }) };
+    }
+  );
+  assert.equal(ok.ok, true);
+  assert.equal(url, 'http://localhost:8000/v1/systemone');
+  assert.equal(body.model, 'Laya');
+  assert.equal(JSON.stringify(body).includes('jev-1.13'), false);
+
+  let probeBody = null;
+  const probe = await probeJevSystemOne(
+    { apiKey: 'local', apiBase: 'http://127.0.0.1:9000/v1', model: 'laya' },
+    async (postedUrl, init) => {
+      assert.equal(postedUrl, 'http://127.0.0.1:9000/v1/systemone');
+      probeBody = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ answers: { pick: { choice: 'yes', probability: 1 } } }) };
+    }
+  );
+  assert.equal(probe.ok, true);
+  assert.equal(probeBody.model, 'laya');
+  assert.notEqual(probeBody.model, 'jev-1.13');
 });
 
 test('probe succeeds only when answers.pick.choice is one of the fixed options; /models shape fails', async () => {
@@ -182,7 +254,7 @@ test('probe succeeds only when answers.pick.choice is one of the fixed options; 
   assert.deepEqual(Object.keys(body.questions.pick.criteria).sort(), ['no', 'yes']);
 
   const modelsShape = await probeJevSystemOne(
-    { apiKey: 'k', apiBase: 'https://example.com/v1' },
+    { apiKey: 'k', apiBase: 'https://example.com/v1', model: 'acme/jev' },
     async () => ({ ok: true, json: async () => ({ data: [{ id: 'jev-1.13' }] }) })
   );
   assert.equal(modelsShape.ok, false);

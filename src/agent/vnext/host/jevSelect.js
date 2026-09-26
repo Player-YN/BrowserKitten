@@ -120,11 +120,12 @@ export function jevSystemOneUrl(apiBase) {
 
 /**
  * Tiny System One body used only to check that this base speaks Jev.
+ * Caller must supply the model id saved on that provider — no universal default.
  * @param {{model?:string}} [config]
  */
 export function buildJevProbeBody(config = {}) {
   return {
-    model: String(config.model || 'jev-1.13').trim() || 'jev-1.13',
+    model: String(config.model || '').trim(),
     state: 'ping',
     questions: {
       pick: {
@@ -144,7 +145,7 @@ export function interpretJevProbeResponse(body) {
   const choice = body && typeof body === 'object' ? body.answers?.pick?.choice : '';
   const id = String(choice || '').trim();
   if (!id || !(id in JEV_PROBE_CHOICES)) {
-    return { ok: false, code: 'NOT_JEV', error: 'This address does not provide Jev (no valid answers.pick.choice).' };
+    return { ok: false, code: 'NOT_JEV', error: 'This address does not provide System1 (no valid answers.pick.choice).' };
   }
   return { ok: true };
 }
@@ -157,9 +158,17 @@ export function interpretJevProbeResponse(body) {
 export async function probeJevSystemOne(config, fetchImpl = fetch) {
   const apiKey = String(config?.apiKey || '').trim();
   const apiBase = String(config?.apiBase || '').trim().replace(/\/$/, '');
+  const model = String(config?.model || '').trim();
   const url = jevSystemOneUrl(apiBase);
   if (!apiKey || !url) {
-    return { ok: false, code: 'NEED_JEV', error: 'Jev Base URL and API key are required.' };
+    return { ok: false, code: 'NEED_JEV', error: 'System1 Base URL and API key are required.' };
+  }
+  if (!model) {
+    return {
+      ok: false,
+      code: 'NEED_MODEL',
+      error: 'System1 model id is required. Enter the id this gateway publishes.'
+    };
   }
   let response;
   try {
@@ -169,19 +178,19 @@ export async function probeJevSystemOne(config, fetchImpl = fetch) {
         authorization: `Bearer ${apiKey}`,
         'content-type': 'application/json'
       },
-      body: JSON.stringify(buildJevProbeBody(config))
+      body: JSON.stringify(buildJevProbeBody({ ...config, model }))
     });
   } catch (error) {
     return { ok: false, code: 'JEV_UNAVAILABLE', error: error instanceof Error ? error.message : String(error) };
   }
   if (!response?.ok) {
-    return { ok: false, code: 'JEV_UNAVAILABLE', error: `Jev HTTP ${response?.status || 0}` };
+    return { ok: false, code: 'JEV_UNAVAILABLE', error: `System1 HTTP ${response?.status || 0}` };
   }
   let json;
   try {
     json = await response.json();
   } catch {
-    return { ok: false, code: 'NOT_JEV', error: 'This address does not provide Jev (non-JSON response).' };
+    return { ok: false, code: 'NOT_JEV', error: 'This address does not provide System1 (non-JSON response).' };
   }
   return interpretJevProbeResponse(json);
 }
@@ -230,13 +239,13 @@ export async function runChooseLoop(opts) {
           ok: false,
           code,
           reason,
-          error: chosen?.error || 'Jev did not choose a control.',
+          error: chosen?.error || 'System1 did not choose a control.',
           steps
         });
       }
       picked = candidates.find((row) => row.ref === chosen.ref) || null;
       if (!picked) {
-        return publicChooseReceipt({ ok: false, code: 'JEV_ABSTAIN', reason: 'abstain', error: 'Jev chose a ref that is not a candidate.', steps });
+        return publicChooseReceipt({ ok: false, code: 'JEV_ABSTAIN', reason: 'abstain', error: 'System1 chose a ref that is not a candidate.', steps });
       }
       via = String(opts.jevVia || 'jev').slice(0, 80);
     }
@@ -279,14 +288,22 @@ export async function runChooseLoop(opts) {
 export async function fetchJevChoice(config, payload, fetchImpl = fetch) {
   const apiKey = String(config?.apiKey || '').trim();
   const apiBase = String(config?.apiBase || '').trim().replace(/\/$/, '');
+  const model = String(config?.model || '').trim();
   const url = jevSystemOneUrl(apiBase);
   if (!apiKey || !url) {
-    return { ok: false, code: 'NEED_JEV', error: 'No active Jev provider. Add Base URL and key in Settings.' };
+    return { ok: false, code: 'NEED_JEV', error: 'No active System1 provider. Add Base URL and key in Settings.' };
+  }
+  if (!model) {
+    return {
+      ok: false,
+      code: 'NEED_MODEL',
+      error: 'System1 model id is required on the active provider. Enter the id this gateway publishes.'
+    };
   }
   const criteria = { abstain: 'None of the controls fits the subgoal.' };
   for (const row of payload.candidates || []) criteria[row.ref] = `${row.name}${row.role ? ` (${row.role})` : ''}`;
   const body = {
-    model: config.model || 'jev-1.13',
+    model,
     state: {
       subgoal: String(payload.subgoal || '').slice(0, 200),
       previous: payload.previous
@@ -320,7 +337,7 @@ export async function fetchJevChoice(config, payload, fetchImpl = fetch) {
     return { ok: false, code: 'JEV_UNAVAILABLE', error: error instanceof Error ? error.message : String(error) };
   }
   if (!response?.ok) {
-    return { ok: false, code: 'JEV_UNAVAILABLE', error: `Jev HTTP ${response?.status || 0}` };
+    return { ok: false, code: 'JEV_UNAVAILABLE', error: `System1 HTTP ${response?.status || 0}` };
   }
   const json = await response.json();
   const parsed = parseJevChoice(json, new Set((payload.candidates || []).map((row) => row.ref)));

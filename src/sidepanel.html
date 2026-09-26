@@ -698,21 +698,25 @@
               </div>
               <div class="api-preset-field">
                 <label class="settings-label" id="inferencePresetLabel" for="inferencePresetSelect" data-i18n="providerPreset">模板</label>
+                <button type="button" class="preset-custom-btn" id="inferencePresetCustomBtn" data-i18n="presetCustom">自定义</button>
                 <div class="preset-combobox" id="inferencePresetCombobox" data-preset-kind="inference">
-                  <input
-                    type="text"
-                    id="inferencePresetSelect"
-                    class="modal-input preset-combobox-input"
-                    role="combobox"
-                    aria-expanded="false"
-                    aria-autocomplete="list"
-                    aria-controls="inferencePresetList"
-                    aria-labelledby="inferencePresetLabel"
-                    data-i18n-placeholder="presetSelectPlaceholder"
-                    placeholder="选择模板"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
+                  <div class="preset-combobox-control">
+                    <input
+                      type="text"
+                      id="inferencePresetSelect"
+                      class="modal-input preset-combobox-input"
+                      role="combobox"
+                      aria-expanded="false"
+                      aria-autocomplete="list"
+                      aria-controls="inferencePresetList"
+                      aria-labelledby="inferencePresetLabel"
+                      data-i18n-placeholder="presetSelectPlaceholder"
+                      placeholder="选择模板"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <span class="preset-combobox-chevron" aria-hidden="true"></span>
+                  </div>
                   <ul class="preset-combobox-list" id="inferencePresetList" role="listbox" hidden></ul>
                 </div>
               </div>
@@ -743,7 +747,7 @@
             <label class="settings-label" for="providerModelInput" data-i18n="settingsChatModel">模型</label>
             <div class="chat-model-input-row">
               <input type="text" id="providerModelInput" class="modal-input" placeholder="deepseek-v4-flash" autocomplete="off" list="providerModelSuggestions" />
-              <button type="button" id="providerModelRefreshBtn" class="btn btn-secondary settings-mini-btn" data-i18n="apiProbeBtn" data-i18n-title="apiProbeBtnHint">探测</button>
+              <button type="button" id="providerModelRefreshBtn" class="btn btn-secondary settings-mini-btn" data-i18n="apiProbeBtn" data-i18n-title="apiProbeBtnHint" title="用当前表单的 Base / Key / 模型 / 协议发一条极短对话，确认模型真实可访问">探测</button>
             </div>
             <p class="settings-hint" id="apiProbeResult" hidden></p>
             <input type="search" id="providerModelFilter" class="modal-input" data-i18n-placeholder="modelPickerSearchChat" placeholder="搜索推理模型…" autocomplete="off" hidden />
@@ -778,21 +782,25 @@
               </div>
               <div class="api-preset-field">
                 <label class="settings-label" id="imagePresetLabel" for="imagePresetSelect" data-i18n="providerPreset">模板</label>
+                <button type="button" class="preset-custom-btn" id="imagePresetCustomBtn" data-i18n="presetCustom">自定义</button>
                 <div class="preset-combobox" id="imagePresetCombobox" data-preset-kind="image">
-                  <input
-                    type="text"
-                    id="imagePresetSelect"
-                    class="modal-input preset-combobox-input"
-                    role="combobox"
-                    aria-expanded="false"
-                    aria-autocomplete="list"
-                    aria-controls="imagePresetList"
-                    aria-labelledby="imagePresetLabel"
-                    data-i18n-placeholder="presetSelectPlaceholder"
-                    placeholder="选择模板"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
+                  <div class="preset-combobox-control">
+                    <input
+                      type="text"
+                      id="imagePresetSelect"
+                      class="modal-input preset-combobox-input"
+                      role="combobox"
+                      aria-expanded="false"
+                      aria-autocomplete="list"
+                      aria-controls="imagePresetList"
+                      aria-labelledby="imagePresetLabel"
+                      data-i18n-placeholder="presetSelectPlaceholder"
+                      placeholder="选择模板"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <span class="preset-combobox-chevron" aria-hidden="true"></span>
+                  </div>
                   <ul class="preset-combobox-list" id="imagePresetList" role="listbox" hidden></ul>
                 </div>
               </div>
@@ -853,21 +861,25 @@
               </div>
               <div class="api-preset-field">
                 <label class="settings-label" id="sttPresetLabel" for="sttPresetSelect" data-i18n="providerPreset">模板</label>
+                <button type="button" class="preset-custom-btn" id="sttPresetCustomBtn" data-i18n="presetCustom">自定义</button>
                 <div class="preset-combobox" id="sttPresetCombobox" data-preset-kind="stt">
-                  <input
-                    type="text"
-                    id="sttPresetSelect"
-                    class="modal-input preset-combobox-input"
-                    role="combobox"
-                    aria-expanded="false"
-                    aria-autocomplete="list"
-                    aria-controls="sttPresetList"
-                    aria-labelledby="sttPresetLabel"
-                    data-i18n-placeholder="presetSelectPlaceholder"
-                    placeholder="选择模板"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
+                  <div class="preset-combobox-control">
+                    <input
+                      type="text"
+                      id="sttPresetSelect"
+                      class="modal-input preset-combobox-input"
+                      role="combobox"
+                      aria-expanded="false"
+                      aria-autocomplete="list"
+                      aria-controls="sttPresetList"
+                      aria-labelledby="sttPresetLabel"
+                      data-i18n-placeholder="presetSelectPlaceholder"
+                      placeholder="选择模板"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <span class="preset-combobox-chevron" aria-hidden="true"></span>
+                  </div>
                   <ul class="preset-combobox-list" id="sttPresetList" role="listbox" hidden></ul>
                 </div>
               </div>
@@ -906,10 +918,10 @@
         </section>
 
         <section class="settings-api-card" id="settingsJevCard" aria-labelledby="settingsJevTitle">
-          <h4 class="settings-api-card-title" id="settingsJevTitle" data-i18n="settingsJevTitle">选择</h4>
-          <p class="settings-hint" id="jevStatusLine" data-i18n="jevEmptyHint">尚未添加选择 API（Jev）。</p>
+          <h4 class="settings-api-card-title" id="settingsJevTitle" data-i18n="settingsJevTitle">System1</h4>
+          <p class="settings-hint" id="jevStatusLine" data-i18n="jevEmptyHint">尚未添加 System1。</p>
           <div id="jevVendorList" class="api-vendor-list"></div>
-          <button type="button" class="api-add-btn" id="addJevBtn" data-i18n="addJevBtn">＋ 添加选择 API</button>
+          <button type="button" class="api-add-btn" id="addJevBtn" data-i18n="addJevBtn">＋ 添加 System1</button>
           <div id="jevEditor" class="api-vendor-editor" hidden>
             <div class="api-editor-head">
               <div class="api-nickname-field">
@@ -918,21 +930,25 @@
               </div>
               <div class="api-preset-field">
                 <label class="settings-label" id="jevPresetLabel" for="jevPresetSelect" data-i18n="providerPreset">模板</label>
+                <button type="button" class="preset-custom-btn" id="jevPresetCustomBtn" data-i18n="presetCustom">自定义</button>
                 <div class="preset-combobox" id="jevPresetCombobox" data-preset-kind="jev">
-                  <input
-                    type="text"
-                    id="jevPresetSelect"
-                    class="modal-input preset-combobox-input"
-                    role="combobox"
-                    aria-expanded="false"
-                    aria-autocomplete="list"
-                    aria-controls="jevPresetList"
-                    aria-labelledby="jevPresetLabel"
-                    data-i18n-placeholder="presetSelectPlaceholder"
-                    placeholder="选择模板"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
+                  <div class="preset-combobox-control">
+                    <input
+                      type="text"
+                      id="jevPresetSelect"
+                      class="modal-input preset-combobox-input"
+                      role="combobox"
+                      aria-expanded="false"
+                      aria-autocomplete="list"
+                      aria-controls="jevPresetList"
+                      aria-labelledby="jevPresetLabel"
+                      data-i18n-placeholder="presetSelectPlaceholder"
+                      placeholder="选择模板"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <span class="preset-combobox-chevron" aria-hidden="true"></span>
+                  </div>
                   <ul class="preset-combobox-list" id="jevPresetList" role="listbox" hidden></ul>
                 </div>
               </div>
@@ -952,13 +968,13 @@
             </div>
             <label class="settings-label" for="providerJevModelInput" data-i18n="settingsJevModel">模型</label>
             <div class="chat-model-input-row">
-              <input type="text" id="providerJevModelInput" class="modal-input" placeholder="jev-1.13" autocomplete="off" />
+              <input type="text" id="providerJevModelInput" class="modal-input" placeholder="model id" autocomplete="off" />
               <button type="button" id="providerJevProbeBtn" class="btn btn-secondary settings-mini-btn" data-i18n="apiProbeJevBtn" data-i18n-title="apiProbeJevBtnHint">探测</button>
             </div>
             <p class="settings-hint" id="jevProbeResult" hidden></p>
             <div class="api-editor-actions">
               <button type="button" class="btn btn-secondary" id="cancelJevEditorBtn" data-i18n="cancel">取消</button>
-              <button type="button" class="btn btn-primary" id="saveJevEditorBtn" data-i18n="saveJevBtn">保存选择 API</button>
+              <button type="button" class="btn btn-primary" id="saveJevEditorBtn" data-i18n="saveJevBtn">保存 System1</button>
             </div>
           </div>
         </section>
@@ -977,20 +993,23 @@
               <div class="api-preset-field">
                 <label class="settings-label" id="webPresetLabel" for="webPresetSelect" data-i18n="providerPreset">模板</label>
                 <div class="preset-combobox" id="webPresetCombobox" data-preset-kind="web">
-                  <input
-                    type="text"
-                    id="webPresetSelect"
-                    class="modal-input preset-combobox-input"
-                    role="combobox"
-                    aria-expanded="false"
-                    aria-autocomplete="list"
-                    aria-controls="webPresetList"
-                    aria-labelledby="webPresetLabel"
-                    data-i18n-placeholder="presetSelectPlaceholder"
-                    placeholder="选择模板"
-                    autocomplete="off"
-                    spellcheck="false"
-                  />
+                  <div class="preset-combobox-control">
+                    <input
+                      type="text"
+                      id="webPresetSelect"
+                      class="modal-input preset-combobox-input"
+                      role="combobox"
+                      aria-expanded="false"
+                      aria-autocomplete="list"
+                      aria-controls="webPresetList"
+                      aria-labelledby="webPresetLabel"
+                      data-i18n-placeholder="presetSelectPlaceholder"
+                      placeholder="选择模板"
+                      autocomplete="off"
+                      spellcheck="false"
+                    />
+                    <span class="preset-combobox-chevron" aria-hidden="true"></span>
+                  </div>
                   <ul class="preset-combobox-list" id="webPresetList" role="listbox" hidden></ul>
                 </div>
               </div>

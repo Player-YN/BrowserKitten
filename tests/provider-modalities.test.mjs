@@ -150,6 +150,27 @@ test('jev-only purpose is not a chat provider', () => {
   assert.equal(hit.activeJevProviderId, 'jev1');
 });
 
+test('normalizeProvider keeps an empty or custom Jev model id as stored', () => {
+  const empty = normalizeProvider({
+    id: 'jev-empty',
+    purpose: 'jev',
+    name: 'Custom',
+    baseURL: 'https://gateway.example.com/v1',
+    apiKey: 'k',
+    model: ''
+  });
+  assert.equal(empty.model, '');
+  const custom = normalizeProvider({
+    id: 'jev-custom',
+    purpose: 'jev',
+    name: 'Custom',
+    baseURL: 'https://gateway.example.com/v1',
+    apiKey: 'k',
+    model: 'acme/jev-custom'
+  });
+  assert.equal(custom.model, 'acme/jev-custom');
+});
+
 test('isLikelySttModel keeps whisper and drops chat ids', () => {
   assert.equal(isLikelySttModel('whisper-1'), true);
   assert.equal(isLikelySttModel('gpt-4o-mini-transcribe'), true);

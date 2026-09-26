@@ -173,7 +173,7 @@ function unsupportedWire(wire, baseURL, model, source) {
       source,
       code: 'CHAT_WIRE_JEV',
       error:
-        `Model "${id}" uses System One (/systemone). Add it under the selection (Jev) API, not chat inference.`
+        `Model "${id}" uses System One (/systemone). Add it under System1, not chat inference.`
     };
   }
   if (wire === CHAT_PROTOCOL_RESPONSES || wire === 'responses') {

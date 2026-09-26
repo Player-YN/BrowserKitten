@@ -1148,14 +1148,14 @@ async function runChooseAction(request, tabId) {
       if (!jev?.apiKey || !jev?.apiBase) {
         return {
           code: 'NEED_JEV',
-          error: 'No active Jev provider. Add one in Settings, or click with ref yourself.'
+          error: 'No active System1 provider. Add one in Settings, or click with ref yourself.'
         };
       }
       const chosen = await fetchJevChoice(
         {
           apiKey: jev.apiKey,
           apiBase: jev.apiBase,
-          model: jev.model || 'jev-1.13'
+          model: jev.model
         },
         payload
       );

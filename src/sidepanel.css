@@ -8127,13 +8127,57 @@ body[data-theme="light"] .capability-icon.is-checking {
   width: 100%;
   min-height: 34px;
 }
+.preset-custom-btn {
+  align-self: flex-start;
+  margin: 0;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.preset-custom-btn:hover {
+  color: var(--signal, var(--accent));
+}
+.preset-custom-btn:focus-visible {
+  outline: 2px solid var(--signal, var(--accent));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .preset-combobox {
   position: relative;
   min-width: 0;
   width: 100%;
 }
+.preset-combobox-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
 .preset-combobox-input {
   width: 100%;
+  padding-right: 28px;
+}
+.preset-combobox-chevron {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.preset-combobox:has(.preset-combobox-input[aria-expanded="true"]) .preset-combobox-chevron {
+  transform: translateY(-15%) rotate(225deg);
 }
 .preset-combobox-list {
   position: absolute;

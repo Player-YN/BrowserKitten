@@ -33,8 +33,6 @@ import {
   DEFAULT_BASE,
   DEFAULT_STT_BASE,
   DEFAULT_STT_MODEL,
-  DEFAULT_JEV_BASE,
-  DEFAULT_JEV_MODEL,
   OPENROUTER_API_BASE,
   DEFAULT_IMAGE_PROTOCOL,
   DEFAULT_IMAGE_PATH,
@@ -47,7 +45,8 @@ import {
   IMAGE_PROVIDER_PRESETS,
   STT_PROVIDER_PRESETS,
   JEV_PROVIDER_PRESETS,
-  WEB_PROVIDER_PRESETS
+  WEB_PROVIDER_PRESETS,
+  presetsForTemplateCombobox
 } from './agent/providerPresets.js';
 import { mountPresetCombobox } from './sidepanel/presetCombobox.js';
 import {
@@ -211,6 +210,11 @@ import {
   shortModelId,
   applyProviderProbeResult
 } from './agent/modelCatalog.js';
+import {
+  buildModelReachProbeRequest,
+  probeModelReach,
+  sanitizeProbeErrorMessage
+} from './agent/modelReachProbe.js';
 import {
   pinItems as pinClipboardItemsToStore,
   listItems as listClipboardItemsFromStore,
@@ -12760,12 +12764,18 @@ function applyImagePreset(presetId) {
 
 /**
  * Mark active preset on the searchable combobox (visual only).
+ * Blank custom (`openai-compatible`) clears back to the placeholder — it lives
+ * on the separate「自定义」button, not as a selected dropdown value.
  * @param {string} id
  * @param {string|null} presetId
  */
 function setPresetSelect(id, presetId) {
   const box = presetComboboxByInputId.get(id);
-  if (box && presetId != null) {
+  if (box) {
+    if (presetId == null || presetId === '' || presetId === 'openai-compatible') {
+      box.setValue('');
+      return;
+    }
     box.setValue(presetId);
     return;
   }
@@ -12780,6 +12790,7 @@ function setPresetSelect(id, presetId) {
 
 /** @type {Map<string, ReturnType<typeof mountPresetCombobox>>} */
 const presetComboboxByInputId = new Map();
+let presetCustomButtonsBound = false;
 
 function presetComboboxCopy() {
   return {
@@ -12788,7 +12799,22 @@ function presetComboboxCopy() {
   };
 }
 
+function bindPresetCustomButtons() {
+  if (presetCustomButtonsBound) return;
+  presetCustomButtonsBound = true;
+  const specs = [
+    ['inferencePresetCustomBtn', () => applyInferencePreset('openai-compatible')],
+    ['imagePresetCustomBtn', () => applyImagePreset('openai-compatible')],
+    ['sttPresetCustomBtn', () => applySttPreset('openai-compatible')],
+    ['jevPresetCustomBtn', () => applyJevPreset('openai-compatible')]
+  ];
+  for (const [btnId, onClick] of specs) {
+    document.getElementById(btnId)?.addEventListener('click', onClick);
+  }
+}
+
 function ensurePresetComboboxes() {
+  bindPresetCustomButtons();
   if (presetComboboxByInputId.size) {
     for (const box of presetComboboxByInputId.values()) {
       box.setPlaceholder(presetComboboxCopy().placeholder);
@@ -12801,13 +12827,13 @@ function ensurePresetComboboxes() {
     {
       rootId: 'inferencePresetCombobox',
       inputId: 'inferencePresetSelect',
-      items: PROVIDER_PRESETS || [],
+      items: presetsForTemplateCombobox(PROVIDER_PRESETS || []),
       onSelect: (id) => applyInferencePreset(id)
     },
     {
       rootId: 'imagePresetCombobox',
       inputId: 'imagePresetSelect',
-      items: IMAGE_PROVIDER_PRESETS,
+      items: presetsForTemplateCombobox(IMAGE_PROVIDER_PRESETS),
       onSelect: (id) => {
         if (id && id !== 'off') applyImagePreset(id);
       }
@@ -12815,7 +12841,7 @@ function ensurePresetComboboxes() {
     {
       rootId: 'sttPresetCombobox',
       inputId: 'sttPresetSelect',
-      items: STT_PROVIDER_PRESETS,
+      items: presetsForTemplateCombobox(STT_PROVIDER_PRESETS),
       onSelect: (id) => {
         if (id) applySttPreset(id);
       }
@@ -12823,7 +12849,7 @@ function ensurePresetComboboxes() {
     {
       rootId: 'jevPresetCombobox',
       inputId: 'jevPresetSelect',
-      items: JEV_PROVIDER_PRESETS,
+      items: presetsForTemplateCombobox(JEV_PROVIDER_PRESETS),
       onSelect: (id) => {
         if (id) applyJevPreset(id);
       }
@@ -12845,9 +12871,7 @@ function ensurePresetComboboxes() {
       items: spec.items,
       placeholder: copy.placeholder,
       emptyText: copy.emptyText,
-      onSelect: spec.onSelect,
-      getItemLabel: (item) =>
-        item.id === 'openai-compatible' ? t('presetCustom') || item.name : item.name
+      onSelect: spec.onSelect
     });
     presetComboboxByInputId.set(spec.inputId, box);
   }
@@ -13043,7 +13067,8 @@ function resolveEditorApiKey() {
 }
 
 /**
- * Optional: GET /models and fill datalist suggestions only (no giant catalog).
+ * Settings catalogue helpers (picker GET /models still fills these).
+ * Inference editor probe is a short chat turn — see onRefreshChatModelsClick.
  */
 let settingsProbedModels = [];
 let settingsProbedImageModels = [];
@@ -13061,10 +13086,14 @@ function paintProbeResult(result) {
   el.classList.toggle('is-ok', result.ok === true);
   el.classList.toggle('is-err', result.ok !== true);
   if (result.ok) {
-    const n = Number(result.count) || 0;
-    el.textContent = t('apiProbeOk').replace('{n}', String(n));
-    if (result.fromCache) {
-      el.textContent += settingsLangEn() ? ' (cached)' : '（已缓存）';
+    if (result.reach) {
+      el.textContent = t('apiProbeModelOk');
+    } else {
+      const n = Number(result.count) || 0;
+      el.textContent = t('apiProbeOk').replace('{n}', String(n));
+      if (result.fromCache) {
+        el.textContent += settingsLangEn() ? ' (cached)' : '（已缓存）';
+      }
     }
   } else {
     el.textContent = t('apiProbeFail').replace('{err}', String(result.error || 'error'));
@@ -13251,19 +13280,18 @@ async function probeAndPersistProviderCatalog(provider) {
   return { ...probe, chat: [], image: [] };
 }
 
+/**
+ * Inference editor: POST a one-token chat turn with the form's current values.
+ * Does not GET /models (model picker still does). Does not persist transcript.
+ */
 async function onRefreshChatModelsClick() {
   const baseURL = document.getElementById('apiBaseInput')?.value?.trim() || '';
+  const model = document.getElementById('providerModelInput')?.value?.trim() || '';
+  const protocolRaw = document.getElementById('providerChatProtocolSelect')?.value;
+  const protocol = normalizeChatProtocol(protocolRaw) || protocolRaw || null;
   const hintEl = document.getElementById('settingsApiHint');
   const btn = document.getElementById('providerModelRefreshBtn');
-  if (!baseURL) {
-    paintProbeResult({ ok: false, error: settingsLangEn() ? 'Enter Base URL first.' : '请先填写 Base URL。' });
-    if (hintEl) {
-      hintEl.hidden = false;
-      hintEl.textContent = settingsLangEn() ? 'Enter Base URL, then probe.' : '请先填写 Base URL，再探测 API。';
-    }
-    document.getElementById('apiBaseInput')?.focus();
-    return;
-  }
+
   if (/image_generation/i.test(baseURL)) {
     paintProbeResult({
       ok: false,
@@ -13282,16 +13310,21 @@ async function onRefreshChatModelsClick() {
       apiKey = (p?.apiKey && String(p.apiKey)) || '';
     } catch (_) {}
   }
-  if (!apiKey) {
-    paintProbeResult({
-      ok: false,
-      error: settingsLangEn() ? 'API key required.' : '需要 API Key。'
-    });
+
+  const built = buildModelReachProbeRequest({ baseURL, apiKey, model, protocol });
+  if (!built.ok) {
+    let err = built.error;
+    if (built.missing === 'baseURL') err = t('apiProbeNeedBase');
+    else if (built.missing === 'apiKey') err = t('apiProbeNeedKey');
+    else if (built.missing === 'model') err = t('apiProbeNeedModel');
+    paintProbeResult({ ok: false, error: err });
     if (hintEl) {
-    hintEl.hidden = false;
-    hintEl.textContent = settingsLangEn() ? 'Need an API key to probe /models.' : '需要 API Key 才能探测 /models。';
-  }
-    document.getElementById('apiKeyInput')?.focus();
+      hintEl.hidden = false;
+      hintEl.textContent = err;
+    }
+    if (built.missing === 'baseURL') document.getElementById('apiBaseInput')?.focus();
+    else if (built.missing === 'apiKey') document.getElementById('apiKeyInput')?.focus();
+    else if (built.missing === 'model') document.getElementById('providerModelInput')?.focus();
     return;
   }
 
@@ -13302,47 +13335,51 @@ async function onRefreshChatModelsClick() {
   paintProbeResult(null);
   if (hintEl) {
     hintEl.hidden = false;
-    hintEl.textContent = 'GET /models …';
+    hintEl.textContent = settingsLangEn()
+      ? `POST ${built.wire} · short prompt…`
+      : `POST ${built.wire} · 短 Prompt…`;
   }
 
-  let image = undefined;
   try {
-    const state = await loadProvidersState();
-    const host = (state.providers || []).find((x) => x.id === settingsConfigUi.providerId);
-    image = host?.image;
-  } catch (_) {}
-  const probe = await probeAndPersistProviderCatalog({
-    id: settingsConfigUi.providerId,
-    baseURL,
-    apiKey,
-    image
-  });
-  try {
-    if (probe.ok) {
-      settingsProbedModels = probe.chat.length ? probe.chat : probe.models.filter((m) => !m.image);
-      catalogModels = settingsProbedModels;
-      fillModelDatalist(settingsProbedModels);
-      renderSettingsModelCatalog();
-      settingsProbedImageModels = probe.image;
-      renderSettingsImageCatalog();
-      paintProbeResult({ ...probe, count: settingsProbedModels.length });
-      const modelInput = document.getElementById('providerModelInput');
-      if (modelInput && !modelInput.value.trim() && probe.models[0]?.id) {
-        modelInput.value = probe.models[0].id;
-        chatMediaSettingsUi?.sync();
-        contextWindowSettingsUi?.sync();
+    const probe = await probeModelReach(
+      { baseURL, apiKey, model, protocol },
+      async (url, init) => {
+        const res = await proxyJsonRequest({
+          url,
+          method: init?.method || 'POST',
+          headers: init?.headers || built.headers,
+          body: init?.body != null ? init.body : built.bodyJson
+        });
+        return {
+          status: Number(res.status) || (res.ok ? 200 : 0),
+          text: async () => {
+            if (typeof res.text === 'string') return res.text;
+            if (res.json != null) return JSON.stringify(res.json);
+            return '';
+          }
+        };
       }
-      syncReasoningSwitch();
-      await refreshVendorBoards();
+    );
+    if (probe.ok) {
+      paintProbeResult({ ok: true, reach: true });
       if (hintEl) hintEl.hidden = true;
     } else {
-      settingsProbedModels = [];
-      renderSettingsModelCatalog();
-      paintProbeResult(probe);
+      const err = sanitizeProbeErrorMessage(probe.error || 'probe failed', apiKey);
+      paintProbeResult({ ok: false, error: err });
       if (hintEl) {
         hintEl.hidden = false;
-        hintEl.textContent = probe.error || 'probe failed';
+        hintEl.textContent = err;
       }
+    }
+  } catch (e) {
+    const err = sanitizeProbeErrorMessage(
+      e instanceof Error ? e.message : String(e),
+      apiKey
+    );
+    paintProbeResult({ ok: false, error: err });
+    if (hintEl) {
+      hintEl.hidden = false;
+      hintEl.textContent = err;
     }
   } finally {
     if (btn) {
@@ -13826,7 +13863,7 @@ function renderJevVendorList(state) {
   }
   for (const p of vendors) {
     const host = vendorHostFromUrl(p.baseURL);
-    const bits = [p.model || DEFAULT_JEV_MODEL, host].filter(Boolean);
+    const bits = [p.model, host].filter(Boolean);
     const title = jevCardTitle(p);
     list.appendChild(
       renderVendorCard({
@@ -14510,18 +14547,21 @@ function applyJevPreset(presetId) {
   const key = document.getElementById('providerJevKeyInput');
   const model = document.getElementById('providerJevModelInput');
   setPresetSelect('jevPresetSelect', presetId);
-  if (presetId === 'opencode') {
-    if (base) base.value = DEFAULT_JEV_BASE;
-    if (model) model.value = DEFAULT_JEV_MODEL;
-    if (key && !settingsJevUi.hasStoredKey) key.placeholder = 'sk-...';
-  } else if (presetId === 'openrouter') {
-    if (base) base.value = OPENROUTER_API_BASE;
-    if (model) model.value = DEFAULT_JEV_MODEL;
-    if (key && !settingsJevUi.hasStoredKey) key.placeholder = 'sk-or-...';
-  } else if (presetId === 'openai-compatible') {
-    if (base && !base.value.trim()) base.value = '';
-    if (model && !model.value.trim()) model.value = DEFAULT_JEV_MODEL;
-    if (key && !settingsJevUi.hasStoredKey) key.placeholder = 'sk-... / any key';
+  const preset = (JEV_PROVIDER_PRESETS || []).find((p) => p.id === presetId);
+  if (!preset) return;
+  if (base) {
+    if (presetId === 'openai-compatible') {
+      base.value = '';
+    } else {
+      base.value = String(preset.baseURL || '')
+        .trim()
+        .replace(/\/$/, '');
+    }
+  }
+  // Catalog model only — custom preset leaves empty; never invent jev-1.13.
+  if (model) model.value = String(preset.model || '');
+  if (key && !settingsJevUi.hasStoredKey) {
+    key.placeholder = preset.apiKeyPlaceholder || 'sk-...';
   }
 }
 
@@ -14532,8 +14572,12 @@ function fillJevForm(provider) {
   fillNickname('jevNicknameInput', provider?.nickname);
   settingsJevUi.hasStoredKey = !!provider?.apiKey;
   settingsJevUi.keyTail = provider?.apiKey ? String(provider.apiKey).slice(-4) : '';
-  if (base) base.value = String(provider?.baseURL || DEFAULT_JEV_BASE).replace(/\/$/, '');
-  if (model) model.value = String(provider?.model || DEFAULT_JEV_MODEL);
+  if (base) {
+    base.value = String(provider?.baseURL || '')
+      .trim()
+      .replace(/\/$/, '');
+  }
+  if (model) model.value = String(provider?.model || '');
   if (key) {
     key.value = '';
     key.placeholder = settingsJevUi.hasStoredKey
@@ -14543,6 +14587,7 @@ function fillJevForm(provider) {
   const rawBase = String(provider?.baseURL || '');
   let preset = 'openai-compatible';
   if (/opencode\.ai/i.test(rawBase)) preset = 'opencode';
+  else if (/typesafe\.ai/i.test(rawBase)) preset = 'typesafe';
   else if (/openrouter/i.test(rawBase)) preset = 'openrouter';
   setPresetSelect('jevPresetSelect', preset);
 }
@@ -14556,11 +14601,7 @@ function openJevEditor(provider) {
   if (provider && isJevProvider(provider)) {
     fillJevForm(provider);
   } else {
-    fillJevForm({
-      baseURL: DEFAULT_JEV_BASE,
-      model: DEFAULT_JEV_MODEL,
-      apiKey: ''
-    });
+    fillJevForm({ baseURL: '', model: '', apiKey: '' });
     applyJevPreset('opencode');
   }
   paintJevProbeResult(null);
@@ -14584,6 +14625,10 @@ function paintJevProbeResult(result) {
     el.textContent = t('apiProbeJevOk');
   } else if (result.code === 'NOT_JEV') {
     el.textContent = t('apiProbeJevFail');
+  } else if (result.code === 'NEED_MODEL') {
+    el.textContent = settingsLangEn()
+      ? 'Enter the model id this gateway publishes.'
+      : '请填写此网关发布的模型 id。';
   } else {
     el.textContent = t('apiProbeFail').replace('{err}', String(result.error || 'error'));
   }
@@ -14606,7 +14651,7 @@ async function resolveJevProbeCreds() {
   return {
     baseURL: String(baseURL || '').replace(/\/$/, ''),
     apiKey,
-    model: model || DEFAULT_JEV_MODEL
+    model: String(model || '').trim()
   };
 }
 
@@ -14624,6 +14669,16 @@ async function onProbeJevClick() {
     paintJevProbeResult({
       ok: false,
       error: settingsLangEn() ? 'API key required.' : '需要 API Key。'
+    });
+    return;
+  }
+  if (!model) {
+    paintJevProbeResult({
+      ok: false,
+      code: 'NEED_MODEL',
+      error: settingsLangEn()
+        ? 'Enter the model id this gateway publishes.'
+        : '请填写此网关发布的模型 id。'
     });
     return;
   }
@@ -14674,8 +14729,7 @@ async function onProbeJevClick() {
 async function saveJevEditor(opts = {}) {
   const baseURL = document.getElementById('providerJevBaseInput')?.value?.trim() || '';
   const typedKey = document.getElementById('providerJevKeyInput')?.value?.trim() || '';
-  const model =
-    document.getElementById('providerJevModelInput')?.value?.trim() || DEFAULT_JEV_MODEL;
+  const model = document.getElementById('providerJevModelInput')?.value?.trim() || '';
   const nickname = readNickname('jevNicknameInput');
   if (!baseURL) {
     showSidepanelToast(settingsLangEn() ? 'Enter selection Base URL.' : '请填写选择 Base URL。', {
@@ -14684,12 +14738,22 @@ async function saveJevEditor(opts = {}) {
     document.getElementById('providerJevBaseInput')?.focus();
     return false;
   }
+  if (!model) {
+    showSidepanelToast(
+      settingsLangEn()
+        ? 'Enter the model id this gateway publishes.'
+        : '请填写此网关发布的模型 id。',
+      { error: true }
+    );
+    document.getElementById('providerJevModelInput')?.focus();
+    return false;
+  }
   const state = await loadProvidersState();
   const host = (state.providers || []).find((p) => p.id === settingsJevUi.providerId) || null;
   const prevKey = host && isJevProvider(host) ? String(host.apiKey || '').trim() : '';
   const apiKey = typedKey || prevKey;
   if (!apiKey) {
-    showSidepanelToast(settingsLangEn() ? 'Enter a selection API key.' : '请填写选择 API Key。', {
+    showSidepanelToast(settingsLangEn() ? 'Enter a System1 API key.' : '请填写 System1 API Key。', {
       error: true
     });
     document.getElementById('providerJevKeyInput')?.focus();

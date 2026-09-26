@@ -308,16 +308,48 @@ export const STT_PROVIDER_PRESETS = [
   { id: 'openai-compatible', name: 'OpenAI Compatible', baseURL: '' }
 ];
 
-/** Jev / System One templates. */
+/**
+ * System1 / System One templates (purpose:'jev').
+ * Model ids are vendor-specific (confirmed from current docs); custom leaves model empty.
+ * Laya local base follows laya-serve Quickstart (`POST …/v1/systemone`);
+ * model id `multilingual` (alias `laya` maps to english-only — do not use).
+ */
 export const JEV_PROVIDER_PRESETS = [
   {
     id: 'opencode',
     name: 'OpenCode Zen',
     baseURL: 'https://opencode.ai/zen/v1',
-    model: 'jev-1.13'
+    model: 'jev-1.13',
+    apiKeyPlaceholder: 'sk-...'
   },
-  { id: 'openrouter', name: 'OpenRouter', baseURL: OPENROUTER_API_BASE, model: 'jev-1.13' },
-  { id: 'openai-compatible', name: 'OpenAI Compatible', baseURL: '' }
+  {
+    id: 'typesafe',
+    name: 'TypeSafe',
+    baseURL: 'https://api.typesafe.ai/v1',
+    model: 'jev-1.13.0',
+    apiKeyPlaceholder: 'sk-...'
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    baseURL: OPENROUTER_API_BASE,
+    model: 'typesafe/jev-1.13',
+    apiKeyPlaceholder: 'sk-or-...'
+  },
+  {
+    id: 'laya-local',
+    name: 'Laya (local)',
+    baseURL: 'http://localhost:8000/v1',
+    model: 'multilingual',
+    apiKeyPlaceholder: 'any key / LAYA_SERVE_API_KEY'
+  },
+  {
+    id: 'openai-compatible',
+    name: 'OpenAI Compatible',
+    baseURL: '',
+    model: '',
+    apiKeyPlaceholder: 'sk-... / any key'
+  }
 ];
 
 /** Web search / extract templates. */
@@ -326,6 +358,17 @@ export const WEB_PROVIDER_PRESETS = [
   { id: 'brave', name: 'Brave', baseURL: '' },
   { id: 'firecrawl', name: 'Firecrawl', baseURL: '' }
 ];
+
+/**
+ * Template combobox options: vendor presets only.
+ * Blank `openai-compatible` stays in the catalog for the separate「自定义」action.
+ * @template {{ id?: string }} T
+ * @param {T[]} [presets]
+ * @returns {T[]}
+ */
+export function presetsForTemplateCombobox(presets) {
+  return (Array.isArray(presets) ? presets : []).filter((p) => p?.id !== 'openai-compatible');
+}
 
 const ALLOWED_PROTOCOLS = new Set(['openai-compatible', 'anthropic', 'auto']);
 

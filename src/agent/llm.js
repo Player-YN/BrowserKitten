@@ -37,7 +37,10 @@ export const DEFAULT_OPENROUTER_IMAGE_PROTOCOL = 'openrouter-image';
 export const DEFAULT_OPENROUTER_IMAGE_PATH = '/images';
 export const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-2.5-flash-image';
 
-/** Suggested Jev base (OpenAI-compatible origin; client appends /systemone as needed). */
+/**
+ * Suggested OpenCode Zen origin (OpenAI-compatible; client appends /systemone as needed).
+ * DEFAULT_JEV_MODEL is Zen's published id only — never a silent fallback for other gateways.
+ */
 export const DEFAULT_JEV_BASE = 'https://opencode.ai/zen/v1';
 export const DEFAULT_JEV_MODEL = 'jev-1.13';
 
@@ -316,7 +319,8 @@ export function jevVendorLabel(provider) {
   if (/opencode\.ai/i.test(base)) return 'OpenCode Zen';
   if (/openrouter/i.test(base)) return 'OpenRouter';
   if (/typesafe/i.test(base)) return 'TypeSafe';
-  return provider?.name || 'Jev';
+  if (/localhost:8000|127\.0\.0\.1:8000/i.test(base)) return 'Laya (local)';
+  return provider?.name || 'System1';
 }
 
 export function jevCardTitle(provider) {
@@ -885,8 +889,10 @@ function jevSettingsFields(activeJev) {
   return {
     jev: {
       apiKey: activeJev.apiKey,
-      apiBase: (activeJev.baseURL || DEFAULT_JEV_BASE).replace(/\/$/, ''),
-      model: activeJev.model || DEFAULT_JEV_MODEL
+      apiBase: String(activeJev.baseURL || '')
+        .trim()
+        .replace(/\/$/, ''),
+      model: String(activeJev.model || '').trim()
     },
     jevProviderId: activeJev.id,
     jevProviderName: jevCardTitle(activeJev)
