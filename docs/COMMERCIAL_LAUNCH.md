@@ -1,118 +1,80 @@
-# 商业化上架：后端设计与清单
+# 商业化上架：后端与清单
 
-Browser Kitten 从 unpacked + 纯 BYOK 走向 Chrome 应用商店 + 订阅。本文件是**设计与清单**，不是已实现的事实；实现落地后以代码为准。
+Browser Kitten 从 unpacked + 纯 BYOK 走向 Chrome 应用商店 + 订阅。
+
+**后端已实现**，在私有仓库 `Player-YN/browserkitten-site` 的 `feat/backend` 分支（`api/` + `server/`，说明见该仓库 README 的 Backend 一节）。本文件记录设计取舍、扩展这边要接的东西，以及上架清单。事实以代码为准。
 
 ## 原则
 
 - **runtime 仍在用户浏览器里。** 后端只做四件事：账号、订阅、积分、推理代理。不跑 agent 循环，不存会话，不碰页面。
 - **每一类服务独立选「积分」或「自带 Key」。** 只有走积分的那一类才扣费。开发者档可以全部自带，不含积分。
-- **扩展改动最小。** 代理对外兼容现有各类接口的格式，积分模式在扩展里就是一个新的服务商预设（baseURL 指向代理，apiKey = 设备令牌）。
-- **推理内容不落盘。** 代理只记计量（token 数、服务类别、模型、金额），不记 prompt 和回复正文。
+- **扩展改动最小。** 代理对外兼容现有各类接口的格式；积分模式在扩展里就是一个新的服务商预设（baseURL 指向代理，apiKey = 设备令牌）。
+- **推理内容不落盘。** 代理只记计量（token 数、服务类别、模型、积分），不记 prompt、回复、页面、音频。
 
-## 需要代理的 6 类服务
+## 选型
 
-| 类别 | 扩展里的配置 | 代理端点（兼容格式） | 上游（示例） | 地址可改？ |
-|------|--------------|----------------------|--------------|-----------|
-| 对话推理 | `browserbot_providers` purpose=chat | `POST /v1/chat/completions`（OpenAI 兼容，SSE 流式） | OpenRouter / 厂商直连 | ✓ `apiBase` |
-| 生图 | purpose=image | `POST /v1/images/generations` | 同上 | ✓ |
-| 转写 | purpose=stt | `POST /v1/audio/transcriptions` | Whisper 兼容 | ✓ |
-| System1 | purpose=jev | `POST /v1/systemone` | 自选小模型 | ✓ |
-| 搜索 | `browserbot_web_acquire` Tavily | `POST /search`（Tavily 兼容） | Tavily | ✓ `tavilyBaseURL`；Brave 地址写死在 `webSearch.js:55` |
-| 抓取 | Firecrawl | `POST /v1/scrape` 等（Firecrawl 兼容） | Firecrawl | ✓ `firecrawlBaseURL` |
+| 部分 | 选择 | 理由 |
+|------|------|------|
+| 运行 | Vercel Functions（与官网同一个项目，`browserkitten.com/api/*`） | 官网已在 Vercel；同域名，Cookie 与登录页简单；支持流式；按实际 CPU 计费，等上游时不计 |
+| 数据库 | Postgres（Neon，经 Vercel Marketplace） | 账本需要行锁与事务 |
+| 登录 | Better Auth：Google + 邮箱验证码，无密码；限流存 Postgres | 不自己写 OAuth |
+| 邮件 | Resend | |
+| 收款 | **Paddle（Merchant of Record）** | 代收代缴全球 VAT / 销售税 |
+| 测试 | PGlite（WASM 里的真 Postgres）+ 假上游 | SQL 真的跑过 |
 
-上游 Key 只存在后端的 secret 里，扩展永远拿不到。
+注意：Vercel Hobby 档**禁止商业用途**，上线收费前要升级到 Pro。
 
-## 架构
+## 代理的 6 类服务
+
+| 类别 | 扩展里的配置 | 代理端点 | 地址可改？ |
+|------|--------------|----------|-----------|
+| 对话推理 | purpose=chat | `POST /api/v1/chat/completions`（OpenAI 兼容，SSE）· `GET /api/v1/models` | ✓ `apiBase` |
+| 生图 | purpose=image，protocol=`openai-image` | `POST /api/v1/images/generations` | ✓ |
+| 转写 | purpose=stt | `POST /api/v1/audio/transcriptions` | ✓ |
+| System1 | purpose=jev | `POST /api/v1/systemone`（由托管小模型回答 `answers.pick.choice`） | ✓ |
+| 搜索 | Tavily | `POST /api/tavily/search` | ✓ `tavilyBaseURL`；Brave 写死在 `webSearch.js:55` |
+| 抓取 | Firecrawl | `/api/firecrawl/{v1,v2}/{scrape,map,search,crawl}` | ✓ `firecrawlBaseURL` |
+
+所以积分模式下：chat / image / stt / jev 的 baseURL = `https://browserkitten.com/api/v1`，Tavily = `https://browserkitten.com/api/tavily`，Firecrawl = `https://browserkitten.com/api/firecrawl`，Key 都是设备令牌。上游 Key 只在后端环境变量里。
+
+## 登录与设备令牌
 
 ```text
-扩展（用户浏览器）
-  ├─ 登录：chrome.identity.launchWebAuthFlow → 网站登录页 → 回调带一次性 code
-  │        → POST /auth/device 换设备令牌（bk_dev_…，存 chrome.storage.local）
-  ├─ 积分模式的每一类：baseURL = https://api.<域名>/v1，apiKey = 设备令牌
-  └─ 余额 / 套餐：GET /me
-        │
-        ▼
-Cloudflare Workers（Hono）  ── D1（SQLite）── KV（限流）
-  /auth/*   登录、设备令牌签发与吊销
-  /billing/* Stripe Checkout、Customer Portal、webhook
-  /v1/*      推理代理：鉴权 → 预扣 → 转发上游（流式透传）→ 按实际用量结算
-        │
-        ├─ Stripe（订阅、加油包、税）
-        ├─ Resend（邮箱验证码）
-        └─ 上游：模型、Tavily、Firecrawl…
+扩展  chrome.identity.launchWebAuthFlow({ url: https://browserkitten.com/connect.html?redirect_uri=https://<扩展ID>.chromiumapp.org/&state=… , interactive: true })
+页面  未登录 → login.html → 回到 connect.html；用户点「Connect」
+页面  POST /api/device/start → 一次性 code（5 分钟）→ 跳回 redirect_uri?code=…&state=…
+扩展  POST /api/device/exchange { code, label } → { token: "bk_dev_…" }，存 chrome.storage.local
 ```
 
-选 Workers 的理由：按请求计费、没有闲置成本；原生支持 SSE 流式透传；全球边缘，离用户近；一个仓库就能部署。私有仓库 `browserkitten-site` 可以放登录页和定价页。
+- 只接受 `ALLOWED_EXTENSION_IDS` 里的扩展 ID（商店版、不公开测试版、本地开发版分别加）。
+- 数据库只存令牌的 SHA-256。账户页可逐台注销；退订不吊销令牌，只把权益降到免费档。
+- `GET /api/me`（带设备令牌）→ 套餐、剩余积分。
 
-## 鉴权
+## 订阅与 Paddle
 
-- **网页登录**：Google OAuth + 邮箱验证码两种。不做密码（少一类风险，也少一个客服问题）。可用 Better Auth（支持 Workers + D1），不要自己写 OAuth。
-- **扩展拿令牌**：`chrome.identity.launchWebAuthFlow` 打开网站的 `/extension-login`，登录后重定向到 `https://<扩展ID>.chromiumapp.org/cb?code=…`。扩展用 code 换**设备令牌**。Edge 也支持这个 API。
-- **设备令牌**：长期有效、可吊销，每台设备一条，后台只存 SHA-256 哈希。它就是积分模式下各类服务的 `apiKey`，所以扩展现有的 provider 代码不用改鉴权逻辑。
-- **吊销**：网站「我的设备」里可以逐条注销；退订不吊销令牌，只把权益降到免费档。
+- 结账：账户页 `POST /api/billing/checkout` → 后端创建 Paddle transaction（`custom_data.bk_user` 在服务端写入，浏览器改不了）→ Paddle.js 弹窗付款。
+- 管理：`POST /api/billing/portal` → Paddle 客户门户（换档、换卡、取消、发票）。
+- webhook `POST /api/paddle/webhook`，校验 `Paddle-Signature`（HMAC-SHA256，5 分钟时效，支持轮换期多签名）：
+  - `subscription.*` → 自有表 `bk_subscription`，按 `occurred_at` 排序，迟到的旧事件不会覆盖新状态；`past_due` 期间保留权益。
+  - `transaction.completed` → 按 transaction id 发积分：首单 / 续费发整期（年付 ×12）；中途升级按实付比例；加油包按包。
+  - `adjustment.*` 退款（已批准）或拒付 → 该笔交易的 grant 清零剩余。
 
-## 订阅与 Stripe
-
-**主体**：用美国公司开 Stripe 账户（覆盖面最广，Stripe Tax 可用）。香港公司可以留作亚洲本地支付（支付宝 / 微信支付）的备选主体。
-
-**全球消费者税务**：卖给全球个人用户，要处理欧盟 VAT、英国 VAT、美国各州销售税等。两条路：
-1. Stripe + Stripe Tax：你自己是卖方，要在各地按门槛注册申报。
-2. 用 Merchant of Record（Paddle、Lemon Squeezy，或 Stripe 的 Managed Payments，如果已对你的账户开放）：对方是法律上的卖方，替你收税报税，费率高一些。**早期建议走 MoR**，省掉合规负担。
-
-**Stripe 对象**：
-
-| Product | Price | 说明 |
-|---------|-------|------|
-| Developer | $5/月、年付 | 只含 BYOK，不含积分 |
-| Standard | $12/月、年付 | 每月 N 积分 + BYOK |
-| Pro | $20/月、年付 | 每月 M 积分 + 高端模型 + BYOK |
-| Booster | 一次性 | 加油包，积分不过期或 12 个月过期 |
-
-具体积分额度等上线前用真实成本数据定，见下文「积分」。
-
-**流程**：
-- 升级：`POST /billing/checkout` → Stripe Checkout（托管页面，不在扩展里收卡）→ 成功页。
-- 管理：`POST /billing/portal` → Stripe Customer Portal（换档、取消、发票、换卡）。
-- **权益只以 webhook 为准**：`checkout.session.completed`、`customer.subscription.created|updated|deleted`、`invoice.paid`（按周期发放积分）、`invoice.payment_failed`、`charge.refunded`。webhook 必须验签、按 event id 幂等。
+套餐与价格 ID 在 `server/plans.js`：Developer（0 积分，只 BYOK）、Standard、Pro、两档加油包。**积分数是草稿**，等成本基准跑完再定。免费用户注册送一次性试用积分。
 
 ## 积分
 
-**单位**：1 积分 = 固定美元成本（比如 $0.001），对用户只显示积分。各类的换算：
-
-| 类别 | 计量 | 换算 |
-|------|------|------|
-| 对话推理 | 上游返回的 input / output / cached token | 按各模型的上游单价 × 加价系数 |
-| System1 | 同上 | 很便宜，可以单独打低系数 |
-| 生图 | 张数 × 尺寸 | 固定价目 |
-| 转写 | 音频秒数 | 固定价目 |
-| 搜索 / 抓取 | 次数 / 页数 | 固定价目 |
-| Workflow 回放 | 不经过代理 | **0** |
-
-**账本**（D1）：
-
-```sql
-users(id, email, created_at, stripe_customer_id)
-devices(id, user_id, token_hash, label, created_at, last_seen_at, revoked_at)
-subscriptions(user_id, plan, status, current_period_end, stripe_subscription_id)
-credit_grants(id, user_id, source, amount, remaining, expires_at)   -- 订阅周期 / 加油包 / 试用
-usage(id, user_id, device_id, category, model, units_json, credits, request_id, created_at)
-processed_events(stripe_event_id PRIMARY KEY)
-```
-
-**扣费流程**（流式也适用）：
-1. 请求进来：校验设备令牌 → 查套餐是否允许这一类和这个模型 → **预扣**一个上限（按 `max_tokens` 估）。余额不足直接返回 `402 {code:"CREDITS_EXHAUSTED"}`。
-2. 转发上游，流式透传给扩展。
-3. 结束时按上游返回的真实 usage **结算**：多退少补。上游没给 usage 就按预扣额结算。
-4. 扣减顺序：最早过期的 grant 先扣。
-
-**硬上限**：每档每月积分封顶；每分钟请求数和并发流数限流（KV）。免费试用要求登录，按设备和邮箱去重，拦截一次性邮箱。
-
-**定价方法**：上线前用基准任务集跑一遍，统计每个任务在各类上的平均成本，再定每档积分数，保证**满额用完仍有毛利**。
+- 1 积分 = `catalog.creditUsd`（默认 $0.001），`markup` 可调。模型价格在 `server/catalog.json`，**价格没填的模型不对外提供**。
+- 每次请求：预扣上限 → 调上游 → 按真实用量结算，多退少补；超出预扣的部分最多扣到 0，剩下的由我们承担，不会出现负余额。
+- 预扣估算：输入按字符数（偏宽松），内联图片每张按固定额度，输出按 `max_tokens`；代理会把上游 `max_tokens` 强制设为这个值，实际用量不会远超预扣。
+- 流式：边透传边读最后的 usage；流中断或客户端断开时按已送达的文本估算，且不超过预扣额。
+- 扣减顺序：最早过期的 grant 先扣。锁住 grant 行再计算余额，并发请求不会超扣。
+- 函数崩溃留下的预扣由每小时 cron 按预扣额结算。
+- Workflow 回放不经过代理，**不扣积分**。
 
 ## 扩展侧改动（上架必需的最小集）
 
-- 设置页：每一类加一个「Browser Kitten Cloud（积分）」预设，登录后自动填好 baseURL + 设备令牌。完整的「每类积分/自带」开关界面可以后做。
-- 侧栏：登录按钮、当前套餐、剩余积分；收到 `402` 时给出升级 / 加油包入口，不当成模型错误。
+- 设置页：每一类加一个「Browser Kitten Cloud（积分）」预设，登录后自动填好 baseURL + 设备令牌（地址见上表）。完整的「每类积分/自带」开关界面可以后做。
+- 侧栏：登录按钮、当前套餐、剩余积分；收到 `402 CREDITS_EXHAUSTED` 时给出升级 / 加油包入口（`https://browserkitten.com/account.html`），不当成模型错误。
 - `manifest.json` 加 `identity` 权限（`launchWebAuthFlow` 需要）。
 - Brave 搜索的地址改成可配置，或者积分模式只走 Tavily。
 
@@ -122,8 +84,10 @@ processed_events(stripe_event_id PRIMARY KEY)
 - [ ] 开发者账户（一次性 $5），以美国公司注册为**组织**，开启两步验证。
 - [ ] 完成 trader 声明（面向欧盟必需）：公司地址、电话、邮箱要验证并公开展示。
 - [ ] 域名、官网、支持邮箱。
+- [ ] Paddle 账户（用美国公司）：先在 sandbox 跑通；正式收款前 Paddle 会审核网站（要能看到产品说明、定价、服务条款、隐私政策、退款政策）和域名。
+- [ ] Vercel 升级 Pro（Hobby 禁止商业用途；每小时 cron 也需要 Pro）。
 
-### 法律页面（Stripe 和商店都要）
+### 法律页面（Paddle 审核和商店都要）
 - [ ] 隐私政策：写清楚页面内容、对话内容在积分模式下会发往我们的代理和上游模型；代理不存正文；BYOK 模式直接发到用户选的服务商。
 - [ ] 服务条款、退款政策、订阅自动续费说明。
 
