@@ -235,3 +235,26 @@ test('the purpose tag reaches only the Browser Kitten API, never the user\'s own
   }
   assert.deepEqual(seen.map((s) => s.purpose), ['compact', null, null]);
 });
+
+test('the client version tag reaches only the Browser Kitten API, with the manifest version', async () => {
+  const seen = [];
+  const previous = { fetch: globalThis.fetch, chrome: globalThis.chrome };
+  globalThis.fetch = async (target, init) => {
+    seen.push({ target: String(target), client: new Headers(init.headers).get('x-bk-client') });
+    return new Response('{}', { headers: { 'content-type': 'application/json' } });
+  };
+  globalThis.chrome = { runtime: { getManifest: () => ({ version: '1.2.3' }) } };
+  try {
+    const doFetch = createExtensionFetch();
+    const init = { method: 'POST', headers: { 'content-type': 'application/json', 'x-bk-client': 'spoofed/9' }, body: '{"model":"m","messages":[]}' };
+    await doFetch('https://browserkitten.com/api/v1/chat/completions', init);
+    await doFetch('https://api.deepseek.com/v1/chat/completions', init);
+    await doFetch('https://browserkitten.com.evil.test/api/v1/chat/completions', init);
+    globalThis.chrome = undefined;
+    await doFetch('https://browserkitten.com/api/v1/chat/completions', init);
+  } finally {
+    globalThis.fetch = previous.fetch;
+    globalThis.chrome = previous.chrome;
+  }
+  assert.deepEqual(seen.map((s) => s.client), ['browser-kitten/1.2.3', null, null, null]);
+});
