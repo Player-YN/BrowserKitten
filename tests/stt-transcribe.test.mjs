@@ -35,7 +35,7 @@ test('settings HTML and both i18n tables include the transcription card', () => 
   const html = readFileSync(new URL('../src/sidepanel.html', import.meta.url), 'utf8');
   assert.match(html, /id="settingsSttCard"/);
   assert.match(html, /id="sttEditor"/);
-  assert.match(html, /data-stt-preset="openai"/);
+  assert.match(html, /id="sttPresetCombobox"[^>]*data-preset-kind="stt"/);
   for (const key of STT_I18N) {
     assert.equal(typeof I18N.zh[key], 'string', `zh missing ${key}`);
     assert.equal(typeof I18N.en[key], 'string', `en missing ${key}`);

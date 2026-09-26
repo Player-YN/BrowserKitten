@@ -16,6 +16,7 @@ function fixture() {
 
 test('a saved script runs in real QuickJS with data parameters, isolated globals and registered output', async () => {
   const opts = fixture();
+  const seededArtifacts = opts.store.keys('artifacts').length;
   const input = { value: '\"); throw new Error("injected"); // 中文' };
   const entry = { kind: 'tool', parameters: { properties: { value: { type: 'string' } }, required: ['value'] }, code: `
     await fs.writeFile('/artifacts/output.txt', input.value);
@@ -33,7 +34,7 @@ test('a saved script runs in real QuickJS with data parameters, isolated globals
   assert.equal(result.artifacts[0].path, '/artifacts/output.txt');
   const second = await runPersonalLibraryTool(entry, { ...opts, input });
   assert.equal(second.ok, true);
-  assert.equal(opts.store.keys('artifacts').length, 1, 'rerunning does not duplicate the same output artifact');
+  assert.equal(opts.store.keys('artifacts').length, seededArtifacts + 1, 'rerunning does not duplicate the same output artifact');
 });
 
 test('a script uses the host ABI and preserves policy errors without gaining extension globals', async () => {
