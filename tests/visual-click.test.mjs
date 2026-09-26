@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyRisk, decideAccess, deriveRawEscape } from '../src/agent/vnext/host/riskClassify.js';
+import { classifyRisk, decideAccess, rawEscapeFor } from '../src/agent/vnext/host/riskClassify.js';
 import {
   clearVisualReplay,
   coarseSampleHash,
@@ -104,11 +104,10 @@ test('coarse hashes match identical samples and a left-click CDP pointer is not 
   const pointer = classifyRisk({ channel: 'action', op: 'pointer', method: 'cdp' });
   assert.equal(pointer.risk, 'external-commit');
   assert.equal(pointer.confidence, 'unknown');
-  assert.equal(decideAccess('guarded', pointer), 'approve');
-  assert.equal(decideAccess('full', pointer), 'auto');
-  assert.equal(deriveRawEscape('guarded', pointer.risk), 'n/a');
+  assert.equal(decideAccess(pointer), 'auto');
+  assert.equal(rawEscapeFor(pointer.risk), 'n/a');
 
   const raw = classifyRisk({ channel: 'sys', op: 'cdp', method: 'Input.dispatchMouseEvent' });
   assert.equal(raw.risk, 'raw-escape');
-  assert.equal(decideAccess('guarded', raw), 'deny');
+  assert.equal(decideAccess(raw), 'auto');
 });

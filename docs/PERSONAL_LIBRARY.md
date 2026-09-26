@@ -22,7 +22,7 @@
 
 - 侧栏负责输入、审阅、显式发布、试运行与停止；不持有数据库、不执行脚本。
 - Offscreen 的 service 校验草稿身份、参数及版本；为脚本登记执行槽位，经 `_gatedSys` 使用原有宿主政策、journal 和标签租约。失败、取消、完成均清理执行状态，脚本同样与本会话其他回合互斥。
-- 工具运行只能使用 QuickJS 的 `input`、`fs`、`sys`，没有 extension `chrome.*`、网页 `document` 或本地 OS API。页面操作经 `sys` 转给宿主。Guarded 仍可能拒绝 raw eval；保存或点击工具不构成额外授权。
+- 工具运行只能使用 QuickJS 的 `input`、`fs`、`sys`，没有 extension `chrome.*`、网页 `document` 或本地 OS API。页面操作经 `sys` 转给宿主。宿主门仍然生效（已知付款拒绝、已知删除等审批）；保存或点击工具不构成额外授权。
 - 工具输出继续使用既有 artifact 校验和登记。宿主仍负责外部操作权限；SelectionGroup 仍只管理资料，不是权限记录。
 - 文字 Agent 任务将版本快照放入新会话指导。结构化自动化使用独立顺序执行器和 WorkflowRun；每一步检查通过才推进，重启后需要核查续跑。两者都固定定义版本，不自动采用库更新。
 

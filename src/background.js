@@ -2,8 +2,6 @@ import {
   MSG_TARGET_BACKGROUND,
   MSG_TARGET_OFFSCREEN,
   MSG_TARGET_SIDEPANEL,
-  STORAGE_ACCESS_POLICY,
-  STORAGE_ACCESS_POLICY_SESSION,
   STORAGE_ACTIVE_PROVIDER_ID,
   STORAGE_PROVIDERS
 } from './brand.js';
@@ -18,8 +16,8 @@ import { executeLlmProxyFetch } from './agent/llmProxyFetch.js';
 import { htmlTabMatches } from './sidepanel/sessionIsolation.js';
 import { previewEntryForItem } from './agent/vnext/sessionWorkspace/openClassify.js';
 import { handleWorkspaceSys } from './agent/vnext/host/browserSysHost.js';
-import { putDispatchTicket, expireDispatchTickets, dropDispatchTicket, dropTicketsForExecution } from './agent/vnext/host/dispatchTicket.js';
-import { bindAccessPolicyChromeListener, readEffectiveAccessPolicy, writeAccessPolicy } from './agent/vnext/host/accessPolicy.js';
+import { DISPATCH_TICKETS_KEY, putDispatchTicket, expireDispatchTickets, dropDispatchTicket, dropTicketsForExecution } from './agent/vnext/host/dispatchTicket.js';
+import { clearLegacyAccessPolicy } from './agent/vnext/host/accessPolicy.js';
 import { configureTabLeasePersistence, readTabLease, removeTabLease } from './agent/vnext/host/tabLease.js';
 import { releaseBrowserExecution, reconcileBrowserExecutions } from './agent/vnext/host/browserExecution.js';
 import { createTaskScheduler, resolveTaskPage } from './agent/vnext/host/taskScheduler.js';
@@ -40,7 +38,7 @@ import { isMentionablePageUrl, normalizePageRef } from './agent/vnext/sessionWor
 import { runScreenshotOcr } from './sidepanel/screenshotRecognize.js';
 
 configureTabLeasePersistence(chrome.storage.session);
-bindAccessPolicyChromeListener();
+void clearLegacyAccessPolicy();
 void expireDispatchTickets();
 const OFFSCREEN_DOCUMENT_URL = 'src/offscreen/runtime.html';
 let offscreenCreating = null;
@@ -993,7 +991,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   if (['storage_local_get', 'storage_local_set', 'storage_session_get', 'storage_session_set',
-        'workspace_get_llm_settings', 'workspace_policy_get', 'workspace_policy_set',
+        'workspace_get_llm_settings',
         'workspace_ticket_put', 'workspace_ticket_drop'].includes(request?.action) &&
       !['offscreen', 'ui'].includes(senderRole)) {
     sendResponse({ ok: false, code: 'RPC_DENIED', error: 'Settings require a trusted runtime or sidepanel.' });
@@ -1195,22 +1193,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleStorageSessionSet(request.values)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
-    return true;
-  }
-  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_policy_get') {
-    readEffectiveAccessPolicy()
-      .then((result) => sendResponse({ ok: true, result }))
-      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
-    return true;
-  }
-  if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_policy_set') {
-    if (senderRole !== 'offscreen') {
-      sendResponse({ ok: false, code: 'RPC_DENIED', error: 'Access policy writes go through workspace RPC.' });
-      return false;
-    }
-    writeAccessPolicy({ mode: request.mode, rememberProfile: request.rememberProfile })
-      .then((result) => sendResponse({ ok: true, result }))
-      .catch((error) => sendResponse({ ok: false, error: error?.message || String(error), code: error?.code }));
     return true;
   }
   if (request?.target === MSG_TARGET_BACKGROUND && request?.action === 'workspace_ticket_put') {
@@ -1541,7 +1523,9 @@ async function handleNativeDownloads(urls) {
 const STORAGE_BRIDGE_KEY =
   /^(browserbot_|DEEPSEEK_|selected_model$)/;
 
-const STORAGE_BRIDGE_DENIED = new Set([STORAGE_ACCESS_POLICY, STORAGE_ACCESS_POLICY_SESSION]);
+// One-shot dispatch tickets are written only through workspace_ticket_put (offscreen) and
+// read only by the SW last door; the generic storage bridge must not be able to mint one.
+const STORAGE_BRIDGE_DENIED = new Set([DISPATCH_TICKETS_KEY]);
 
 function assertStorageBridgeKeys(keys) {
   const list = Array.isArray(keys) ? keys : keys != null ? [keys] : [];

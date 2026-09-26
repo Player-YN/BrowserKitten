@@ -29,12 +29,10 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   NO_TARGET:
     'action op=snapshot and pass a current ref, or wait with matching text. FALLBACK_VISUAL means op=pointer with x,y in 0–1 and method=cdp. If the page forbids the act, run + sys.eval world:"MAIN" on this tabId',
   PAYMENT_DENIED: 'stop; payment surfaces are not dispatched',
-  RAW_ESCAPE_DENIED:
-    'use pointer method=point or upload method=auto. To change page policy (eval / cdp) switch the session to Full Access, then run + sys.eval or sys.cdp on this tabId',
   SNAPSHOT_TOO_LARGE: 'pass a smaller a1; do not silently truncate',
   STALE_REF: 'action op=snapshot then retry with the new rev',
   VISUAL_UNCHANGED: 'do not repeat the same pointer coordinates in this execution',
-  SYS_DENIED: 'inspect view=sys and pick an allowed op; Guarded blocks raw eval/CDP',
+  SYS_DENIED: 'inspect view=sys and pick an allowed op',
   TAB_LEASED: 'wait for the other session to finish, or target a different tabId',
   TAB_NOT_VISIBLE: 'bring the tab into a visible window, then snapshot, listen or record again',
   TARGET_CHANGED: 'action op=snapshot on the current document, then retry with the new rev',

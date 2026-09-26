@@ -144,7 +144,6 @@ import {
 import { createBotStatusUi } from './sidepanel/botStatusUi.js';
 import { createTurnDisclosureUi } from './sidepanel/turnDisclosureUi.js';
 import { createContextUsageUi, projectContextUsage } from './sidepanel/contextUsageUi.js';
-import { createAccessPolicyUi } from './sidepanel/accessPolicyUi.js';
 import { createPersonalLibraryUi, collectPersonalLibraryInput } from './sidepanel/personalLibraryUi.js';
 import { createWorkflowUi } from './sidepanel/workflowUi.js';
 import { getHomeHints } from './sidepanel/homeHints.js';
@@ -640,16 +639,6 @@ const turnDisclosureUi = createTurnDisclosureUi({
   prefersReducedMotion: () =>
     typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches === true
 });
-const accessPolicyUi = createAccessPolicyUi({
-  t,
-  getChip: () => $('accessPolicyChip'),
-  getDialog: () => $('accessFullDialog'),
-  setAccessPolicy: async (params) => {
-    const policy = await workspaceRpc('setAccessPolicy', params);
-    accessPolicyUi.setPolicy(policy);
-    return policy;
-  }
-});
 const approvalUi = createApprovalUi({
   t,
   getSessionId: () => getWorkspaceSessionId(),
@@ -658,7 +647,6 @@ const approvalUi = createApprovalUi({
   getPanel: () => $('panel'),
   answerApproval: (params) => workspaceRpc('answerApproval', params)
 });
-accessPolicyUi.bind();
 
 const taskStatusUi = createTaskStatusUi({
   workspaceRpc,
@@ -2142,7 +2130,6 @@ function refreshBotChrome() {
     el.title = t('referenceHint');
   }
   botStatusUi.apply({ type: 'aiming', count: currentAimedCount() }, botStatusContext());
-  accessPolicyUi.renderChip?.();
   paintLiveTurnDisclosure();
 }
 
@@ -2155,7 +2142,6 @@ function paintLiveTurnDisclosure(extra = {}) {
   return turnDisclosureUi.paint(wrap, state, {
     mode,
     justSettled: extra.justSettled === true,
-    accessPolicy: typeof accessPolicyUi.current === 'function' ? accessPolicyUi.current() : null,
     immediate: extra.immediate === true
   });
 }
@@ -4102,7 +4088,9 @@ function syncHomeWorkSurfaceLayout() {
       if (mark) {
         mark.hidden = false; // keep as watermark (not removed)
         mark.classList.add('is-watermark');
+        // Watermark is decoration: not a link to keyboard or screen readers.
         mark.setAttribute('aria-hidden', 'true');
+        mark.setAttribute('tabindex', '-1');
       }
     }
   } else {
@@ -4127,7 +4115,8 @@ function syncHomeWorkSurfaceLayout() {
     if (mark) {
       mark.hidden = false;
       mark.classList.remove('is-watermark');
-      mark.setAttribute('aria-hidden', 'true');
+      mark.removeAttribute('aria-hidden');
+      mark.removeAttribute('tabindex');
     }
     // Restore hero home (logo + centered composer)
     setHomeEmptyMode(true, { animate: true });
@@ -4237,6 +4226,8 @@ function showWelcome() {
     if (mark0) {
       mark0.hidden = false;
       mark0.classList.remove('is-watermark');
+      mark0.removeAttribute('aria-hidden');
+      mark0.removeAttribute('tabindex');
     }
     setHomeEmptyMode(true);
     return;
@@ -4246,7 +4237,7 @@ function showWelcome() {
   w.id = 'welcome';
   w.innerHTML = `
     <div class="home-center" id="homeCenter">
-      <div class="home-mark home-mark-hero" aria-hidden="true"></div>
+      <a class="home-mark home-mark-hero site-link" href="https://browserkitten.com" target="_blank" rel="noopener" title="BrowserKitten.com" aria-label="BrowserKitten.com"></a>
       <div class="home-composer-slot" id="homeComposerSlot"></div>
       <div class="hint-chips" id="hintChips"></div>
     </div>
@@ -7099,11 +7090,6 @@ function handleSessionWorkspaceEvent(request) {
   }
 
   const applyLive = () => {
-    if (ev?.type === 'access-policy-changed') {
-      accessPolicyUi.setPolicy(ev);
-      paintLiveTurnDisclosure();
-      return;
-    }
     if (ev?.type === 'listen-grant-required') {
       if (!sid || sid === foreground) showListenGrantBar(ev);
       return;
@@ -9521,7 +9507,6 @@ async function refreshWorkspaceGroupState() {
     if (getWorkspaceSessionId() !== sid) return;
     workspaceGroupState = state;
     applyWorkspaceExecutionSnapshot(sid, workspaceGroupState);
-    if (state.accessPolicy) accessPolicyUi.setPolicy(state.accessPolicy);
     if (state.pendingApproval && approvalBelongsToSession(state.pendingApproval.sessionId || sid, sid)) {
       approvalUi.show({ ...state.pendingApproval, sessionId: state.pendingApproval.sessionId || sid });
     }

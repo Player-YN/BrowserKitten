@@ -24,7 +24,7 @@ After editing files, click **重新加载** on the extension card. There is no `
 
 Needs Chrome 135+. On Chrome 138+, enable **Allow User Scripts** on the extension details page if you want `sys.eval` or page-identity fetch. Close DevTools on the target tab before using `sys.cdp` (otherwise `CDP_BUSY`). Restricted pages such as `chrome://` and the Web Store return `NEED_PAGE`.
 
-侧栏顶栏始终显示 **Guarded / Full Access** chip。默认 Guarded：已知普通操作自动做，已知付款拒绝，已知删除先问你，页面脚本关闭。Full Access 是最高自治 **best-effort**，不是硬安全保证。
+只有一种访问模式，没有开关：已知付款一律不执行，已知删除先问你一次，其余操作（包括页面脚本和 CDP）自动进行。风险分类是启发式的 **best-effort**，不是硬安全保证。
 
 ## Tests
 

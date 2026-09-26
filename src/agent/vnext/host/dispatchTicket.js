@@ -4,8 +4,7 @@
  * SW recomputes payload hash from the resolved operation and never trusts the message hash.
  */
 
-import { classifyRisk, needsDispatchTicket, ticketBindingFields, RISK_PAYMENT, CONF_KNOWN, RISK_RAW, RISK_DELETE } from './riskClassify.js';
-import { readEffectiveAccessPolicy } from './accessPolicy.js';
+import { classifyRisk, needsDispatchTicket, ticketBindingFields, RISK_PAYMENT, CONF_KNOWN, RISK_DELETE } from './riskClassify.js';
 
 export const DISPATCH_TICKETS_KEY = 'browserbot_dispatch_tickets_v1';
 
@@ -195,16 +194,6 @@ export async function consumeDispatchTicket(request, classifyInput, now = Date.n
   if (classified.risk === RISK_PAYMENT && classified.confidence === CONF_KNOWN) {
     if (request?.operationId) await dropDispatchTicket(request.operationId);
     return mismatch('PAYMENT_DENIED', 'Known payment is never dispatched.');
-  }
-  let policy;
-  try {
-    policy = await readEffectiveAccessPolicy();
-  } catch {
-    policy = { mode: 'guarded' };
-  }
-  if (classified.risk === RISK_RAW && policy.mode !== 'full') {
-    if (request?.operationId) await dropDispatchTicket(request.operationId);
-    return mismatch('RAW_ESCAPE_DENIED', 'Guarded mode blocks page scripts and mutating CDP.');
   }
   if (!needsDispatchTicket(classified)) {
     return { ok: true, classified, ticket: null, skipped: true };

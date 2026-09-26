@@ -65,14 +65,8 @@ import { abortExecutionApprovals } from '../sessionWorkspace/approvalGate.js';
 import { callBrowserSys } from '../host/sysClient.js';
 import { gatedDispatch, hostAnswerApproval, hostGetPendingApproval } from '../host/operationGate.js';
 import { createCallJournal, createMemoryCallJournal, createUnavailableCallJournal, openCallJournal, slimJournalAudit } from '../host/callJournal.js';
-import {
-  accessPolicyStorageInstalled,
-  createMemoryAccessPolicyStorage,
-  installAccessPolicyStorage,
-  readEffectiveAccessPolicy,
-  writeAccessPolicy
-} from '../host/accessPolicy.js';
-import { installDispatchTicketStorage, dispatchTicketStorageInstalled, putDispatchTicket, dropTicketsForExecution, dropDispatchTicket, listDispatchTickets } from '../host/dispatchTicket.js';
+import { readEffectiveAccessPolicy } from '../host/accessPolicy.js';
+import { createMemoryTicketStorage, installDispatchTicketStorage, dispatchTicketStorageInstalled, putDispatchTicket, dropTicketsForExecution, dropDispatchTicket, listDispatchTickets } from '../host/dispatchTicket.js';
 import { hashOperationPayload, sha256Hex } from '../host/payloadHash.js';
 import { resolveUploadSource, hashUploadBytes } from '../sessionWorkspace/uploadSource.js';
 import {
@@ -643,27 +637,11 @@ export class SessionWorkspaceService {
     const hasSession = typeof chrome !== 'undefined' && !!chrome.storage?.session;
     const hasLocal = typeof chrome !== 'undefined' && !!chrome.storage?.local;
     if (hasSession && hasLocal) return;
-    if (accessPolicyStorageInstalled() || dispatchTicketStorageInstalled()) return;
-    const mem = createMemoryAccessPolicyStorage();
-    installAccessPolicyStorage(mem);
-    installDispatchTicketStorage(mem.session);
+    if (dispatchTicketStorageInstalled()) return;
+    installDispatchTicketStorage(createMemoryTicketStorage());
   }
 
   async _readPolicy() {
-    if (typeof chrome !== 'undefined' && chrome.storage?.local && chrome.storage?.session) {
-      return readEffectiveAccessPolicy();
-    }
-    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      try {
-        const res = await chrome.runtime.sendMessage({
-          target: MSG_TARGET_BACKGROUND,
-          action: 'workspace_policy_get'
-        });
-        if (res?.ok && res.result) return res.result;
-      } catch {
-        /* fall through */
-      }
-    }
     return readEffectiveAccessPolicy();
   }
 
@@ -1504,33 +1482,8 @@ export class SessionWorkspaceService {
       compact: !!compact,
       visitedPages: Array.isArray(sess.visitedPages) ? sess.visitedPages : [],
       activeExecution: this._snapshotActiveExecution(sessionId),
-      accessPolicy: await this._readPolicy(),
       pendingApproval: await hostGetPendingApproval(this._journal, sessionId)
     };
-  }
-
-  async getAccessPolicy() {
-    return this._readPolicy();
-  }
-
-  async setAccessPolicy({ mode, rememberProfile } = {}) {
-    let policy;
-    if (typeof chrome !== 'undefined' && chrome.storage?.local && chrome.storage?.session) {
-      policy = await writeAccessPolicy({ mode, rememberProfile });
-    } else if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      const res = await chrome.runtime.sendMessage({
-        target: MSG_TARGET_BACKGROUND,
-        action: 'workspace_policy_set',
-        mode,
-        rememberProfile
-      });
-      if (!res?.ok) throw Object.assign(new Error(res?.error || 'setAccessPolicy failed'), { code: res?.code || 'POLICY_STORAGE_UNAVAILABLE' });
-      policy = res.result;
-    } else {
-      policy = await writeAccessPolicy({ mode, rememberProfile });
-    }
-    this._broadcastUiEvent({ type: 'access-policy-changed', sessionId: 'default', ...policy });
-    return policy;
   }
 
   async getPendingApproval({ sessionId = 'default' } = {}) {

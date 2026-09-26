@@ -67,7 +67,6 @@ src/sidepanel/
   botStatusUi.js     # hidden announcer; nextStatusCopy meta only when no nextAction
   turnDisclosureUi.js # per-turn instrument under think; fold / hydrate / exclusive open
   contextUsageUi.js  # composer Context ring + hover usage popover (estimate vs api)
-  accessPolicyUi.js  # topbar access shield + one-time Full Access risk dialog
   approvalUi.js      # host delete/ambiguous approval; payment wait has no approve button
   tabLeaseUi.js      # TAB_LEASED / NEED_EXPLICIT_TAB human copy (no new-profile flow)
   README.md
@@ -143,7 +142,7 @@ Selector 同时服务直接工具与 Bot 引用。点选负责对象识别、来
 
 - `#attachmentPreviewBar` lives **inside `.composer-inner`**, before `.composer-input-row`. Moving the composer between `#homeComposerSlot` and the footer must move previews with it. Attachments never occupy a sibling row outside the composer. Multiple previews may scroll within a 120px limit so they cannot consume the conversation viewport.
 - Uploaded/captured images show thumbnails. A pasted screenshot retains its existing inline screenshot mention and pending attachment; insert that mention **before** rendering previews to avoid duplicating the image below it. Removing an attachment still only changes the outgoing pending list.
-- `#accessPolicyChip` is a compact topbar shield: check mark for Guarded, highlighted exclamation for Full Access. Tooltip and accessible name include mode, session scope and policy explanation. Settings, confirmation dialog and host policy behavior remain unchanged.
+- There is no access-mode control. The top-left logo and name, and the home logo, are links to BrowserKitten.com with a faint signal glow on hover and focus; the home logo is inert while it is a watermark.
 - Composer controls show model, References and artifacts. The reference button shows the bound collection count; its tooltip and `#composerAiming` accessible description report the real binding state. The unbound state has no animated call-to-action border.
 - Collection destinations appear only when the selection summary has content; their tooltip and accessible description explain first-pick auto-creation. Active conversations use a neutral border; running status remains in the existing execution indicators.
 

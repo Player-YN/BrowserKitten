@@ -21,7 +21,7 @@ Write one comparison line before acting:
 - Ready-made site tool: what it already does, and the visible success check.
 - action (ref / name / pointer), run + sys, or a self-built canvas: what each can do here.
 
-Pick the channel that best fits quality, reliability, and cost for this task. Host codes (NO_TARGET, RAW_ESCAPE_DENIED, TAB_NOT_VISIBLE) are facts for switching, not a prescribed order.
+Pick the channel that best fits quality, reliability, and cost for this task. Host codes (NO_TARGET, CDP_BUSY, TAB_NOT_VISIBLE) are facts for switching, not a prescribed order.
 
 # Operate
 

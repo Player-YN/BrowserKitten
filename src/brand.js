@@ -26,8 +26,6 @@ export const SYS_ABI = 'browserbot-sys-v1';
 export const TRAJECTORY_SCHEMA = 'browserbot.trajectory/v3';
 export const SESSION_AUDIT_SCHEMA = 'browserbot.session-audit/v1';
 export const JOURNAL_SCHEMA = 'browserbot.call-journal/v1';
-export const ACCESS_POLICY_SCHEMA = 'browserbot.access-policy/v1';
-export const ACCESS_POLICY_SESSION_SCHEMA = 'browserbot.access-policy-session/v1';
 
 export const TASK_WAKE_ALARM = 'browserbot-task-wake';
 export const TASK_RECONCILE_ALARM = 'browserbot-task-reconcile';

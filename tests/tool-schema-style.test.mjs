@@ -45,13 +45,12 @@ test('action and run descriptions stay short contracts', () => {
   assert.doesNotMatch(codeDesc, /sys\.tabs\.list/);
 });
 
-test('NO_TARGET and RAW_ESCAPE_DENIED hints point at sys.eval', () => {
+test('NO_TARGET hints point at sys.eval, and no hint mentions a mode switch', () => {
   const noTarget = attachToolFailureHint({ ok: false, code: 'NO_TARGET', error: 'no matching control' });
   assert.match(noTarget.hint, /sys\.eval/);
   assert.match(noTarget.hint, /MAIN/);
-  const raw = attachToolFailureHint({ ok: false, code: 'RAW_ESCAPE_DENIED', error: 'Guarded blocks raw' });
-  assert.match(raw.hint, /Full Access/);
-  assert.match(raw.hint, /sys\.eval/);
+  const sysDenied = attachToolFailureHint({ ok: false, code: 'SYS_DENIED', error: 'x' });
+  assert.doesNotMatch(String(sysDenied.hint), /Guarded|Full Access/);
   const model = sessionToolToModelOutput({
     output: { ok: false, code: 'NO_TARGET', error: 'no matching control' }
   });

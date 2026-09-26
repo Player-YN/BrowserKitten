@@ -440,9 +440,8 @@ body[data-theme='light'] .topbar {
   height: 84px;
   color: var(--ink);
   opacity: 1;
-  cursor: default;
+  cursor: pointer;
   user-select: none;
-  pointer-events: none;
 }
 .home-mark.is-watermark {
   pointer-events: none !important;
@@ -477,6 +476,38 @@ body[data-theme='light'] .topbar {
   height: 20px;
 }
 
+/* Top-left brand and home logo link to BrowserKitten.com with a faint signal glow. */
+.site-link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 10px;
+  transition: filter 220ms ease, transform 220ms ease;
+}
+.brand-home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.site-link:hover,
+.site-link:focus-visible {
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--signal) 45%, transparent))
+    drop-shadow(0 0 16px color-mix(in srgb, var(--signal) 18%, transparent));
+}
+.site-link:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 4px;
+}
+.home-mark-hero.site-link:hover,
+.home-mark-hero.site-link:focus-visible {
+  transform: translateY(-2px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-link { transition: none; }
+  .home-mark-hero.site-link:hover,
+  .home-mark-hero.site-link:focus-visible { transform: none; }
+}
+
 .brand-name {
   font-size: 14px;
   font-weight: 700;
@@ -493,32 +524,6 @@ body[data-theme='light'] .topbar {
   gap: 6px;
 }
 
-.access-policy-chip {
-  display: grid;
-  place-items: center;
-  position: relative;
-  width: 28px;
-  height: 28px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 0;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-.access-policy-chip:hover {
-  background: var(--bg-soft);
-  border-color: var(--border);
-}
-.access-policy-chip[data-mode='full'] {
-  background: color-mix(in srgb, var(--rose) 10%, transparent);
-  color: var(--rose);
-}
-.access-policy-chip[data-mode='guarded'] .access-full-mark,
-.access-policy-chip[data-mode='full'] .access-guard-mark {
-  display: none;
-}
 .approval-live-body {
   padding: 8px 12px 12px;
 }

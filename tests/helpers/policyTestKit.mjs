@@ -1,11 +1,5 @@
 import {
-  ACCESS_POLICY_SCHEMA,
-  createMemoryAccessPolicyStorage,
-  installAccessPolicyStorage,
-  resetAccessPolicyStorage,
-  writeAccessPolicy
-} from '../../src/agent/vnext/host/accessPolicy.js';
-import {
+  createMemoryTicketStorage,
   installDispatchTicketStorage,
   putDispatchTicket,
   resetDispatchTicketStorage
@@ -13,19 +7,17 @@ import {
 import { classifyRisk, needsDispatchTicket } from '../../src/agent/vnext/host/riskClassify.js';
 import { hashOperationPayload, newNonce, newOperationId } from '../../src/agent/vnext/host/payloadHash.js';
 
-export function installTestPolicy({ mode } = {}) {
-  const areas = createMemoryAccessPolicyStorage(
-    mode === 'full'
-      ? { profile: { schema: ACCESS_POLICY_SCHEMA, mode: 'full', updatedAt: 1, updatedBy: 'ui' } }
-      : {}
-  );
-  installAccessPolicyStorage(areas);
-  installDispatchTicketStorage(areas.session);
-  return areas;
+/**
+ * There is one access mode now; `mode` is accepted and ignored so older call
+ * sites keep working. Installs in-memory dispatch-ticket storage.
+ */
+export function installTestPolicy(_opts = {}) {
+  const session = createMemoryTicketStorage();
+  installDispatchTicketStorage(session);
+  return { session };
 }
 
 export function resetTestPolicy() {
-  resetAccessPolicyStorage();
   resetDispatchTicketStorage();
 }
 
@@ -158,4 +150,4 @@ export async function seedResolvedActionTicket(handle, request, extra = {}) {
   return { resolved, ...seeded, documentId: resolved.documentId };
 }
 
-export { writeAccessPolicy, classifyRisk, needsDispatchTicket, hashOperationPayload };
+export { classifyRisk, needsDispatchTicket, hashOperationPayload };

@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { createAccessPolicyUi } from '../src/sidepanel/accessPolicyUi.js';
 
 const source = readFileSync(new URL('../src/sidepanel.js', import.meta.url), 'utf8');
 function section(start, end) {
@@ -123,20 +122,3 @@ test('settings API sections are roster plus add form; diagnostics stay off the a
   assert.match(i18n, /settingsDiagnosticsAdvanced: 'Advanced \/ checks'/);
 });
 
-test('access mode updates the accessible label without replacing the shield icon', () => {
-  const label = new Element('span');
-  const icon = new Element('svg');
-  const chip = new Element('button');
-  chip.dataset = {};
-  chip.children = [icon, label];
-  chip.querySelector = () => label;
-  const ui = createAccessPolicyUi({ getChip: () => chip, t: key => key });
-  ui.setPolicy({ mode: 'full', source: 'session' });
-  assert.deepEqual(chip.children, [icon, label]);
-  assert.equal(label.textContent, 'accessChipFull · accessChipSession');
-  assert.match(chip.attributes['aria-label'], /accessChipFull.*accessFullHint/);
-  assert.equal(chip.dataset.mode, 'full');
-  ui.setPolicy({ mode: 'guarded', source: 'profile' });
-  assert.equal(chip.dataset.mode, 'guarded');
-  assert.equal(label.textContent, 'accessChipGuarded');
-});

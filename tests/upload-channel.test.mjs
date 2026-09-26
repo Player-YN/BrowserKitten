@@ -322,16 +322,14 @@ test('action upload on a known payment host is PAYMENT even when method is cdp',
   });
   assert.equal(pay.risk, 'payment');
   assert.equal(pay.confidence, 'known');
-  assert.equal(decideAccess('full', pay), 'deny');
-  assert.equal(decideAccess('guarded', pay), 'deny');
+  assert.equal(decideAccess(pay), 'deny');
 });
 
 test('typed upload is known external-commit; payment host stays PAYMENT; CDP is raw', () => {
   const action = classifyRisk({ channel: 'action', op: 'upload', name: 'Upload', url: 'https://canva.com/design' });
   assert.equal(action.risk, 'external-commit');
   assert.equal(action.confidence, 'known');
-  assert.equal(decideAccess('guarded', action), 'auto');
-  assert.equal(decideAccess('full', action), 'auto');
+  assert.equal(decideAccess(action), 'auto');
   assert.equal(needsDispatchTicket(action), true);
 
   const sys = classifyRisk({ channel: 'sys', op: 'upload', path: '/scratch/a.png', url: 'https://remove.bg/' });
@@ -345,7 +343,7 @@ test('typed upload is known external-commit; payment host stays PAYMENT; CDP is 
     url: 'https://checkout.stripe.com/c/pay'
   });
   assert.equal(pay.risk, 'payment');
-  assert.equal(decideAccess('full', pay), 'deny');
+  assert.equal(decideAccess(pay), 'deny');
 
   const payCdp = classifyRisk({
     channel: 'sys',
@@ -362,8 +360,7 @@ test('typed upload is known external-commit; payment host stays PAYMENT; CDP is 
     url: 'https://example.com'
   });
   assert.equal(raw.risk, 'raw-escape');
-  assert.equal(decideAccess('guarded', raw), 'deny');
-  assert.equal(decideAccess('full', raw), 'auto');
+  assert.equal(decideAccess(raw), 'auto');
 });
 
 test('sys.upload without a ticket is TICKET_REQUIRED and does not inject', async () => {
@@ -472,7 +469,7 @@ test('upload on a known payment host is PAYMENT_DENIED even with a ticket', asyn
   resetTestPolicy();
 });
 
-test('Guarded CDP upload is RAW_ESCAPE_DENIED and does not attach debugger', async () => {
+test('CDP upload is no longer refused by mode and takes the debugger path', async () => {
   installTestPolicy();
   resetTabLeases();
   const { debuggerCalls } = installSysChrome();
@@ -495,8 +492,8 @@ test('Guarded CDP upload is RAW_ESCAPE_DENIED and does not attach debugger', asy
     method: 'cdp'
   }));
   const out = await handleWorkspaceSys(req);
-  assert.equal(out.code, 'RAW_ESCAPE_DENIED');
-  assert.equal(debuggerCalls.length, 0);
+  assert.notEqual(out.code, 'RAW_ESCAPE_DENIED');
+  assert.ok(debuggerCalls.length > 0, 'method:cdp reaches chrome.debugger');
   resetTestPolicy();
 });
 

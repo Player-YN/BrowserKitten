@@ -205,27 +205,25 @@ function ignoreModelClaims(input = {}) {
   return rest;
 }
 
-export function deriveRawEscape(mode, risk) {
-  if (risk !== RISK_RAW) return 'n/a';
-  return mode === 'full' ? 'allow' : 'deny';
+/** Journal field kept for compatibility: raw page code is always allowed now. */
+export function rawEscapeFor(risk) {
+  return risk === RISK_RAW ? 'allow' : 'n/a';
 }
 
-export function decideAccess(mode, classified) {
+/**
+ * The whole policy. Known payment is never dispatched; known delete needs one-shot
+ * host approval; everything else runs, including page scripts and unknown writes.
+ */
+export function decideAccess(classified) {
   const risk = classified?.risk;
   const confidence = classified?.confidence;
-  const effective = mode === 'full' ? 'full' : 'guarded';
   if (risk === RISK_PAYMENT && confidence === CONF_KNOWN) return 'deny';
   if (risk === RISK_DELETE && confidence === CONF_KNOWN) return 'approve';
-  if (risk === RISK_RAW) return effective === 'full' ? 'auto' : 'deny';
-  if ((confidence === CONF_AMBIGUOUS || confidence === CONF_UNKNOWN) && risk !== RISK_READ) {
-    return effective === 'full' ? 'auto' : 'approve';
-  }
   return 'auto';
 }
 
 export function policyErrorCode(decision, classified) {
   if (classified?.risk === RISK_PAYMENT && classified.confidence === CONF_KNOWN) return 'PAYMENT_DENIED';
-  if (classified?.risk === RISK_RAW && decision === 'deny') return 'RAW_ESCAPE_DENIED';
   if (decision === 'deny') return 'POLICY_DENIED';
   return '';
 }

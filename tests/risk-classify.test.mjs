@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   classifyRisk,
   decideAccess,
-  deriveRawEscape,
+  rawEscapeFor,
   needsDispatchTicket,
   mergeBatchClassification,
   CLASSIFIED_SOURCE_SW
@@ -21,7 +21,7 @@ test('host classifier ignores model risk/intent and treats named Save as known r
   });
   assert.equal(out.risk, 'reversible-write');
   assert.equal(out.confidence, 'known');
-  assert.equal(decideAccess('guarded', out), 'auto');
+  assert.equal(decideAccess(out), 'auto');
   assert.equal(needsDispatchTicket(out), true);
 });
 
@@ -29,14 +29,12 @@ test('known payment and delete stay known even when the model claims read', () =
   const pay = classifyRisk({ channel: 'action', op: 'click', name: 'Pay now', risk: 'read' });
   assert.equal(pay.risk, 'payment');
   assert.equal(pay.confidence, 'known');
-  assert.equal(decideAccess('guarded', pay), 'deny');
-  assert.equal(decideAccess('full', pay), 'deny');
+  assert.equal(decideAccess(pay), 'deny');
 
   const del = classifyRisk({ channel: 'action', op: 'click', name: 'Delete permanently', risk: 'read' });
   assert.equal(del.risk, 'delete');
   assert.equal(del.confidence, 'known');
-  assert.equal(decideAccess('guarded', del), 'approve');
-  assert.equal(decideAccess('full', del), 'approve');
+  assert.equal(decideAccess(del), 'approve');
 });
 
 test('cart and checkout landing are not payment; checkout submit is', () => {
@@ -56,18 +54,16 @@ test('cart and checkout landing are not payment; checkout submit is', () => {
   assert.equal(submit.confidence, 'known');
 });
 
-test('Guarded blocks unknown/raw; Full Access autos them; payment/delete stay hard', () => {
+test('unknown and raw run automatically; payment/delete stay hard', () => {
   const unknown = classifyRisk({ channel: 'action', op: 'click' });
   assert.equal(unknown.confidence, 'unknown');
-  assert.equal(decideAccess('guarded', unknown), 'approve');
-  assert.equal(decideAccess('full', unknown), 'auto');
+  assert.equal(decideAccess(unknown), 'auto');
 
   const raw = classifyRisk({ channel: 'sys', op: 'eval', code: 'return 1' });
   assert.equal(raw.risk, 'raw-escape');
-  assert.equal(decideAccess('guarded', raw), 'deny');
-  assert.equal(decideAccess('full', raw), 'auto');
-  assert.equal(deriveRawEscape('guarded', 'raw-escape'), 'deny');
-  assert.equal(deriveRawEscape('full', 'raw-escape'), 'allow');
+  assert.equal(decideAccess(raw), 'auto');
+  assert.equal(rawEscapeFor('raw-escape'), 'allow');
+  assert.equal(rawEscapeFor('read'), 'n/a');
 
   const cdp = classifyRisk({ channel: 'sys', op: 'cdp', action: 'attach' });
   assert.equal(cdp.risk, 'raw-escape');
@@ -95,8 +91,7 @@ test('Stripe iframe Submit is known payment; shop URL cannot override frameUrl; 
   assert.equal(iframe.risk, 'payment');
   assert.equal(iframe.confidence, 'known');
   assert.equal(iframe.target.url, 'https://js.stripe.com/v3/controller');
-  assert.equal(decideAccess('guarded', iframe), 'deny');
-  assert.equal(decideAccess('full', iframe), 'deny');
+  assert.equal(decideAccess(iframe), 'deny');
 
   const shopOnly = classifyRisk({
     channel: 'action',

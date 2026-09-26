@@ -129,7 +129,7 @@ src/
 
 这些是当前实现的硬边界，不是待办清单。改持久化 / `sys` / 长任务前先读这节。
 
-- **Access Policy 是宿主门，不是 prompt**：默认 Guarded。profile 在 `chrome.storage.local` `browserbot_access_policy`，session override 在 `chrome.storage.session` `browserbot_access_policy_session`，优先级 session > profile > Guarded。已知付款两模式都不派发；已知删除两模式都要 one-shot 宿主审批（不是 `clarify`）。Guarded 对未知/模糊 external-commit 审批、对 raw eval/CDP deny；Full Access 对其余 known/unknown/raw **best-effort 自动放行**，文案不得承诺绝不付款/删除。分类器是启发式，raw 可以绕过。
+- **Access Policy 是宿主门，不是 prompt，也没有模式开关**（`accessPolicy.js`，旧的 Guarded/Full 存储键启动时删除）。已知付款不派发；已知删除要 one-shot 宿主审批（不是 `clarify`）；其余 known/unknown/raw（含 eval、CDP）**best-effort 自动放行**，文案不得承诺绝不付款/删除。分类器是启发式，raw 可以绕过。journal 行保留 `accessMode` 字段，恒为 `full`。
 - **有 call journal，但不是 exactly-once**：独立 IDB `browserbot-call-journal-v1`。产品路径 IDB 打不开或事务失败 → `JOURNAL_UNAVAILABLE`，外部写不 dispatch；内存 journal **只**能 `memoryJournal: true` 测试参数启用，不自动降级。write-ahead：`prepared → awaiting_approval|authorized → dispatched → succeeded|failed|unknown → verified|needs_human`。崩溃卡在 authorized/dispatched 标 failed/unknown 并丢掉残留 ticket，**不盲重放**。SW `callId` 取消表仍是内存。task 是进度，audit 是观察日志，journal 是恢复真相。
 - **最小 postcondition 是可扩展合同，不是业务完成证明**：action/delete/download/artifact 有宿主核对；不可证明的 send 只能 `needs_human`，模型自然语言 evidence 不能当 verified。
 - **可选 durable task（进度 + alarms，不是 journal）**：记录在 IDB `meta` 的 `task:*`（goal / plan / evidence / dueAt / status）。SW `chrome.alarms` 只按 store 的 `dueAt` 唤醒，**store 是权威**。不是 exactly-once。普通 `sendMessage` **不建、不绑** task；只有 `taskRun+taskId`（alarm / UI resume）才把本轮绑到已有 task。`completed` 只来自成功的 `task complete`。

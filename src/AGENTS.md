@@ -88,7 +88,7 @@ Background：
 - `action` 的全部 mutate（包括 name-only 和 bare press）需要 rev；每次派发前核对文档，消息用 `tabs.sendMessage` 的 documentId 定向。导航、history/fragment 变化使旧快照失效。
 - 页面操作先成功写入 storage.session 的租约；`tabs.close` 同样占锁。`sys.cdp` 的 targetId 先归一到 page tabId，不能绕过锁。`sys.tabs.current` 不再 fallback 当前焦点；缺省只允许已注入的本轮 defaultTabId。
 - `execution-end`、finally、abort 通过 `browserExecution.js` 精确释放 sessionId+executionId：先撤销后续派发，再取消 sys/断开 CDP，最后放锁。SW 首次执行前与 offscreen 活动执行对账，恢复失败不继续派发。浏览器重启/扩展重载会清空 storage.session 租约与 session 政策覆盖。
-- `action` mutate 与关键 `sys` 副作用走双门：offscreen `gatedDispatch`（分类 + journal + 审批 + one-shot ticket）后，SW `consumeDispatchTicket` 再分类一次。已知付款即使有 ticket 也不派发。Guarded 的 raw eval/CDP 在 SW 再拦一次。
+- `action` mutate 与关键 `sys` 副作用走双门：offscreen `gatedDispatch`（分类 + journal + 审批 + one-shot ticket）后，SW `consumeDispatchTicket` 再分类一次。已知付款即使有 ticket 也不派发。通用存储桥（`storage_*_get|set`）禁止读写派发工单键，工单只经 `workspace_ticket_put|drop`。
 - `sys.eval/waitFor/fetch(as:page)` 使用 documentIds 定向，可以传 documentId/expectedUrl。`sys.upload` / `action op=upload` 共用 SW `uploadChannel.js`：字节经 `chrome.scripting.executeScript({ world:'MAIN', func, args })` 分块注入，默认 `DataTransfer` + `input.files` setter + 手派 `input`/`change`，找不到 file input 再脚本 drop。`auto` 不 attach CDP。回执带 `methodUsed`、`trusted:false`、`siteAccepted:'unknown'`，不声称站点已接受。未知写入回执要先观察再决定，不能自动重放；确认动作后的观察失败单列 observationError。
 - 预览页 workLock 仍是同 session 画布 UI 锁，不与 live tab 租约合并。
 - 合并 snapshot 后 `controls` 再截到 80 条。

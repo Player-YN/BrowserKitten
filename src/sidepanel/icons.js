@@ -143,7 +143,7 @@ export function enhanceTopbarIcons() {
   document.querySelectorAll('.home-mark').forEach((el) => {
     el.innerHTML = brandMarkSvg(72, { className: 'brand-mark-svg mark-svg-hero' });
     el.classList.add('home-mark-hero');
-    el.setAttribute('title', '');
+    el.setAttribute('title', el.tagName === 'A' ? 'BrowserKitten.com' : '');
   });
 }
 

@@ -92,10 +92,12 @@
     <!-- Sticky chrome: brand + page listen dot + settings -->
     <header class="topbar">
       <div class="brand">
-        <span class="logo logo-mark" id="brandLogo" aria-hidden="true" title="Browser Kitten"></span>
-        <div class="brand-text">
-          <div class="brand-name" data-i18n="brandName">Browser Kitten</div>
-        </div>
+        <a class="brand-home-link site-link" href="https://browserkitten.com" target="_blank" rel="noopener" title="BrowserKitten.com" aria-label="BrowserKitten.com">
+          <span class="logo logo-mark" id="brandLogo" aria-hidden="true"></span>
+          <span class="brand-text">
+            <span class="brand-name" data-i18n="brandName">Browser Kitten</span>
+          </span>
+        </a>
         <!-- Compact page listen trust indicator (no title/URL wall) -->
         <button type="button" class="page-listen" id="pageListenBtn" data-listen="pending" title="页面监听" aria-label="页面监听状态">
           <span class="page-listen-dot" aria-hidden="true"></span>
@@ -107,14 +109,6 @@
         <span id="pageFavicon" hidden></span>
       </div>
       <div class="topbar-right">
-        <button type="button" class="access-policy-chip" id="accessPolicyChip" data-mode="guarded" title="守卫模式" aria-label="守卫模式">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 3 4 6v5c0 5 8 10 8 10s8-5 8-10V6z" />
-            <path class="access-guard-mark" d="m8.5 12 2.5 2.5 4.5-5" />
-            <path class="access-full-mark" d="M12 8v5m0 3h.01" />
-          </svg>
-          <span class="access-policy-label sr-only">守卫模式</span>
-        </button>
         <button type="button" class="icon-btn" id="moreBtn" data-i18n-title="moreTitle" data-i18n-aria="moreTitle" title="设置" aria-label="设置" aria-expanded="false" aria-haspopup="dialog" aria-controls="moreSheet">⚙︎</button>
         <!-- Hidden legacy hooks (settings/lang/theme/status still driven by JS via more sheet) -->
         <button type="button" id="gearBtn" hidden aria-hidden="true" aria-haspopup="dialog" aria-controls="agentSettingsModal"></button>
@@ -329,7 +323,7 @@
         <!-- Home empty: tagline lives only as composer placeholder; chips near centered input -->
         <div class="welcome" id="welcome">
           <div class="home-center" id="homeCenter">
-            <div class="home-mark home-mark-hero" aria-hidden="true"></div>
+            <a class="home-mark home-mark-hero site-link" href="https://browserkitten.com" target="_blank" rel="noopener" title="BrowserKitten.com" aria-label="BrowserKitten.com"></a>
             <div class="home-composer-slot" id="homeComposerSlot"></div>
             <div class="hint-chips" id="hintChips">
               <button type="button" class="hint-chip" data-hint-id="create-personal-tool" data-i18n="teachCreateToolLabel">如何创造一个新工具？</button>
@@ -1128,26 +1122,6 @@
 
   <!-- Hidden legacy aliases used by some helpers -->
   <button type="button" id="downloadTrajectoryFooterBtn" hidden style="display:none"></button>
-
-  <dialog id="accessFullDialog" class="pw-dialog" aria-labelledby="accessFullDialogTitle">
-    <div class="modal-card settings-modal-card">
-      <div class="modal-header">
-        <h3 id="accessFullDialogTitle" data-i18n="accessFullDialogTitle">开启 Full Access</h3>
-        <button type="button" class="modal-close-btn" data-access-cancel aria-label="关闭">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="settings-hint" data-i18n="accessFullDialogBody">开启后，助手将按最高自治运行：不确定的操作会直接做，也可以运行页面脚本。已知支付仍拒绝，已知删除仍需你点一次。无法保证不会发生未识别的付款或删除。可随时切回 Guarded；已经发出的操作不能撤销。</p>
-        <label class="settings-check-row">
-          <input type="checkbox" id="accessRememberProfile" />
-          <span data-i18n="accessRememberProfile">记住本 Chrome 配置</span>
-        </label>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-access-cancel data-i18n="accessCancel">取消</button>
-        <button type="button" class="btn btn-primary" data-access-confirm data-i18n="accessFullConfirm">开启 Full Access</button>
-      </div>
-    </div>
-  </dialog>
 
   <div id="mentionPalette" class="mention-palette" hidden role="listbox" data-i18n-aria="mentionPaletteAria" aria-label="引用选区"></div>
 

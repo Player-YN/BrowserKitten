@@ -55,7 +55,7 @@ test('SW last door denies known payment even with a ticket, and one-shot consume
   resetTestPolicy();
 });
 
-test('ticket owner, hash, nonce, tab, and document are hard-bound; Guarded raw is denied', async () => {
+test('ticket owner, hash, nonce, tab, and document are hard-bound; raw code still needs a ticket', async () => {
   installTestPolicy();
   await seed('op-x');
   assert.equal((await consumeDispatchTicket(
@@ -87,10 +87,11 @@ test('ticket owner, hash, nonce, tab, and document are hard-bound; Guarded raw i
     { channel: 'action', op: 'click', name: 'Delete', tabId: 11, documentId: 'doc-a' }
   )).code, 'APPROVAL_MISMATCH');
 
+  // Raw page code is no longer refused by mode; it still needs its own valid ticket.
   assert.equal((await consumeDispatchTicket(
     { operationId: 'op-eval', sessionId: 's', executionId: 'e', payloadHash: 'h', ticketNonce: 'n' },
     { channel: 'sys', op: 'eval', code: 'return 1' }
-  )).code, 'RAW_ESCAPE_DENIED');
+  )).code, 'TICKET_REQUIRED');
   resetTestPolicy();
 });
 

@@ -239,13 +239,10 @@ test('P1: verifier stays honest — no postcondition is not verified; delete nee
   assert.notEqual(send.status, 'verified');
 });
 
-test('P1: storage bridge source denies policy keys; policy writes stay on RPC', () => {
-  const brand = readFileSync(join(root, 'src/brand.js'), 'utf8');
-  assert.match(brand, /browserbot_access_policy/);
+test('P1: storage bridge cannot write dispatch tickets; tickets stay on their own messages', () => {
   const bg = readFileSync(join(root, 'src/background.js'), 'utf8');
-  assert.match(bg, /STORAGE_ACCESS_POLICY/);
-  assert.match(bg, /STORAGE_BRIDGE_DENIED/);
-  assert.match(bg, /workspace_policy_set/);
+  assert.match(bg, /STORAGE_BRIDGE_DENIED = new Set\(\[DISPATCH_TICKETS_KEY\]\)/);
+  assert.match(bg, /workspace_ticket_put/);
   assert.match(bg, /workspace_ticket_drop/);
   const service = readFileSync(join(root, 'src/agent/vnext/service/sessionWorkspaceService.js'), 'utf8');
   assert.match(service, /listJournal/);
@@ -349,7 +346,7 @@ test('delete approval still waits once after resolve_intent classification', asy
     name: 'Delete',
     control: { name: 'Delete', frameUrl: 'https://mail.example/inbox' }
   });
-  assert.equal(decideAccess('guarded', classified), 'approve');
+  assert.equal(decideAccess(classified), 'approve');
   const events = [];
   const pending = gatedDispatch(
     {

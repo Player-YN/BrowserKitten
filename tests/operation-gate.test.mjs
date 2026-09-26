@@ -14,7 +14,7 @@ async function waitForWaiter() {
 }
 import { installTestPolicy, resetTestPolicy } from './helpers/policyTestKit.mjs';
 
-test('Guarded allows known Save, blocks raw; Full Access allows raw; payment never dispatches', async () => {
+test('known Save and raw page code both dispatch; payment never dispatches', async () => {
   const areas = installTestPolicy();
   const journal = createCallJournal(createMemoryCallJournal());
   const sent = [];
@@ -29,13 +29,6 @@ test('Guarded allows known Save, blocks raw; Full Access allows raw; payment nev
   );
   assert.equal(save.ok, true);
   assert.equal(sent.length, 1);
-
-  const rawGuarded = await gatedDispatch(
-    { channel: 'sys', op: 'eval', code: 'return 1', sessionId: 's', executionId: 'e' },
-    { journal, readPolicy: async () => ({ mode: 'guarded' }), send: async () => { sent.push('raw'); return { ok: true }; } }
-  );
-  assert.equal(rawGuarded.code, 'RAW_ESCAPE_DENIED');
-  assert.equal(sent.includes('raw'), false);
 
   const rawFull = await gatedDispatch(
     { channel: 'sys', op: 'eval', code: 'return 1', sessionId: 's', executionId: 'e' },

@@ -3,7 +3,7 @@
  * SW still reclassifies and consumes the ticket. Model fields never decide.
  */
 
-import { adoptTrustedClassified, decideAccess, deriveRawEscape, needsDispatchTicket, policyErrorCode, RISK_PAYMENT, CONF_KNOWN } from './riskClassify.js';
+import { adoptTrustedClassified, decideAccess, rawEscapeFor, needsDispatchTicket, policyErrorCode, RISK_PAYMENT, CONF_KNOWN } from './riskClassify.js';
 import { readEffectiveAccessPolicy, snapshotAccessPolicy } from './accessPolicy.js';
 import { hashOperationPayload, newNonce, newOperationId } from './payloadHash.js';
 import { dropDispatchTicket, putDispatchTicket } from './dispatchTicket.js';
@@ -75,14 +75,9 @@ export async function gatedDispatch(req = {}, deps = {}) {
 
   const classifyInput = classifyInputFromRequest(req);
   const classified = adoptTrustedClassified(req.classified, classifyInput);
-  let policy;
-  try {
-    policy = await readPolicy();
-  } catch {
-    policy = { mode: 'guarded', source: 'default', profileMode: 'guarded', sessionOverride: null, rawEscapeDefault: 'deny' };
-  }
+  const policy = await readPolicy();
   const snap = snapshotAccessPolicy(policy, now);
-  const rawEscape = deriveRawEscape(policy.mode, classified.risk);
+  const rawEscape = rawEscapeFor(classified.risk);
   const operationId = String(req.operationId || newOperationId());
   const payloadHash = req.payloadHash || await hashOperationPayload({
     ...classifyInput,
@@ -172,7 +167,7 @@ export async function gatedDispatch(req = {}, deps = {}) {
     });
   }
 
-  const decision = decideAccess(policy.mode, classified);
+  const decision = decideAccess(classified);
   if (decision === 'deny') {
     const code = policyErrorCode(decision, classified) || 'POLICY_DENIED';
     if (writeJournal) {
