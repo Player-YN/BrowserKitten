@@ -109,6 +109,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // BrowserBot Service Worker - Native Downloads & Smart Auto-Zip Engine
 
+// First install only (not updates): a welcome tab with pin / open / sign in / page scripts.
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details?.reason !== 'install') return;
+  void chrome.tabs.create({ url: chrome.runtime.getURL('src/welcome.html'), active: true }).catch(() => {});
+});
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[BrowserBot] Background Service Worker Initialized.");
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => console.error(error));

@@ -8,6 +8,7 @@
  *   byok     own key without a plan → see plans (or sign in)
  *   upgrade  426                    → update the extension
  *   paused   503 SERVICE_PAUSED     → the operator's message
+ *   scripts  a task needed page scripts → turn them on / open the details page
  */
 
 /**
@@ -61,6 +62,20 @@ export function noticeCardModel(notice, ctx) {
         body: t('noticeUpgradeBody'),
         actions: [{ id: 'update', label: t('cloudUpdateNow'), primary: true }]
       };
+    case 'scripts':
+      return notice.state === 'needs-toggle'
+        ? {
+            kind: 'scripts',
+            title: t('noticeScriptsTitle'),
+            body: t('advancedScriptsNeedsToggle'),
+            actions: [{ id: 'open-details', label: t('advancedOpenDetails'), primary: true }]
+          }
+        : {
+            kind: 'scripts',
+            title: t('noticeScriptsTitle'),
+            body: t('noticeScriptsBody'),
+            actions: [{ id: 'enable-scripts', label: t('advancedScriptsEnable'), primary: true }]
+          };
     case 'paused':
       return {
         kind: 'paused',

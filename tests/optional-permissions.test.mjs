@@ -27,5 +27,14 @@ test('permission requests run first inside the click, before anything awaits', (
   assert.ok(grant.slice(firstAwait, firstAwait + 80).includes("chrome.permissions.request({ permissions: ['tabCapture'] })"));
   const enable = panel.slice(panel.indexOf('function enablePageScripts()'), panel.indexOf('async function refreshVendorBoards()'));
   assert.doesNotMatch(enable, /await /);
-  assert.match(enable, /chrome\.permissions\s*\.request\(\{ permissions: \['userScripts'\] \}\)/);
+  assert.match(enable, /return requestPageScripts\(\)/);
+  // The shared helper asks straight away, and the welcome tab calls it first in its click.
+  const shared = read('src/sidepanel/pageScripts.js');
+  const req = shared.slice(shared.indexOf('export function requestPageScripts()'));
+  assert.match(req.slice(0, 160), /return chrome\.permissions\.request\(\{ permissions: \['userScripts'\] \}\)/);
+  const welcome = read('src/welcome/welcome.js');
+  const click = welcome.slice(welcome.indexOf("$('scriptsBtn').addEventListener"));
+  assert.match(click.slice(0, 200), /requestPageScripts\(\)\.then/);
+  const open = welcome.slice(welcome.indexOf("$('openPanelBtn').addEventListener"));
+  assert.doesNotMatch(open.slice(0, open.indexOf('});')), /await /);
 });

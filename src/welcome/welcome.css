@@ -1,0 +1,52 @@
+/* Welcome tab. Tokens from sidepanel/css/tokens.css (Quiet Black / Quiet Light). */
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg-stage); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+body { background: radial-gradient(900px 420px at 50% -120px, var(--accent-soft), transparent 70%), var(--bg-stage); }
+.wl { max-width: 680px; margin: 0 auto; padding: 72px 24px 64px; }
+.wl-head { display: grid; justify-items: center; gap: 12px; text-align: center; margin-bottom: 40px; }
+.wl-mark svg { width: 56px; height: 56px; }
+.wl-mark .b { fill: var(--text); }
+.wl-mark .e { fill: var(--accent); }
+.wl-head h1 { margin: 6px 0 0; font-size: 34px; font-weight: 500; letter-spacing: -0.035em; }
+.wl-head p { margin: 0; color: var(--text-muted); font-size: 16px; }
+
+.wl-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.wl-step { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 16px; padding: 22px 22px 22px 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-soft); transition: border-color 0.2s, opacity 0.2s; }
+.wl-step.is-skipped { opacity: 0.45; }
+.wl-no { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border-strong); color: var(--accent); font-size: 13px; font-weight: 700; }
+.wl-step.is-done { border-color: color-mix(in srgb, var(--green) 45%, var(--border)); }
+.wl-step.is-done .wl-no { border-color: transparent; background: var(--green-soft); color: var(--green); font-size: 0; }
+.wl-step.is-done .wl-no::after { content: '✓'; font-size: 14px; }
+.wl-body h2 { margin: 3px 0 6px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.wl-body p { margin: 0; color: var(--text-muted); font-size: 14px; line-height: 1.55; }
+.wl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.wl-btn { margin-top: 14px; height: 38px; padding: 0 16px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-elevated-2); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.wl-row .wl-btn { margin-top: 0; }
+.wl-btn:hover { border-color: var(--text-muted); }
+.wl-btn.is-primary { border-color: transparent; background: var(--text); color: var(--bg-stage); }
+.wl-btn:disabled { opacity: 0.55; cursor: default; }
+.wl-btn:focus-visible, .wl-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wl-link { padding: 0; border: 0; background: none; color: var(--text-muted); font: inherit; font-size: 13.5px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.wl-status { margin-top: 12px !important; color: var(--text) !important; }
+[hidden] { display: none !important; }
+
+/* Illustrations: a toolbar with the extensions menu, and the details-page toggle. */
+.wl-art { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-stage); }
+.wl-toolbar { position: relative; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; margin-bottom: 64px; }
+.wl-url { flex: 1; height: 24px; border-radius: 12px; background: var(--bg-elevated-2); }
+.wl-ico { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; }
+.wl-puzzle { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
+.wl-ico svg { width: 16px; height: 16px; fill: var(--text); }
+.wl-pop { position: absolute; right: 8px; top: 48px; min-width: 220px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg-elevated); }
+.wl-pop-row { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 7px; background: var(--bg-elevated-2); font-size: 13px; }
+.wl-mini-mark { width: 14px; height: 10px; border-radius: 2px; background: var(--text); box-shadow: 5px -3px 0 -2px var(--accent); }
+.wl-pin { margin-left: auto; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 0 2px var(--accent); }
+.wl-pin svg { width: 14px; height: 14px; fill: var(--accent); }
+.wl-toggle-help { margin-top: 14px; }
+.wl-details { padding: 6px; }
+.wl-details-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 8px; background: var(--bg-elevated-2); font-size: 14px; box-shadow: inset 0 0 0 2px var(--accent); }
+.wl-switch { position: relative; width: 36px; height: 20px; border-radius: 10px; background: var(--accent); }
+.wl-switch i { position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+
+.wl-foot { display: grid; justify-items: center; gap: 14px; margin-top: 32px; text-align: center; }
+.wl-foot p { margin: 0; color: var(--text-faint); font-size: 13px; }

@@ -155,6 +155,7 @@ import { getHomeHints } from './sidepanel/homeHints.js';
 import { mountAccountMenu, tasksFor as accountTasksFor } from './sidepanel/accountMenu.js';
 import { isProbeableUrl, pickStarters, probePage } from './sidepanel/pageStarters.js';
 import { clearNoticeCards, noticeCardModel, showNoticeCard } from './sidepanel/noticeCards.js';
+import { isPageScriptsOffError, openExtensionDetails, pageScriptsState, requestPageScripts } from './sidepanel/pageScripts.js';
 
 /** Top-right account control (accountMenu.js); set once the panel wires its buttons. */
 let accountMenu = null;
@@ -7280,6 +7281,7 @@ function handleSessionWorkspaceEvent(request) {
       ev.type === 'model-end'
     ) {
       if (ev.type === 'tool-result' && ev.ok === false && isByokPlanError(ev.result)) showCloudNoticeFor(ev.result);
+      if (ev.type === 'tool-result' && isPageScriptsOffError(ev.result)) void showPageScriptsCard();
       const leaseNote = ev.type === 'tool-result' ? humanizeTabLeaseEvent(ev) : '';
       if (leaseNote && !liveTurnSealed) {
         const prefix = currentLang === 'en' ? '**Notice:** ' : '**提示:** ';
@@ -8461,7 +8463,7 @@ function setupCoreEventListeners() {
   document.querySelectorAll('[data-byok-plans]').forEach((btn) => btn.addEventListener('click', () => openCloudAccountPage('/pricing.html')));
   $('advancedScriptsBtn')?.addEventListener('click', () => enablePageScripts());
   $('advancedScriptsToggleBtn')?.addEventListener('click', () => {
-    void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}`, active: true });
+    void openExtensionDetails();
   });
   accountMenu = mountAccountMenu({
     t,
@@ -14152,6 +14154,23 @@ function showCloudNoticeFor(error) {
   });
 }
 
+/** A task needed page scripts and they are off: offer the same steps as Settings → Advanced. */
+async function showPageScriptsCard() {
+  const state = await pageScriptsState();
+  if (state === 'on') return;
+  const model = noticeCardModel({ kind: 'scripts', state }, { t, signedIn: true, formatDate: () => '' });
+  showNoticeCard(document.getElementById('taskStream'), model, (action, card) => {
+    if (action === 'enable-scripts') {
+      void enablePageScripts().then(async () => {
+        if ((await pageScriptsState()) === 'on') card.remove();
+        else void showPageScriptsCard();
+      });
+    } else if (action === 'open-details') {
+      void openExtensionDetails();
+    }
+  }, t('cloudNoticeDismiss'));
+}
+
 /** Settings: one hint line per BYOK section while own keys are not allowed. Saved keys stay. */
 async function renderByokPlanHints() {
   let allowed = true;
@@ -14190,22 +14209,6 @@ async function updateExtensionForCloud() {
   void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}`, active: true });
 }
 
-/**
- * userScripts is an optional permission, and Chrome 138+ also needs the per-extension
- * "Allow User Scripts" toggle. Both are the user's to grant; this only reports and asks.
- * @returns {Promise<'off'|'needs-toggle'|'on'>}
- */
-async function pageScriptsState() {
-  const granted = await chrome.permissions.contains({ permissions: ['userScripts'] }).catch(() => false);
-  if (!granted) return 'off';
-  try {
-    await chrome.userScripts.getScripts();
-    return 'on';
-  } catch {
-    return 'needs-toggle';
-  }
-}
-
 async function renderAdvancedCard() {
   const line = document.getElementById('advancedScriptsLine');
   const enable = document.getElementById('advancedScriptsBtn');
@@ -14219,10 +14222,7 @@ async function renderAdvancedCard() {
 
 function enablePageScripts() {
   // Must run synchronously inside the click so Chrome sees a user gesture.
-  chrome.permissions
-    .request({ permissions: ['userScripts'] })
-    .catch(() => false)
-    .then(() => renderAdvancedCard());
+  return requestPageScripts().then(() => renderAdvancedCard());
 }
 
 async function refreshVendorBoards() {

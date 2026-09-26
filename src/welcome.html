@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Browser Kitten</title>
+  <link rel="icon" href="../icons/icon-32.png" />
+  <link rel="stylesheet" href="sidepanel/css/tokens.css" />
+  <link rel="stylesheet" href="welcome/welcome.css" />
+</head>
+<body data-theme="dark">
+  <main class="wl">
+    <header class="wl-head">
+      <span class="wl-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path class="b" d="M6 14 L9.5 5.5 Q10.5 2.5 11.5 5.5 L15 14 H17 L20.5 5.5 Q21.5 2.5 22.5 5.5 L26 14 A4 4 0 0 1 30 18 V26 A4 4 0 0 1 26 30 H6 A4 4 0 0 1 2 26 V18 A4 4 0 0 1 6 14 Z"/><path class="e" d="M17 14 L20.5 5.5 Q21.5 2.5 22.5 5.5 L26 14 Z"/></svg></span>
+      <h1 data-i18n="welcomeTitle">Browser Kitten 装好了</h1>
+      <p data-i18n="welcomeLead">三步就能开始，第四步可选。</p>
+    </header>
+
+    <ol class="wl-steps">
+      <li class="wl-step" id="stepPin">
+        <span class="wl-no">1</span>
+        <div class="wl-body">
+          <h2 data-i18n="welcomePinTitle">把图标固定到工具栏</h2>
+          <p data-i18n="welcomePinBody"></p>
+          <div class="wl-art wl-toolbar" aria-hidden="true">
+            <span class="wl-url"></span>
+            <span class="wl-ico wl-puzzle"><svg viewBox="0 0 24 24"><path d="M10 3h4v3a2 2 0 1 0 4 0V3h3v7h-3a2 2 0 1 0 0 4h3v7h-7v-3a2 2 0 1 0-4 0v3H3v-7h3a2 2 0 1 0 0-4H3V3h7z"/></svg></span>
+            <span class="wl-pop">
+              <span class="wl-pop-row"><span class="wl-mini-mark"></span>Browser Kitten<span class="wl-pin"><svg viewBox="0 0 24 24"><path d="M15 3l6 6-3 1-4 4 1 5-2 1-4-4-5 5-1-1 5-5-4-4 1-2 5 1 4-4z"/></svg></span></span>
+            </span>
+          </div>
+        </div>
+      </li>
+
+      <li class="wl-step" id="stepOpen">
+        <span class="wl-no">2</span>
+        <div class="wl-body">
+          <h2 data-i18n="welcomeOpenTitle">打开侧栏</h2>
+          <p data-i18n="welcomeOpenBody"></p>
+          <button type="button" class="wl-btn" id="openPanelBtn" data-i18n="welcomeOpenBtn">现在打开侧栏</button>
+        </div>
+      </li>
+
+      <li class="wl-step" id="stepSignIn">
+        <span class="wl-no">3</span>
+        <div class="wl-body">
+          <h2 data-i18n="welcomeSignInTitle">登录，领取免费试用积分</h2>
+          <p data-i18n="welcomeSignInBody"></p>
+          <button type="button" class="wl-btn is-primary" id="signInBtn" data-i18n="welcomeSignInBtn">登录</button>
+          <p class="wl-status" id="signInStatus" role="status" hidden></p>
+        </div>
+      </li>
+
+      <li class="wl-step is-optional" id="stepScripts">
+        <span class="wl-no">4</span>
+        <div class="wl-body">
+          <h2 data-i18n="welcomeScriptsTitle">开启高级能力（可选）</h2>
+          <p data-i18n="welcomeScriptsBody"></p>
+          <div class="wl-row">
+            <button type="button" class="wl-btn" id="scriptsBtn" data-i18n="advancedScriptsEnable">开启页面脚本</button>
+            <button type="button" class="wl-btn" id="detailsBtn" data-i18n="advancedOpenDetails" hidden>打开扩展详情</button>
+            <button type="button" class="wl-link" id="skipScriptsBtn" data-i18n="welcomeSkip">跳过</button>
+          </div>
+          <div class="wl-toggle-help" id="toggleHelp" hidden>
+            <p data-i18n="welcomeScriptsToggle"></p>
+            <div class="wl-art wl-details" aria-hidden="true">
+              <span class="wl-details-row"><span data-i18n="welcomeToggleLabel">允许用户脚本</span><span class="wl-switch"><i></i></span></span>
+            </div>
+          </div>
+          <p class="wl-status" id="scriptsStatus" role="status" hidden></p>
+        </div>
+      </li>
+    </ol>
+
+    <footer class="wl-foot">
+      <button type="button" class="wl-btn is-primary" id="doneBtn" data-i18n="welcomeDone">完成</button>
+      <p data-i18n="welcomeFooter"></p>
+    </footer>
+  </main>
+  <script type="module" src="welcome/welcome.js"></script>
+</body>
+</html>
