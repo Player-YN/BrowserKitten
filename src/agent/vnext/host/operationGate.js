@@ -335,10 +335,13 @@ export async function gatedDispatch(req = {}, deps = {}) {
       risk: classified.risk
     });
   } catch (error) {
+    // A revision conflict is rejected before any write: a definite failure, not unknown.
+    const definite = error?.code === 'ARTIFACT_CONFLICT';
+    const outcome = definite ? 'failed' : 'unknown';
     if (writeJournal) {
       await journal.update(operationId, {
-        state: 'unknown',
-        outcome: 'unknown',
+        state: outcome,
+        outcome,
         error: { code: error?.code || 'SYS_OUTCOME_UNKNOWN', message: error?.message || 'dispatch threw' }
       });
     }
@@ -346,7 +349,8 @@ export async function gatedDispatch(req = {}, deps = {}) {
       ok: false,
       code: error?.code || 'SYS_OUTCOME_UNKNOWN',
       error: error?.message || String(error),
-      outcome: 'unknown',
+      outcome,
+      ...(definite && error?.actualRevision != null ? { actualRevision: error.actualRevision } : {}),
       operationId,
       accessMode: policy.mode,
       confidence: classified.confidence
