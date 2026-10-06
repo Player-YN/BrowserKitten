@@ -3,6 +3,13 @@ import { MSG_TARGET_BACKGROUND } from '../../../brand.js';
 import { formatRpcError } from './rpcError.js';
 import { assertWorkspaceRpc, rpcFailure } from './workspaceRpcContract.js';
 
+/**
+ * Artifact writes whose result is never `{ ok: false }` as data: a resolved
+ * `{ ok: false, code }` here (e.g. a host gate denial) is a failed write and
+ * must not read as "saved". Other methods may return `ok: false` as data.
+ */
+const OK_FALSE_IS_FAILURE = new Set(['updateArtifact', 'revertArtifact', 'createArtifact', 'deleteArtifact']);
+
 export async function workspaceRpc(method, params = {}) {
   const contract = assertWorkspaceRpc(method, params, 'ui');
   if (typeof chrome === 'undefined' || typeof chrome.runtime?.sendMessage !== 'function') {
@@ -24,5 +31,12 @@ export async function workspaceRpc(method, params = {}) {
       code: response.code || 'WORKSPACE_FAILED', actualRevision: response.actualRevision
     });
   }
-  return response.result;
+  const result = response.result;
+  if (OK_FALSE_IS_FAILURE.has(method) && result && typeof result === 'object' && result.ok === false) {
+    const { error, ...rest } = result;
+    throw Object.assign(new Error(`workspace RPC failed: ${method}: ${error != null ? formatRpcError(error) : (result.code || 'unknown')}`), {
+      ...rest, code: result.code || 'WORKSPACE_FAILED'
+    });
+  }
+  return result;
 }

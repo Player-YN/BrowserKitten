@@ -101,3 +101,12 @@ test('shared UI client preserves structured artifact conflicts and read unavaila
   chrome.runtime.sendMessage = async () => undefined;
   await assert.rejects(workspaceRpc('readArtifact', {}), { code: 'RPC_UNAVAILABLE' });
 });
+test('shared UI client throws on a resolved ok:false artifact write, keeps ok:false data elsewhere', async () => {
+  const { workspaceRpc } = await import('../src/agent/vnext/host/workspaceClient.js');
+  globalThis.chrome = { runtime: { sendMessage: async () => ({ ok: true, result: { ok: false, code: 'TICKET_REQUIRED', error: 'no ticket', operationId: 'op1' } }) } };
+  await assert.rejects(workspaceRpc('updateArtifact', {}), (err) => err.code === 'TICKET_REQUIRED' && err.operationId === 'op1' && /no ticket/.test(err.message));
+  globalThis.chrome.runtime.sendMessage = async () => ({ ok: true, result: { ok: false, code: 'ARTIFACT_CONFLICT', actualRevision: 4 } });
+  await assert.rejects(workspaceRpc('updateArtifact', {}), { code: 'ARTIFACT_CONFLICT', actualRevision: 4 });
+  globalThis.chrome.runtime.sendMessage = async () => ({ ok: true, result: { ok: false, code: 'NO_SESSION' } });
+  assert.deepEqual(await workspaceRpc('abortCurrentExecution', {}), { ok: false, code: 'NO_SESSION' });
+});

@@ -68,7 +68,7 @@ import { gatedDispatch, hostAnswerApproval, hostGetPendingApproval } from '../ho
 import { createCallJournal, createMemoryCallJournal, createUnavailableCallJournal, openCallJournal, slimJournalAudit } from '../host/callJournal.js';
 import { readEffectiveAccessPolicy } from '../host/accessPolicy.js';
 import { createMemoryTicketStorage, installDispatchTicketStorage, dispatchTicketStorageInstalled, putDispatchTicket, dropTicketsForExecution, dropDispatchTicket, listDispatchTickets } from '../host/dispatchTicket.js';
-import { hashOperationPayload, sha256Hex } from '../host/payloadHash.js';
+import { hashOperationPayload } from '../host/payloadHash.js';
 import { resolveUploadSource, hashUploadBytes } from '../sessionWorkspace/uploadSource.js';
 import {
   UPLOAD_BYTES_MAX,
@@ -2494,48 +2494,18 @@ export class SessionWorkspaceService {
     return out;
   }
 
+  /**
+   * User/preview save (UI RPC). A reversible local write: no Access Policy gate,
+   * no dispatch ticket (the SW never consumes one for a local artifact write).
+   * A stale expectedRevision throws ARTIFACT_CONFLICT so the RPC reports failure.
+   */
   async updateArtifact({ sessionId = 'default', artifactId, content, mimeType, base64, name, expectedRevision } = {}) {
     this.ensureSession(sessionId);
     const bytes = bytesFromRpcContent({ content, base64 });
-    const sha256 = await sha256Hex(typeof Buffer !== 'undefined' ? Buffer.from(bytes).toString('base64') : String(bytes.byteLength));
-    if (expectedRevision != null) {
-      return gatedDispatch(
-        {
-          channel: 'artifact',
-          op: 'updateArtifact',
-          sessionId,
-          executionId: this._activeBySession.get(sessionId)?.executionId,
-          artifactId,
-          expectedRevision,
-          sha256
-        },
-        {
-          journal: this._journal,
-          broadcast: (ev) => this._broadcastUiEvent(ev),
-          putTicket: (ticket) => this._putTicket(ticket),
-          readPolicy: () => this._readPolicy(),
-          send: async () => {
-            const fs = createSessionGuestFs(this.runtime.store, { sessionId, executionId: null });
-            const rec = updateArtifactContent(this.runtime.store, fs, sessionId, artifactId, bytes, {
-              mimeType,
-              name,
-              expectedRevision
-            });
-            await this._persist();
-            return { ok: true, artifact: rec, revision: rec.revision, sha256 };
-          },
-          verifyFacts: async (out) => ({
-            revision: out?.artifact?.revision,
-            sha256,
-            idempotent: false
-          })
-        }
-      );
-    }
     const fs = createSessionGuestFs(this.runtime.store, { sessionId, executionId: null });
     const rec = updateArtifactContent(this.runtime.store, fs, sessionId, artifactId, bytes, { mimeType, name, expectedRevision });
     await this._persist();
-    return { ok: true, artifact: rec };
+    return { ok: true, artifact: rec, revision: rec.revision };
   }
 
   async deleteArtifact({ sessionId = 'default', artifactId } = {}) {
