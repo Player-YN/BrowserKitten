@@ -170,7 +170,7 @@ test('parallel CDP commands share attachment; another debugger is not treated as
     sendCommand:async()=>({value:1}),detach:async()=>{},getTargets:async()=>[]};
   const reqs=[];
   for (let i=0;i<2;i+=1) {
-    const req={sessionId:'s',executionId:'e',op:'cdp',params:{tabId:73,method:'Runtime.evaluate'}};
+    const req={sessionId:'s',executionId:'e',op:'cdp',params:{tabId:73,method:'Page.getLayoutMetrics'}};
     Object.assign(req, await seedAutoTicket(req,{channel:'sys',op:'cdp',params:req.params}));
     reqs.push(req);
   }

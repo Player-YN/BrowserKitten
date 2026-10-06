@@ -10,6 +10,7 @@ import { readDocumentTarget, targetError } from './documentTarget.js';
 import { consumeDispatchTicket } from './dispatchTicket.js';
 import { classifyRisk, needsDispatchTicket } from './riskClassify.js';
 import { hashOperationPayload } from './payloadHash.js';
+import { cdpCommandRunsScript } from './cdpScriptGate.js';
 import {
   applyUploadToTab,
   assertUploadGuestPath,
@@ -380,7 +381,8 @@ async function sysUpload(params, request = {}) {
   if (!isSysInjectableUrl(tab.url)) {
     return { ok: false, code: 'NEED_PAGE', error: `tab is not injectable: ${tab.url || '(no url)'}` };
   }
-  const leased = await acquireSysTab(request, tab.id, 'upload');
+  // cdp:* lease kind lets execution-end cleanup detach this debugger even after an SW restart.
+  const leased = await acquireSysTab(request, tab.id, method === 'cdp' ? 'cdp:upload' : 'upload');
   if (leased) return leased;
   const frameId = params.frameId == null ? 0 : Number(params.frameId);
   const document = await readDocumentTarget(chrome, tab.id, frameId, {
@@ -499,6 +501,11 @@ async function sysCdp(params, request = {}) {
     };
   }
 
+  if (params.method) {
+    const refused = await cdpScriptPermissionDenied(String(params.method), params.params);
+    if (refused) return refused;
+  }
+
   const debuggee = await resolveDebuggee(params);
   if (debuggee.tabId) {
     const denied = await acquireSysTab(request, debuggee.tabId, `cdp:${action || 'send'}`);
@@ -566,6 +573,23 @@ async function sysCdp(params, request = {}) {
     };
   }
   return { ok: true, result: { method, ...publicDebuggee(debuggee), result: clipped.value } };
+}
+
+/**
+ * Guest CDP that can run page script needs the same opt-in as sys.eval (cdpScriptGate.js).
+ * Checked before lease, ticket, and attach, so a refused call leaves no banner behind.
+ */
+async function cdpScriptPermissionDenied(method, cdpParams) {
+  if (!cdpCommandRunsScript(method, cdpParams)) return null;
+  const denied = await userScriptsDenied();
+  if (!denied) return null;
+  return {
+    ok: false,
+    code: 'PERMISSION_REQUIRED',
+    permission: 'userScripts',
+    method,
+    error: `sys.cdp ${method} can run script in the page, so it needs page scripts. ${denied.error}`
+  };
 }
 
 function installCdpHooks() {

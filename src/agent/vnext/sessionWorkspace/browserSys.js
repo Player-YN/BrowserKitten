@@ -77,7 +77,8 @@ export const SYS_HELP = Object.freeze({
     'eval/fetch/cdp results larger than the cap are TOO_LARGE',
     'DOM nodes / functions are NOT_CLONEABLE',
     'sys.cdp fails if DevTools (or another debugger) is already attached',
-    'Chrome shows a debugging banner while CDP is attached'
+    'Chrome shows a debugging banner while CDP is attached',
+    'sys.cdp commands that can run page script (Runtime.evaluate/callFunctionOn, Debugger.*, Page.addScriptToEvaluateOnNewDocument, javascript: navigation, ...) need page scripts like sys.eval; otherwise PERMISSION_REQUIRED permission:userScripts'
   ]
 });
 

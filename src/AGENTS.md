@@ -126,7 +126,7 @@ Content script：
 
 ## 其它宿主事实
 
-- 权限与命令见根 AGENTS.md / `manifest.json`。`userScripts` 给 `sys.eval` / page `fetch`；`debugger` 给 `sys.cdp`。Chrome 135+ 的 `userScripts.execute` 需要扩展卡片 **允许运行用户脚本**（或更早的开发者模式）。CDP 挂上时 Chrome 会显示调试横幅；F12 已打开会 `CDP_BUSY`。`eval` / page `fetch` / `cdp` 不注入扩展预览页。`sys` 是系统调用表，不是产品功能列表（[agent/AGENTS.md](agent/AGENTS.md)）。
+- 权限与命令见根 AGENTS.md / `manifest.json`。`userScripts` 给 `sys.eval` / page `fetch`，也是 guest `sys.cdp` 脚本类命令（`Runtime.evaluate` 等，见 `cdpScriptGate.js`）的开关；`debugger` 给 `sys.cdp`。Chrome 135+ 的 `userScripts.execute` 需要扩展卡片 **允许运行用户脚本**（或更早的开发者模式）。CDP 挂上时 Chrome 会显示调试横幅；F12 已打开会 `CDP_BUSY`。`eval` / page `fetch` / `cdp` 不注入扩展预览页。`sys` 是系统调用表，不是产品功能列表（[agent/AGENTS.md](agent/AGENTS.md)）。
 - 区域截图：Alt+Shift+C → content script 框选 → SW `captureVisibleTab` 裁剪 → 剪贴板 + 对话附件。
 - `llm_proxy_fetch`：侧栏/设置探测模型时走 SW，避免页面 CORS。
 
