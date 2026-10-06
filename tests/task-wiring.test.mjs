@@ -225,3 +225,55 @@ test('abort or deadline settle pauses with unknown-outcome inspect, never comple
   assert.equal(deadline.status, 'paused');
   assert.match(deadline.nextAction, /inspect/i);
 });
+
+test('checked plan approval binds the task to the turn and releases it, so the next message runs', async () => {
+  const { answerClarify } = await import('../src/agent/vnext/sessionWorkspace/clarifyGate.js');
+  const { getActiveTaskId } = await import('../src/agent/vnext/sessionWorkspace/taskContract.js');
+  const { store, service, sessionId } = storeWithSession();
+  let calls = 0;
+  const first = await service.sendMessage({
+    sessionId,
+    content: '/plan apply for the visa',
+    callModel: async () => {
+      calls++;
+      if (calls === 1) {
+        return {
+          toolCalls: [{
+            id: 'c1',
+            name: 'clarify',
+            args: { plan: { title: 'Prepare the visa application', steps: ['Collect documents', 'Submit'] } }
+          }]
+        };
+      }
+      return { text: 'Plan approved; tell me your details.' };
+    },
+    onEvent: (ev) => {
+      if (ev?.type === 'clarify' && ev.clarifyId) {
+        queueMicrotask(() => answerClarify({
+          clarifyId: ev.clarifyId,
+          answers: { approved: true, startDurableTask: true }
+        }));
+      }
+    }
+  });
+  const taskId = getActiveTaskId(store, sessionId);
+  assert.ok(taskId, 'checked plan approval creates a bound task');
+  assert.equal(first.task?.taskId, taskId);
+  const settled = getTask(store, taskId);
+  assert.notEqual(settled.status, 'running');
+  assert.equal(settled.ownership.executionId, null);
+
+  let followUpRan = false;
+  const second = await service.sendMessage({
+    sessionId,
+    content: 'Here are my details.',
+    callModel: async () => {
+      followUpRan = true;
+      return { text: 'Thanks.' };
+    }
+  });
+  assert.notEqual(second.skipAgent, true);
+  assert.equal(second.taskClaimError, undefined);
+  assert.equal(followUpRan, true);
+  assert.equal(second.task?.taskId, taskId);
+});

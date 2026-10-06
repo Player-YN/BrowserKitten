@@ -494,6 +494,18 @@ export function hostTaskMutation(store, args = {}) {
   }
   if (op === 'start') return consumeStartCard(store, args);
   if (op === 'amend') return consumeAmendCard(store, args);
+  // Host-only (not in the task tool enum): a checked /plan approval. Going
+  // through hostTask lets the service bind and settle the claimed task.
+  if (op === 'plan-start') {
+    return startTaskFromPlanApproval(store, {
+      sessionId: args.sessionId,
+      executionId: args.executionId,
+      plan: input.plan,
+      cardId: input.cardId,
+      now: args.now,
+      targetPage: args.targetPage
+    });
+  }
   const task = requireOwnedTask(store, args.taskId, args.executionId);
   if (op === 'inspect') return { ok: true, task, yield: false };
   if (!['plan', 'checkpoint', 'wait', 'complete'].includes(op)) {

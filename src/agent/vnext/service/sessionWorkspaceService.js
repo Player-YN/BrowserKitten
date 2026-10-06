@@ -2047,7 +2047,10 @@ export class SessionWorkspaceService {
               input,
               targetPage: activeTab
             });
-            if (out?.task && (input?.op === 'start' || input?.op === 'amend')) {
+            if (
+              out?.task &&
+              (input?.op === 'start' || input?.op === 'amend' || (input?.op === 'plan-start' && out.created))
+            ) {
               durableTask = out.task;
               if (slot) slot.taskId = out.task.taskId;
             }

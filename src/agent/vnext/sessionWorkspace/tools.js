@@ -1316,13 +1316,20 @@ export function createSessionTools(env) {
           }
           if (wantsDurableTaskFromPlan(answers)) {
             try {
-              startTaskFromPlanApproval(store, {
-                sessionId,
-                executionId: execution?.executionId,
-                plan: pinned || plan,
-                cardId: `plan-task_${clarifyId}`,
-                now: Date.now()
-              });
+              const cardId = `plan-task_${clarifyId}`;
+              // The service must see the task this turn claims, or it never
+              // settles and the next message fails with TASK_BUSY.
+              if (typeof env.hostTask === 'function') {
+                await env.hostTask({ op: 'plan-start', plan: pinned || plan, cardId });
+              } else {
+                startTaskFromPlanApproval(store, {
+                  sessionId,
+                  executionId: execution?.executionId,
+                  plan: pinned || plan,
+                  cardId,
+                  now: Date.now()
+                });
+              }
             } catch {
               /* already-active / card errors must not unwind the plan pin */
             }
