@@ -4327,7 +4327,44 @@ ${fragment}
       seen.add(el);
       (isElementVisible(el) ? visible : hidden).push(el);
     }
-    return visible.concat(hidden).slice(0, ACTION_SNAPSHOT_CAP);
+    let extra = [];
+    if (visible.length < ACTION_SNAPSHOT_CAP) {
+      try {
+        extra = collectHeuristicClickables(seen, Math.min(ACTION_HEURISTIC_CAP, ACTION_SNAPSHOT_CAP - visible.length));
+      } catch (_) {
+        extra = [];
+      }
+    }
+    return visible.concat(extra, hidden).slice(0, ACTION_SNAPSHOT_CAP);
+  }
+
+  // Elements that own a click (an ancestor of these makes a nested div/span part of that control).
+  const ACTION_CLICK_OWNER_SEL = [
+    'a[href]', 'button', 'input', 'select', 'textarea', 'label', 'summary',
+    '[role="button"]', '[role="link"]', '[role="menuitem"]', '[role="menuitemcheckbox"]', '[role="menuitemradio"]',
+    '[role="tab"]', '[role="option"]', '[role="switch"]', '[role="checkbox"]', '[role="radio"]', '[role="treeitem"]',
+    '[contenteditable=""]', '[contenteditable="true"]'
+  ].join(',');
+  const ACTION_MENU_CONTAINER_SEL = 'nav, menu, [role="navigation"], [role="menu"], [role="menubar"], [role="tablist"], [role="listbox"], [role="tree"]';
+
+  /** div/span/li menus etc. with no role/tabindex. Visible only; marked role generic-clickable. */
+  function collectHeuristicClickables(already, cap) {
+    if (!document.body || cap <= 0) return [];
+    let nodes = [];
+    try { nodes = document.body.querySelectorAll('*'); } catch (_) { return []; }
+    const picked = selectHeuristicClickables(nodes, {
+      already,
+      cursor: (el) => window.getComputedStyle(el).cursor,
+      visible: isElementVisible,
+      isChrome: isActionChrome,
+      insideControl: (el) => !!(el.parentElement && el.parentElement.closest(ACTION_CLICK_OWNER_SEL)),
+      containsControl: (el) => !!el.querySelector(ACTION_CLICK_OWNER_SEL),
+      inMenu: (el) => !!(el.parentElement && el.parentElement.closest(ACTION_MENU_CONTAINER_SEL))
+    }, cap);
+    for (const el of picked) {
+      if (!String(el.getAttribute('role') || '').trim()) actionHeuristicEls.add(el);
+    }
+    return picked;
   }
 
   function actionControlType(el) {
@@ -4358,25 +4395,281 @@ ${fragment}
     return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
-  function actionAccessibleName(el) {
+  // ── action-controls:pure-begin ──
+  // Accessible names and heuristic clickables for `action` snapshots. Pure over the element API it touches
+  // (getAttribute / tagName / childNodes / parentElement / contains) plus an injected `env`, so
+  // tests/action-controls.test.mjs can evaluate this block with small fakes. No document/window access here.
+  const ACTION_NAME_CAP = 80;
+  const ACTION_HEURISTIC_TEXT_CAP = 60;
+  const ACTION_HEURISTIC_CAP = 40;
+  const ACTION_HEURISTIC_SCAN_CAP = 4000;
+  // Roles whose accessible name comes from their content (subset of WAI-ARIA "name from content").
+  const ACTION_NAME_FROM_CONTENT_ROLES = new Set([
+    'button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'option', 'treeitem',
+    'switch', 'checkbox', 'radio', 'cell', 'gridcell', 'columnheader', 'rowheader', 'heading', 'tooltip',
+    'generic-clickable'
+  ]);
+  const ACTION_FIELD_ROLES = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton', 'slider', 'listbox']);
+  const ACTION_HEURISTIC_ROLES = new Set([
+    'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'option', 'link', 'switch', 'checkbox', 'radio', 'treeitem'
+  ]);
+  const ACTION_HEURISTIC_TAGS = new Set([
+    'div', 'span', 'li', 'p', 'td', 'th', 'dd', 'dt', 'img', 'strong', 'b', 'em', 'i', 'small', 'summary',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6'
+  ]);
+  const ACTION_TEXT_SKIP_TAGS = new Set(['script', 'style', 'noscript', 'template', 'head']);
+  // Element boundaries that separate words (inline elements like <span>/<b> join without a space).
+  const ACTION_BLOCK_TAGS = new Set([
+    'div', 'p', 'li', 'ul', 'ol', 'br', 'tr', 'td', 'th', 'table', 'section', 'article', 'header', 'footer',
+    'dd', 'dt', 'dl', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'option', 'fieldset', 'legend', 'figcaption', 'blockquote', 'pre'
+  ]);
+
+  function actionCollapse(s) {
+    return String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  }
+  function actionCapName(s, cap = ACTION_NAME_CAP) {
+    return actionCollapse(s).slice(0, cap).trim();
+  }
+  function actionAttr(el, name) {
+    try {
+      const v = el && el.getAttribute ? el.getAttribute(name) : null;
+      return v == null ? '' : String(v);
+    } catch (_) {
+      return '';
+    }
+  }
+  function actionHasAttr(el, name) {
+    try {
+      return !!(el && el.hasAttribute ? el.hasAttribute(name) : el && el.getAttribute && el.getAttribute(name) != null);
+    } catch (_) {
+      return false;
+    }
+  }
+  function actionTag(el) {
+    return String((el && el.tagName) || '').toLowerCase();
+  }
+
+  /** Text an element contributes to a name: text nodes, img alt, button-like input values. Skips aria-hidden. */
+  function actionSubtreeText(el, budget = 400) {
+    let out = '';
+    const visit = (node, depth) => {
+      if (!node || out.length >= budget || depth > 24) return;
+      if (node.nodeType === 3) {
+        out += String(node.nodeValue || '');
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      const tag = actionTag(node);
+      if (ACTION_TEXT_SKIP_TAGS.has(tag)) return;
+      if (node !== el && actionAttr(node, 'aria-hidden') === 'true') return;
+      if (node !== el && node.hidden === true) return;
+      if (tag === 'img' || (tag === 'input' && String(node.type || actionAttr(node, 'type')).toLowerCase() === 'image')) {
+        out += ' ' + actionAttr(node, 'alt') + ' ';
+        return;
+      }
+      if (tag === 'input') {
+        const type = String(node.type || actionAttr(node, 'type') || '').toLowerCase();
+        if (type === 'submit' || type === 'button' || type === 'reset') out += ' ' + String(node.value || actionAttr(node, 'value') || '') + ' ';
+        return;
+      }
+      if (node !== el) {
+        const aria = actionAttr(node, 'aria-label');
+        if (aria.trim()) {
+          out += ' ' + aria + ' ';
+          return;
+        }
+      }
+      const block = node !== el && ACTION_BLOCK_TAGS.has(tag);
+      if (block) out += ' ';
+      const kids = node.childNodes || [];
+      for (let i = 0; i < kids.length && out.length < budget; i++) visit(kids[i], depth + 1);
+      if (block) out += ' ';
+    };
+    visit(el, 0);
+    return actionCollapse(out);
+  }
+
+  /** Direct child text nodes only ("own" text, not text of nested elements). */
+  function actionOwnDirectText(el) {
+    let out = '';
+    const kids = (el && el.childNodes) || [];
+    for (let i = 0; i < kids.length; i++) if (kids[i] && kids[i].nodeType === 3) out += ' ' + String(kids[i].nodeValue || '');
+    return actionCollapse(out);
+  }
+
+  function actionIsField(el, role) {
+    const tag = actionTag(el);
+    if (tag === 'select' || tag === 'textarea') return true;
+    if (tag === 'input') {
+      const type = String(el.type || actionAttr(el, 'type') || 'text').toLowerCase();
+      return !(type === 'submit' || type === 'button' || type === 'reset' || type === 'image');
+    }
+    if (ACTION_FIELD_ROLES.has(role)) return true;
+    return !!el.isContentEditable;
+  }
+
+  /**
+   * WAI-ARIA accname, reduced to what agents need:
+   * aria-labelledby → aria-label → fields: <label for>/wrapping label, placeholder, title →
+   * everything else: own content (incl. img alt, input[type=submit|button] value), title.
+   * env.nearby(el) (sibling / table-header heuristics) only when nothing above produced a name.
+   * env: { byId(id), labels(el) -> string[], nearby(el) -> string, role(el) -> string }
+   */
+  function computeActionName(el, env = {}) {
+    if (!el || el.nodeType !== 1) return '';
+    const role = String((env.role && env.role(el)) || actionAttr(el, 'role') || '').toLowerCase();
+    const labelledBy = actionAttr(el, 'aria-labelledby').trim();
+    if (labelledBy && env.byId) {
+      const parts = labelledBy.split(/\s+/).map((id) => {
+        const node = env.byId(id);
+        if (!node) return '';
+        return actionCollapse(actionAttr(node, 'aria-label')) || actionSubtreeText(node);
+      }).filter(Boolean);
+      const t = actionCapName(parts.join(' '));
+      if (t) return t;
+    }
+    const aria = actionCapName(actionAttr(el, 'aria-label'));
+    if (aria) return aria;
+    const tag = actionTag(el);
+    if (actionIsField(el, role)) {
+      const labels = env.labels ? env.labels(el) || [] : [];
+      for (const l of labels) {
+        const t = actionCapName(l);
+        if (t) return t;
+      }
+      const ph = actionCapName(el.placeholder != null && el.placeholder !== '' ? el.placeholder : actionAttr(el, 'placeholder'));
+      if (ph) return ph;
+      const title = actionCapName(actionAttr(el, 'title'));
+      if (title) return title;
+      return env.nearby ? actionCapName(env.nearby(el)) : '';
+    }
+    if (tag === 'input') {
+      const type = String(el.type || actionAttr(el, 'type') || '').toLowerCase();
+      const v = actionCapName(type === 'image' ? actionAttr(el, 'alt') || el.value || actionAttr(el, 'value') : el.value || actionAttr(el, 'value'));
+      if (v) return v;
+      const title = actionCapName(actionAttr(el, 'title'));
+      if (title) return title;
+      if (type === 'submit') return 'Submit';
+      if (type === 'reset') return 'Reset';
+      return '';
+    }
+    if (tag === 'img') {
+      const alt = actionCapName(actionAttr(el, 'alt'));
+      if (alt) return alt;
+    }
+    const own = actionCapName(actionSubtreeText(el, ACTION_NAME_CAP * 4));
+    if (own) return own;
+    const title = actionCapName(actionAttr(el, 'title'));
+    if (title) return title;
+    return env.nearby ? actionCapName(env.nearby(el)) : '';
+  }
+
+  /**
+   * Pick visible, clickable-looking elements that are not already controls (div/span/li menus etc.).
+   * Signals: interactive role / onclick / data-action attribute; own computed cursor:pointer with own text;
+   * or own text inside a nav/menu-like container. Text must be short. Nested hits are deduped
+   * (innermost wins, except a pointer-inheriting child of a candidate that has its own text, e.g. a badge).
+   * env: { cursor(el), visible(el), isChrome(el), insideControl(el) (ancestor is a control),
+   *        containsControl(el), inMenu(el), already: Set }
+   * @returns {Element[]} document order, at most `cap`
+   */
+  function selectHeuristicClickables(elements, env, cap = ACTION_HEURISTIC_CAP) {
+    const found = [];
+    const already = env.already || new Set();
+    const list = elements || [];
+    const scan = Math.min(list.length, ACTION_HEURISTIC_SCAN_CAP);
+    for (let i = 0; i < scan && found.length < cap * 3; i++) {
+      const el = list[i];
+      if (!el || el.nodeType !== 1 || already.has(el)) continue;
+      const tag = actionTag(el);
+      if (!ACTION_HEURISTIC_TAGS.has(tag)) continue;
+      const role = actionAttr(el, 'role').trim().toLowerCase();
+      const attrSignal = actionHasAttr(el, 'onclick') || actionHasAttr(el, 'data-action') || ACTION_HEURISTIC_ROLES.has(role);
+      const own = actionOwnDirectText(el);
+      if (!attrSignal && !own && tag !== 'img') continue;
+      let pointer = false;
+      if (!attrSignal) {
+        try { pointer = env.cursor(el) === 'pointer'; } catch (_) { pointer = false; }
+      }
+      const menu = !attrSignal && !pointer && !!own && (tag === 'div' || tag === 'span' || tag === 'li') && !!(env.inMenu && env.inMenu(el));
+      const imgPointer = pointer && tag === 'img' && !!actionAttr(el, 'alt').trim();
+      if (!attrSignal && !(pointer && own) && !imgPointer && !menu) continue;
+      const text = actionSubtreeText(el, ACTION_HEURISTIC_TEXT_CAP * 2) || actionCollapse(actionAttr(el, 'aria-label'));
+      if (!text || text.length > ACTION_HEURISTIC_TEXT_CAP) continue;
+      if (env.isChrome && env.isChrome(el)) continue;
+      if (env.insideControl && env.insideControl(el)) continue;
+      if (env.containsControl && env.containsControl(el)) continue;
+      if (env.visible && !env.visible(el)) continue;
+      let inherited = false;
+      if (pointer && el.parentElement) {
+        try { inherited = env.cursor(el.parentElement) === 'pointer'; } catch (_) { inherited = false; }
+      }
+      found.push({ el, own: !!own, weak: pointer && inherited && !attrSignal });
+    }
+    const drop = new Set();
+    for (let i = 0; i < found.length; i++) {
+      for (let j = i + 1; j < found.length; j++) {
+        const outer = found[i];
+        const inner = found[j];
+        if (outer.el === inner.el || !outer.el.contains || !outer.el.contains(inner.el)) continue;
+        if (inner.weak && outer.own) drop.add(inner);
+        else drop.add(outer);
+      }
+    }
+    return found.filter((f) => !drop.has(f)).slice(0, cap).map((f) => f.el);
+  }
+  // ── action-controls:pure-end ──
+
+  const actionHeuristicEls = new WeakSet();
+
+  function actionLabelTexts(el) {
+    const out = [];
+    try {
+      if (el.labels && el.labels.length) {
+        for (const lab of Array.from(el.labels)) out.push(labelElementText(lab, el));
+        return out;
+      }
+    } catch (_) {}
+    if (el.id) {
+      try {
+        const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(el.id) : String(el.id).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const lab = document.querySelector(`label[for="${esc}"]`);
+        if (lab) out.push(labelElementText(lab, el));
+      } catch (_) {}
+    }
+    try {
+      const wrap = el.closest && el.closest('label');
+      if (wrap) out.push(labelElementText(wrap, el));
+    } catch (_) {}
+    return out;
+  }
+
+  function actionNearbyText(el) {
     const nearby = resolveNearbyLabel(el);
-    const aria = el.getAttribute && el.getAttribute('aria-label');
-    const bits = [nearby && nearby.label_text, aria, el.placeholder];
-    for (const b of bits) {
-      const t = cleanDOMText(b || '');
-      if (t) return t.slice(0, 80);
+    return cleanDOMText((nearby && nearby.label_text) || '');
+  }
+
+  const actionNameEnv = {
+    byId: (id) => {
+      try { return document.getElementById(id); } catch (_) { return null; }
+    },
+    labels: actionLabelTexts,
+    nearby: actionNearbyText,
+    role: (el) => actionRole(el)
+  };
+
+  function actionAccessibleName(el) {
+    try {
+      return computeActionName(el, actionNameEnv);
+    } catch (_) {
+      return '';
     }
-    const tag = (el.tagName || '').toLowerCase();
-    if (tag === 'button' || tag === 'a' || tag === 'option') {
-      const t = cleanDOMText(el.innerText || el.textContent || '');
-      if (t) return t.slice(0, 80);
-    }
-    return '';
   }
 
   function actionRole(el) {
     const explicit = String(el.getAttribute && el.getAttribute('role') || '').trim();
     if (explicit) return explicit;
+    if (actionHeuristicEls.has(el)) return 'generic-clickable';
     const tag = (el.tagName || '').toLowerCase();
     const type = actionControlType(el);
     if (tag === 'a') return 'link';

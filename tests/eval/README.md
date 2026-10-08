@@ -22,7 +22,7 @@ node tests/eval/run-eval.cjs /path/to/node_modules/playwright-core --tap --repea
   bytes and TTFB. Playwright cannot see the offscreen document's requests, so this is the only way to count them.
   Not available in credits mode.
 - `--mock` uses `mock-model.cjs` (no key): a deterministic OpenAI-compatible server with scripted tool calls for
-  shop-cheapest, signup-form, survey, cookie-modal and a deliberately dishonest trusted-click. Unscripted tasks
+  shop-cheapest, signup-form, survey, cookie-modal, admin-menu and a deliberately dishonest trusted-click. Unscripted tasks
   answer "no script" and must fail, which checks that the harness does not believe the model.
 
 Output: `output/eval/<timestamp>-<label>.json` (all runs) and `.md` (summary table). `output/` is gitignored.
@@ -59,8 +59,11 @@ System1 calls are not counted (0); cached tokens are 0 for providers that do not
    in-memory map, which is empty in the offscreen), the service worker recomputes it with the real control name. It
    only works when the model also passes `name` (or `fields[].name`). The mock scripts do that on purpose; set
    `BK_MOCK_REF_ONLY=1` to reproduce the failure.
-2. `actionAccessibleName` prefers `resolveNearbyLabel` over a button's own text, so un-labelled buttons get named after
-   nearby text ("Subscribe to newsletter" is reported as "Get the best stories in your inbox.", a submit button as
-   "Comments"). The mock scripts match on those names.
-3. Plain `div` menus/widgets without role, tabindex or aria are not controls (`admin-menu` snapshot has 0 controls),
-   so they need the visual pointer path.
+2. (Fixed on `fix/snapshot-controls`.) `actionAccessibleName` preferred `resolveNearbyLabel` over a button's own text,
+   so un-labelled buttons were named after nearby text ("Subscribe to newsletter" reported as "Get the best stories in
+   your inbox.", a submit button as "Comments"). Names now follow a reduced accname order (aria-labelledby, aria-label,
+   label/placeholder/title for fields, own content then title for everything else; nearby text only as a last resort).
+3. (Fixed on `fix/snapshot-controls`.) Plain `div` menus without role, tabindex or aria were not controls (`admin-menu`
+   snapshot had 0 controls). Visible clickable-looking elements (own `cursor:pointer` + short own text, `onclick` /
+   `data-action` / interactive `role`, or text items in nav/menu containers) are now added as `generic-clickable`
+   controls, at most 40 per frame.
