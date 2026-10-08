@@ -4446,79 +4446,16 @@ body[data-theme='light'] .topbar {
   border-width: 3.5px 5px 3.5px 0;
   border-color: transparent var(--text-faint) transparent transparent;
 }
-.model-select-pane {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-xs, 6px);
-  background: var(--bg-soft);
-  overflow: hidden;
-}
-.model-select-pane-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* A provider's models sit straight under its row: no box, no second header. */
+.model-select-pane-search.model-select-search {
   width: 100%;
-  margin: 0;
-  padding: 6px 10px;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.2;
-  text-align: left;
-  cursor: pointer;
-}
-.model-select-pane.is-open .model-select-pane-toggle {
-  border-bottom-color: var(--border);
-}
-.model-select-pane-toggle:hover {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
-}
-.model-select-pane-caret {
-  flex: 0 0 10px;
-  font-size: 9px;
-  color: var(--text-faint);
-}
-.model-select-pane-label {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-}
-.model-select-pane-current {
-  flex: 0 1 auto;
-  max-width: 7rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0;
-}
-.model-select-pane-body {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.model-select-pane-body[hidden] {
-  display: none !important;
-}
-.model-select-pane-body .model-select-search {
-  width: calc(100% - 8px);
-  margin: 6px 4px 0;
+  margin: 0 0 2px;
 }
 .model-select-pane-list {
   list-style: none;
   margin: 0;
-  padding: 4px;
-  max-height: 132px;
+  padding: 0;
+  max-height: 240px;
   overflow: auto;
 }
 .model-select-pane-list[hidden] {
@@ -4529,11 +4466,7 @@ body[data-theme='light'] .topbar {
   padding: 0;
 }
 .model-select-pane-empty {
-  padding: 8px 10px 10px;
-}
-.model-select-group-body:not(:has(.model-select-pane.is-open + .model-select-pane.is-open))
-  .model-select-pane-list {
-  max-height: 220px;
+  padding: 6px 10px;
 }
 .model-select-modality {
   display: flex;
@@ -4640,20 +4573,10 @@ body[data-theme='light'] .topbar {
 .model-select-group-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  max-height: none;
-  overflow: visible;
-  margin-left: var(--space-1);
-  padding: 0 0 0 var(--space-3);
-}
-.model-select-group-body .model-select-pane-toggle {
-  color: var(--text-faint);
-  background: transparent;
-  font-weight: 600;
-}
-.model-select-group-body .model-select-pane-label {
-  color: var(--text-faint);
-  font-weight: 600;
+  gap: 2px;
+  margin: 0 0 4px 13px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
 }
 .model-select-item {
   display: flex;
@@ -4675,6 +4598,7 @@ body[data-theme='light'] .topbar {
 }
 .model-select-item.is-active {
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
 }
 @property --bind-orbit {
   syntax: '<angle>';

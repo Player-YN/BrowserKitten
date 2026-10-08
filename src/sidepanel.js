@@ -12280,7 +12280,8 @@ let modelPickerOpenId = null;
 /** Independent 生图 accordion. */
 let modelPickerImageOpenId = null;
 /** In-memory 推理 / 生图 collapse. Default expand when that list exists. */
-const modelPickerPaneOpen = { chat: true, image: true };
+/** Lists longer than this get a search box. */
+const MODEL_PICKER_SEARCH_MIN = 8;
 /** Per-list search. Chat query never filters 生图, and vice versa. */
 const modelPickerPaneQuery = { chat: '', image: '' };
 /** In-row picker probe. One provider at a time. */
@@ -12342,53 +12343,26 @@ async function renderModelPickerList() {
     li.appendChild(btn);
     host.appendChild(li);
   };
+  /**
+   * One provider's models, listed straight under its row: no inner box or second
+   * header. A search box appears only when the list is long; the current model is
+   * marked in the list itself (is-active).
+   */
   const addPane = (host, kind, title, items, providerId, currentId) => {
     if (!items.length) return;
-    const paneOpen = modelPickerPaneOpen[kind] !== false;
-    const pane = document.createElement('section');
-    pane.className = 'model-select-pane' + (paneOpen ? ' is-open' : '');
-    pane.dataset.kind = kind;
-
-    const head = document.createElement('button');
-    head.type = 'button';
-    head.className = 'model-select-pane-toggle';
-    head.setAttribute('aria-expanded', paneOpen ? 'true' : 'false');
-    const caret = document.createElement('span');
-    caret.className = 'model-select-pane-caret';
-    caret.setAttribute('aria-hidden', 'true');
-    caret.textContent = paneOpen ? '▾' : '▸';
-    const lab = document.createElement('span');
-    lab.className = 'model-select-pane-label';
-    lab.textContent = title;
-    head.append(caret, lab);
-    const currentShort = shortModelId(currentId);
-    if (currentShort) {
-      const cur = document.createElement('span');
-      cur.className = 'model-select-pane-current';
-      cur.textContent = currentShort;
-      cur.title = String(currentId || '');
-      head.appendChild(cur);
+    let search = null;
+    if (items.length > MODEL_PICKER_SEARCH_MIN) {
+      search = document.createElement('input');
+      search.type = 'search';
+      search.className = 'model-select-search model-select-pane-search';
+      search.dataset.kind = kind;
+      const hint = t(kind === 'image' ? 'modelPickerSearchImage' : 'modelPickerSearchChat');
+      search.setAttribute('placeholder', hint);
+      search.setAttribute('autocomplete', 'off');
+      search.setAttribute('aria-label', hint);
+      search.value = modelPickerPaneQuery[kind] || '';
+      wireModelPaneSearch(search);
     }
-
-    const body = document.createElement('div');
-    body.className = 'model-select-pane-body';
-    body.hidden = !paneOpen;
-
-    const search = document.createElement('input');
-    search.type = 'search';
-    search.className = 'model-select-search model-select-pane-search';
-    search.dataset.kind = kind;
-    search.setAttribute(
-      'placeholder',
-      t(kind === 'image' ? 'modelPickerSearchImage' : 'modelPickerSearchChat')
-    );
-    search.setAttribute('autocomplete', 'off');
-    search.setAttribute(
-      'aria-label',
-      t(kind === 'image' ? 'modelPickerSearchImage' : 'modelPickerSearchChat')
-    );
-    search.value = modelPickerPaneQuery[kind] || '';
-    wireModelPaneSearch(search);
 
     const ul = document.createElement('ul');
     ul.className = 'model-select-pane-list';
@@ -12399,7 +12373,7 @@ async function renderModelPickerList() {
     empty.hidden = true;
 
     const paintList = () => {
-      const q = String(search.value || '').trim();
+      const q = String(search?.value || '').trim();
       modelPickerPaneQuery[kind] = q;
       const preferIds = [currentId].filter(Boolean);
       if (kind === 'image') {
@@ -12424,24 +12398,10 @@ async function renderModelPickerList() {
       empty.textContent = q ? t('modelPickerNoMatch') : t('modelPickerEmpty');
       ul.hidden = none;
     };
-    search.addEventListener('input', paintList);
+    search?.addEventListener('input', paintList);
     paintList();
-
-    head.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const next = !pane.classList.contains('is-open');
-      modelPickerPaneOpen[kind] = next;
-      pane.classList.toggle('is-open', next);
-      head.setAttribute('aria-expanded', next ? 'true' : 'false');
-      caret.textContent = next ? '▾' : '▸';
-      body.hidden = !next;
-      if (!next && body.contains(document.activeElement)) head.focus();
-    });
-
-    body.append(search, ul, empty);
-    pane.append(head, body);
-    host.appendChild(pane);
+    if (search) host.appendChild(search);
+    host.append(ul, empty);
   };
   const appendModality = async (kind, title, rows, openId, setOpenId, activeId) => {
     const section = document.createElement('section');
@@ -12690,11 +12650,10 @@ function setModelSubmenuOpen(open) {
     setModelSelectOpen(false);
     modelPickerPaneQuery.chat = '';
     modelPickerPaneQuery.image = '';
-    if (selectedImageModel) modelPickerPaneOpen.image = true;
     void renderModelPickerList().then(() => {
       if (sub.hidden) return;
       positionFloatingMenu(sub, btn, { preferUp: true });
-      sub.querySelector('.model-select-pane.is-open .model-select-pane-search')?.focus();
+      sub.querySelector('.model-select-pane-search')?.focus();
     });
     sub.hidden = false;
     root?.classList.add('is-picking');
