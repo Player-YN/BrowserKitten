@@ -33,7 +33,8 @@ function ensureStopIcon(stopBtn) {
 }
 
 /**
- * Show send when idle; show stop (with live pulse) when agent running.
+ * Send stays available while a turn runs so the next prompt can queue.
+ * Stop shows beside it (with live pulse) and does not replace send.
  * @param {boolean} running
  * @param {{
  *   setStatus?: (mode: string) => void,
@@ -53,13 +54,9 @@ export function applySendStopUi(running, ctx = {}) {
   const sendBtn = document.getElementById('sendBtn');
   if (sendBtn) {
     ensureSendIcon(sendBtn);
-    sendBtn.hidden = isRun;
-    sendBtn.setAttribute('aria-hidden', isRun ? 'true' : 'false');
-    if (isRun) {
-      sendBtn.style.display = 'none';
-    } else {
-      sendBtn.style.display = '';
-    }
+    sendBtn.hidden = false;
+    sendBtn.setAttribute('aria-hidden', 'false');
+    sendBtn.style.display = '';
     sendBtn.disabled = false;
     // Preserve chat/run submit mode (set by applyComposerSubmitMode); only clear stop morph classes
     if (!sendBtn.dataset.submit) sendBtn.dataset.submit = 'chat';

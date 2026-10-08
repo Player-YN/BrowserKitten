@@ -2,6 +2,18 @@
  * Current-session conversation Markdown (not agent trajectory / tool path).
  */
 
+/**
+ * Chat-header download choices.
+ * Session messages are always offered. Trajectory only when that export is enabled.
+ * @param {boolean} trajectoryEnabled
+ * @returns {Array<'messages'|'trajectory'>}
+ */
+export function sessionHeaderDownloadChoices(trajectoryEnabled) {
+  const choices = ['messages'];
+  if (trajectoryEnabled) choices.push('trajectory');
+  return choices;
+}
+
 export function sessionRecordPlainText(msg) {
   if (!msg || typeof msg !== 'object') return '';
   const c = msg.content;

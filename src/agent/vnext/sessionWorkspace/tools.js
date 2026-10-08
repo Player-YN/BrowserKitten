@@ -28,7 +28,14 @@ import { generateSessionImage } from './imageGen.js';
 import { routeMediaInput } from './mediaInput.js';
 import { transcribeSessionAudio } from './transcribe.js';
 import { executeListenAction } from './listenAction.js';
-import { executorVision, fetchExecutorStep, runDelegateLoop } from './delegateExecutor.js';
+import {
+  assignmentRequestsDelete,
+  bindClickAssignmentNames,
+  executorVision,
+  fetchExecutorStep,
+  plannerClickAssignment,
+  runDelegateLoop
+} from './delegateExecutor.js';
 import { runOffscreenChoose } from './chooseAction.js';
 import { byokAllowedForProvider, BYOK_PLAN_MESSAGE, BYOK_REQUIRES_PLAN } from '../../byokGate.js';
 import { guessMimeFromName } from './artifactValidate.js';
@@ -1404,19 +1411,18 @@ export function createSessionTools(env) {
   const action = {
     name: 'action',
     description:
-      'Operate a live Chrome tab (tabId). snapshot returns controls and a JPEG when the page is new or empty. ' +
-      'record is short video when nativeVideo is available; listen is audio only; acquire fetches files. ' +
-      'Mutations need the latest rev. Many similar controls or a hop toward a page: op=choose with subgoal, not a ref. ' +
-      'A DOM miss returns FALLBACK_VISUAL plus a viewport JPEG; next is op=pointer, x,y in 0–1, method=cdp. ' +
-      'method=point is elementFromPoint and cannot click a canvas. VISUAL_UNCHANGED: do not repeat that point. ' +
+      'Operate a live Chrome tab (tabId). snapshot reads the page. ' +
+      'Clicks, pointer clicks, Enter/Space, and which control to fill or select are op=delegate: pass subgoal and data only. ' +
+      'Do not pass a ref or x,y. System1 picks the control and clicks, and types only your data. ' +
+      'scroll, wait, upload, listen, and record stay direct. ' +
       'Page policy blocks use run + sys.eval/sys.cdp (inspect view=sys). Errors: {ok:false,code,error,hint}.',
     parameters: {
       type: 'object',
       properties: {
         op: {
           type: 'string',
-          enum: ['snapshot', 'fill_form', 'click', 'fill', 'select', 'press', 'scroll', 'wait', 'upload', 'pointer', 'listen', 'record', 'choose'],
-          description: 'Live-tab op. snapshot reads both channels on a new page. op=choose takes subgoal and optional until; the host picks a named control. After FALLBACK_VISUAL, visual click is op=pointer with x,y in 0–1 and method=cdp. Audio only: listen=start|stop|clip. record + seconds for short video. no rev on listen/record.'
+          enum: ['snapshot', 'fill_form', 'click', 'fill', 'select', 'press', 'scroll', 'wait', 'upload', 'pointer', 'listen', 'record', 'choose', 'delegate'],
+          description: 'Clicks, pointer clicks, Enter/Space, fill, and select are op=delegate (subgoal + data). A raw click, pointer, fill, select, fill_form, or Enter/Space is rewritten into that assignment; its ref and x,y are ignored. snapshot, scroll, wait, upload, listen, record stay direct. listen=start|stop|clip. record + seconds. no rev on listen/record.'
         },
         tabId: {
           type: 'number',
@@ -1424,7 +1430,7 @@ export function createSessionTools(env) {
         },
         ref: {
           type: 'string',
-          description: 'Opaque control ref from the latest snapshot, e.g. f0.a12'
+          description: 'Do not pass a ref for click, pointer, fill, select, fill_form, or Enter/Space. System1 chooses the control. scroll and other direct mutates still use the latest snapshot ref.'
         },
         rev: {
           type: 'string',
@@ -1434,10 +1440,10 @@ export function createSessionTools(env) {
           type: 'string',
           description: 'Accessible name fallback (label / aria-label / placeholder). Two matches → AMBIGUOUS'
         },
-        value: { type: 'string', description: 'fill / select value' },
+        value: { type: 'string', description: 'The only string System1 may type or select. Copied exactly from you.' },
         fields: {
           type: 'array',
-          description: 'fill_form: [{ ref, value }] or [{ name, value }]',
+          description: 'fill_form values you allow: [{ name, value }]. System1 chooses the controls. A ref is not the target.',
           items: {
             type: 'object',
             properties: {
@@ -1449,7 +1455,7 @@ export function createSessionTools(env) {
         },
         key: {
           type: 'string',
-          description: 'press key (Enter, Tab, Escape, ArrowDown, ArrowUp, Space, Backspace, …)'
+          description: 'Enter and Space activate a control and are performed by System1. Tab, Escape, arrows, and Backspace stay direct and need rev.'
         },
         text: {
           type: 'string',
@@ -1476,8 +1482,8 @@ export function createSessionTools(env) {
           enum: ['auto', 'input', 'drop', 'cdp', 'point'],
           description: 'upload: auto|input|drop|cdp. pointer: point (script elementFromPoint) or cdp (debugger mouse). No silent upgrade between them.'
         },
-        x: { type: 'number', description: 'pointer: viewport X in 0–1 (left→right)' },
-        y: { type: 'number', description: 'pointer: viewport Y in 0–1 (top→bottom)' },
+        x: { type: 'number', description: 'Ignored. System1 chooses a visual click. Do not pass coordinates.' },
+        y: { type: 'number', description: 'Ignored. System1 chooses a visual click. Do not pass coordinates.' },
         observe: {
           type: 'string',
           enum: ['controls', 'screenshot', 'both', 'all-frames', 'top', 'none'],
@@ -1491,9 +1497,14 @@ export function createSessionTools(env) {
           description: 'listen: start/stop tab audio, or clip seconds then stop. Default clip.'
         },
         seconds: { type: 'number', description: 'Duration: record defaults to 8s, max 30s; listen=clip defaults to 20s, max 120s' },
-        subgoal: { type: 'string', description: 'choose: one-line target, such as the control name or the page to reach' },
-        until: { type: 'string', description: 'choose: stop when the URL contains this or a control has this exact name' },
-        maxSteps: { type: 'number', description: 'choose: step cap, default 4, max 8' }
+        subgoal: { type: 'string', description: 'delegate/choose: the task for System1 (which control to click, or the form to fill). Do not pass a ref.' },
+        until: { type: 'string', description: 'delegate/choose: stop when the URL or title contains this, or a control has this exact name' },
+        maxSteps: { type: 'number', description: 'delegate step cap, default 6, max 12. A single click assignment defaults to 4.' },
+        data: {
+          type: 'array',
+          description: 'delegate: the only values System1 may type: [{ field, value }]',
+          items: { type: 'object', properties: { field: { type: 'string' }, value: { type: 'string' } } }
+        }
       },
       required: ['op']
     },
@@ -1545,8 +1556,37 @@ export function createSessionTools(env) {
         }
         return result;
       }
-      if (op === 'delegate' && env.executorV2 === true) {
-        return executeDelegateAction(input, host);
+      const assignment = plannerClickAssignment(input);
+      if (assignment) {
+        try {
+          const base = {
+            sessionId,
+            tabId: resolveActionTabId(input, env),
+            url: env.activeTab?.url,
+            executionId: execution?.executionId
+          };
+          let ready = assignment;
+          if (assignment.resolveRef || assignment.resolveFields) {
+            const snap = await host({ ...base, op: 'snapshot', observe: 'none' });
+            if (!snap || snap.ok === false) return snap || { ok: false, code: 'NEED_PAGE', error: 'snapshot failed' };
+            ready = bindClickAssignmentNames(assignment, snap.controls, input.fields);
+          }
+          if (ready.error) return { ok: false, code: 'BAD_INPUT', error: ready.error, requestedOp: assignment.requestedOp };
+          return await executeDelegateAction({
+            subgoal: ready.subgoal,
+            until: ready.until,
+            data: ready.data,
+            maxSteps: ready.maxSteps,
+            requestedOp: ready.requestedOp
+          }, host);
+        } catch (e) {
+          return {
+            ok: false,
+            error: e instanceof Error ? e.message : String(e),
+            code: typeof e?.code === 'string' ? e.code : 'NEED_PAGE',
+            requestedOp: assignment.requestedOp
+          };
+        }
       }
       try {
         const result = op === 'choose' ? await runOffscreenChoose({
@@ -1657,11 +1697,10 @@ export function createSessionTools(env) {
     },
     toModelOutput: actionToModelOutput
   };
-  if (env.executorV2 === true) withDelegateSchema(action);
 
   /**
-   * Planner/executor split (flag browserbot_executor_v2): the System1 provider picks one
-   * step at a time; every step goes back through host (the gated action path).
+   * System1 performs the click. The planner supplies subgoal and data.
+   * Every dispatched step goes back through host (the gated action path).
    */
   async function executeDelegateAction(input, host) {
     const tabId = resolveActionTabId(input, env);
@@ -1693,7 +1732,7 @@ export function createSessionTools(env) {
       },
       decide: async (payload) => {
         if (!jev?.apiKey || !jev?.apiBase) {
-          return { ok: false, code: 'NEED_JEV', error: 'No active System1 provider. Add one in Settings, or act with ref yourself.' };
+          return { ok: false, code: 'NEED_JEV', error: 'No active System1 provider. Add one in Settings. Clicks are not sent without it.' };
         }
         if (!allowed) return { ok: false, code: BYOK_REQUIRES_PLAN, error: BYOK_PLAN_MESSAGE };
         return fetchExecutorStep(jev, payload, { fetchImpl, signal });
@@ -1731,7 +1770,44 @@ export function createSessionTools(env) {
         }
       }
     });
-    return { ...result, tabId };
+    const pending = result.pending;
+    const model = { ...result, tabId, requestedOp: input.requestedOp || 'delegate' };
+    delete model.pending;
+    if (pending?.ref && pending?.rev && result.code === 'DELETE_NEEDS_PLANNER' && assignmentRequestsDelete(input.subgoal)) {
+      const gated = await host({
+        ...base,
+        op: pending.op === 'press' ? 'press' : 'click',
+        ref: pending.ref,
+        rev: pending.rev,
+        name: pending.name || undefined,
+        key: pending.key,
+        observe: 'none'
+      });
+      const steps = Array.isArray(model.steps) ? model.steps.slice() : [];
+      if (steps.length) {
+        const last = { ...steps[steps.length - 1], ok: gated?.ok !== false };
+        if (gated?.code) last.code = String(gated.code);
+        else delete last.code;
+        steps[steps.length - 1] = last;
+      }
+      const allowed = gated?.ok !== false;
+      const out = {
+        ...model,
+        ok: allowed,
+        status: allowed ? 'done' : 'escalated',
+        reason: allowed ? 'delete_approved' : 'delete_approval',
+        steps,
+        hint: allowed
+          ? 'System1 chose the delete control and the host approval card allowed the click. Snapshot to verify. Do not repeat it.'
+          : 'System1 chose the delete control. The host approval card did not allow the click. Do not pass a ref.'
+      };
+      if (gated?.code) out.code = String(gated.code);
+      else if (allowed) delete out.code;
+      if (allowed) delete out.error;
+      else out.error = gated?.error || model.error;
+      return out;
+    }
+    return model;
   }
 
   const office = createOfficeTools({
@@ -1768,26 +1844,6 @@ export function createSessionTools(env) {
       taskShouldYield: env.taskShouldYield
     }
   ).tools;
-}
-
-/**
- * Flag-on schema for action: adds op=delegate and its data field. Flag off never calls this,
- * so the default tool schema stays exactly as before.
- * @param {{description:string, parameters:object}} action
- */
-function withDelegateSchema(action) {
-  const props = action.parameters.properties;
-  action.description +=
-    ' Mechanical multi-step navigation/forms: op=delegate (subgoal, until, data, maxSteps); a cheap executor acts under the same gates and types only your data. Verify with a snapshot; status=escalated returns control.';
-  props.op = { ...props.op, enum: [...props.op.enum, 'delegate'] };
-  props.subgoal = { ...props.subgoal, description: 'choose/delegate: one-line target (control name, page to reach, or the form task)' };
-  props.until = { ...props.until, description: 'choose/delegate: stop when the URL contains this or a control has this exact name (delegate: or the title contains it)' };
-  props.maxSteps = { ...props.maxSteps, description: 'choose: step cap, default 4, max 8. delegate: default 6, max 12' };
-  props.data = {
-    type: 'array',
-    description: 'delegate: the only values the executor may type: [{ field, value }]',
-    items: { type: 'object', properties: { field: { type: 'string' }, value: { type: 'string' } } }
-  };
 }
 
 /**

@@ -56,7 +56,7 @@ sidepanel  workspaceRpc(method, params)     # vnext/host/workspaceClient.js
   → SessionWorkspaceService[method]
 ```
 
-`method` 必须在 `workspaceRpcContract.js` 的显式清单内；按 Chrome 原生 sender 区分侧栏、预览与内部调度。`getTaskSchedule` / `runDueTasks` / `getBrowserRuntimeState` 只给 SW；offscreen 拒绝侧栏绕过 SW 直调。新增公开 async 方法不自动暴露。侧栏和四种预览共用 `workspaceClient.js`，完整参数语义仍由领域方法验证。
+`method` 必须在 `workspaceRpcContract.js` 的显式清单内；按 Chrome 原生 sender 区分侧栏、预览与内部调度。`getTaskSchedule` / `runDueTasks` / `getBrowserRuntimeState` 只给 SW；offscreen 拒绝侧栏绕过 SW 直调。新增公开 async 方法不自动暴露。侧栏和四种预览共用 `workspaceClient.js`，完整参数语义仍由领域方法验证。`rewindSession` 是侧栏写入：先停掉该会话当前执行，再截 durable 对话记录。文件、交付物、页面副作用和未完成的 durable task 不回滚。截断规则见 [agent/AGENTS.md](agent/AGENTS.md)「回滚用户消息」。
 
 ## Selector 与对话引用
 

@@ -22,7 +22,7 @@ const writes = [
   'createGroup', 'renameGroup', 'deleteGroup', 'setActiveGroup', 'pinClipboard',
   'removeClipboardItems', 'clearClipboard', 'removeGroupItem', 'addPageItems',
   'clearCaptureSelection', 'syncTabSelection', 'sendMessage', 'abortExecution',
-  'abortCurrentExecution',
+  'abortCurrentExecution', 'rewindSession',
   'answerClarify', 'answerApproval', 'abortTask', 'upsertSkill', 'importSkill', 'deleteSkill',
   'createArtifact', 'rewriteGuestMedia', 'revertArtifact', 'updateArtifact',
   'deleteArtifact', 'deleteSession', 'sweepOrphans', 'applyStoragePressure',

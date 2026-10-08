@@ -88,6 +88,7 @@ import {
 } from '../sessionWorkspace/itemLabel.js';
 import { blankArtifactPayload } from '../sessionWorkspace/blankCreate.js';
 import { normalizeSessionTitle } from '../sessionWorkspace/taskTitle.js';
+import { rewindSessionRecord } from '../sessionWorkspace/rewindSession.js';
 import { addPageItems, formatPageAddSummary, isPageItem } from '../sessionWorkspace/pageItems.js';
 import {
   claimTask,
@@ -107,7 +108,6 @@ import { appendSessionAudit, readSessionAudit } from '../sessionWorkspace/sessio
 import { persistableCapabilityHint } from '../sessionWorkspace/artifactCapability.js';
 import { ARTIFACT_CHUNK_SIZE, DOWNLOAD_INLINE_MAX } from '../sessionWorkspace/artifactDownload.js';
 import { openPersonalLibraryStore } from '../sessionWorkspace/personalLibraryStore.js';
-import { readExecutorV2Flag } from '../sessionWorkspace/delegateExecutor.js';
 import { runPersonalLibraryTool } from './personalLibraryRunner.js';
 import { libraryError, validatePersonalLibraryDefinition, validatePersonalLibraryInput, personalLibraryManifestPatch, requireLibraryRevision } from './personalLibraryContract.js';
 import {
@@ -1355,6 +1355,26 @@ export class SessionWorkspaceService {
   }
 
   /**
+   * Truncate the transcript at a user turn so the side panel can edit and resend it.
+   * Aborts a live turn first and waits until that turn has finished writing.
+   */
+  async rewindSession({ sessionId, messageId, userIndex } = {}) {
+    const sid = String(sessionId || '').trim();
+    if (!sid) throw new Error('rewindSession: sessionId required');
+    if (!this.runtime.store.has('sessions', sid)) {
+      throw new Error(`rewindSession: unknown session ${sid}`);
+    }
+    await this.abortCurrentExecution({ sessionId: sid });
+    await this._awaitSessionIdle(sid);
+    const current = this.runtime.store.get('sessions', sid);
+    const { session, restored } = rewindSessionRecord(current, { messageId, userIndex });
+    this.runtime.store.put('sessions', sid, session);
+    await this._persist();
+    const view = await this.getSession({ sessionId: sid });
+    return { ...view, restored };
+  }
+
+  /**
    * Prune sessions not in keepIds — cascade delete durable state (no orphans).
    * Used when UI enforces a max session cap.
    */
@@ -2012,7 +2032,6 @@ export class SessionWorkspaceService {
           ),
         listenRuntime: this._listenRuntime,
         settings,
-        executorV2: await readExecutorV2Flag(),
         mediaCapabilities,
         mediaContext,
         hostFindTab: (url) =>

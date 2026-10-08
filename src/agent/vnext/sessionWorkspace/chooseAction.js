@@ -43,7 +43,7 @@ export async function runOffscreenChoose(opts) {
     },
     select: async (payload) => {
       if (!jev?.apiKey || !jev?.apiBase) {
-        return { code: 'NEED_JEV', error: 'No active System1 provider. Add one in Settings, or click with ref yourself.' };
+        return { code: 'NEED_JEV', error: 'No active System1 provider. Add one in Settings. Clicks are not sent without it.' };
       }
       if (!(await byokAllowed('jev', settings.jevProviderId))) {
         return { code: BYOK_REQUIRES_PLAN, error: BYOK_PLAN_MESSAGE };
@@ -59,7 +59,11 @@ export async function runOffscreenChoose(opts) {
       const risk = executorRiskStop({ op: 'click', ref: picked.ref }, control, snap?.page, tabId);
       if (risk === 'payment') return { ok: false, code: 'PAYMENT_DENIED', error: 'Payment is never chosen for you.' };
       if (risk === 'delete') {
-        return { ok: false, code: 'DELETE_NEEDS_PLANNER', error: 'Deletion goes back to the planner and its approval card.' };
+        return {
+          ok: false,
+          code: 'DELETE_NEEDS_PLANNER',
+          error: 'Deletion is not clicked here. Assign op=delegate with a subgoal that names this deletion so the host can show the approval card.'
+        };
       }
       return host({ ...base, op: 'click', ref: picked.ref, rev: snap?.rev, observe: 'none' });
     }

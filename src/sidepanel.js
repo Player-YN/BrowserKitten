@@ -97,6 +97,7 @@ import {
   PAGES_MENTION_ID
 } from './sidepanel/composerMentions.js';
 import { buildSkillCandidates } from './sidepanel/composerSkills.js';
+import { composerEnterAction, promoteQueueItem, removeQueueItem } from './sidepanel/composerSubmit.js';
 import {
   isInjectableTabUrl,
   normalizePageRef,
@@ -114,6 +115,7 @@ import {
 } from './sidepanel/sessionIsolation.js';
 import {
   buildSessionRecordMarkdown,
+  sessionHeaderDownloadChoices,
   sessionRecordFilename,
   sessionRecordTurns
 } from './sidepanel/sessionRecordExport.js';
@@ -270,6 +272,12 @@ import {
   closeDialog,
   wireDialogChrome
 } from './sidepanel/dialog.js';
+import {
+  bindRewindEditButton,
+  dismissRewindConfirm,
+  openRewindInlineConfirm,
+  syncRewindConfirmCopy
+} from './sidepanel/rewindConfirm.js';
 import {
   setupSidepanelWheelRelay,
   setupTaskStreamScrollAffordances
@@ -612,6 +620,11 @@ let clipSelectedIds = new Set();
 /** Popover controller for clipboard export — must be top-level before boot (avoid TDZ). */
 /** @type {{ close: () => void, isOpen: () => boolean, usesNative: boolean } | null} */
 let clipExportPopover = null;
+/** Shared chat-header download menu. Initialized before boot applyI18n. */
+/** @type {HTMLElement|null} */
+let sessionExportMenu = null;
+/** @type {HTMLElement|null} */
+let sessionExportMenuTrigger = null;
 /** @type {ReturnType<typeof createContextUsageUi>|null} */
 let contextUsageUi = null;
 let toastTimer = null;
@@ -1082,6 +1095,7 @@ function applyI18n() {
   refreshBotChrome();
   applyContextUsage(sessions.find((s) => s.id === activeSessionId)?.contextUsage || {});
   syncMoreSheetChrome();
+  refreshSessionExportChrome();
 }
 
 let composerTypewriterTimer = 0;
@@ -1977,6 +1991,8 @@ function setAppLanguage(lang) {
   chrome.storage.local.set({ app_lang: currentLang });
   applyI18n();
   applyComposerSubmitMode(composerSubmitMode);
+  renderPromptQueue();
+  refreshUserEditButtons();
   renderSelectionUI();
   renderSheetSelRow();
   void refreshWorkspaceGroupState();
@@ -2021,6 +2037,7 @@ function setAgentRunningUi(running) {
     }
     applyComposerSubmitMode(composerSubmitMode);
   }
+  syncComposerActionLabels();
 }
 
 /**
@@ -2087,6 +2104,7 @@ function applyWorkspaceExecutionSnapshot(sessionId, payload, { rpcFailed = false
   });
   if (foreground) setAgentRunningUi(false);
   renderSessionRailList();
+  if (!u.running && !u.sendInFlight && !u.queueFlushing) flushPromptQueue(sid);
 }
 
 /**
@@ -2126,6 +2144,31 @@ async function refreshExecutionFromWorkspace(sessionId) {
  * Hover send + mouse wheel switches chat ↔ run (same button, run = purple).
  * @param {'chat'|'run'} mode
  */
+function composerModLabel() {
+  const platform = navigator.platform || navigator.userAgent || '';
+  return /Mac|iPhone|iPad/.test(platform) ? '⌘' : 'Ctrl';
+}
+
+function syncComposerActionLabels() {
+  const running = isCurrentSessionRunning();
+  const mod = composerModLabel();
+  const fill = (key) => String(t(key) || '').replaceAll('{mod}', mod);
+  const sendBtn = $('sendBtn');
+  if (sendBtn) {
+    const title = fill(running ? 'sendQueueTitle' : 'sendShortcutTitle');
+    sendBtn.title = title;
+    sendBtn.setAttribute('aria-label', title);
+  }
+  const sendNow = $('sendNowBtn');
+  if (sendNow) {
+    const show = running && composerHasContent();
+    sendNow.hidden = !show;
+    const title = fill('sendNowTitle');
+    sendNow.title = title;
+    sendNow.setAttribute('aria-label', title);
+  }
+}
+
 function applyComposerSubmitMode(mode) {
   // Decorative only — product path is always unified sendMessage (Session agent).
   composerSubmitMode = mode === 'run' ? 'run' : 'chat';
@@ -2135,17 +2178,8 @@ function applyComposerSubmitMode(mode) {
     sendBtn.dataset.mode = composerSubmitMode;
     sendBtn.dataset.submit = composerSubmitMode;
     sendBtn.classList.toggle('is-run-mode', isRun);
-    const title =
-      currentLang === 'en'
-        ? isRun
-          ? 'Send (emphasis) · scroll wheel for quiet send'
-          : 'Send · hover + scroll wheel for emphasis style'
-        : isRun
-          ? '发送（强调样式）· 悬停滚轮切回普通发送'
-          : '发送 · 悬停滚轮切换强调样式';
-    sendBtn.title = title;
-    sendBtn.setAttribute('aria-label', title);
   }
+  syncComposerActionLabels();
 }
 
 function currentAimedCount() {
@@ -2202,10 +2236,12 @@ function paintLiveTurnDisclosure(extra = {}) {
  * AbortSignal alone is not enough while tools await user confirm.
  * UI stop never depends on a stale/null executionId.
  */
-function stopAgentRun(reason = 'user_stop') {
+function stopAgentRun(reason = 'user_stop', opts = {}) {
   const sid = getWorkspaceSessionId();
-  uiState(sid).promptQueue = [];
-  renderPromptQueueHint();
+  if (!opts.keepQueue) {
+    uiState(sid).promptQueue = [];
+    renderPromptQueue();
+  }
   void workspaceRpc('abortCurrentExecution', { sessionId: sid }).catch((err) => {
     console.warn('[workspace] abortCurrentExecution failed', err);
   });
@@ -2764,9 +2800,7 @@ function updateDevTrajectoryUi() {
   const footerBtn = $('downloadTrajectoryFooterBtn');
   if (barBtn) barBtn.style.display = display;
   if (footerBtn) footerBtn.style.display = display;
-  document.querySelectorAll('.session-traj-btn').forEach((btn) => {
-    btn.hidden = !devTrajectoryExportEnabled;
-  });
+  refreshSessionExportChrome();
 }
 
 function updateMultimodalBadgeState() {
@@ -5334,7 +5368,7 @@ function appendPendingThreadMessages(task, messages) {
   if (!task?.body) return 0;
   const pending = pendingThreadMessages(messages, countThreadRoleBubbles(task));
   for (const m of pending) {
-    if (m.role === 'user') appendUserTurnBubble(task, String(m.content || ''));
+    if (m.role === 'user') appendUserTurnBubble(task, String(m.content || ''), null, { messageId: m.messageId });
     else if (m.role === 'assistant') {
       appendAssistantTurn(task, {
         thought: m.thought || '',
@@ -5462,7 +5496,7 @@ async function hydrateActiveSessionThread() {
     hideForeignSessionThreads(sid);
     for (const m of messages) {
       if (m.role === 'user') {
-        appendUserTurnBubble(task, String(m.content || ''));
+        appendUserTurnBubble(task, String(m.content || ''), null, { messageId: m.messageId });
       } else if (m.role === 'assistant') {
         appendAssistantTurn(task, {
           thought: m.thought || '',
@@ -5482,21 +5516,159 @@ async function hydrateActiveSessionThread() {
 }
 
 /** User turn chrome. A short 「继续」 here is the user's text, not resume/clarify. */
-function appendUserTurnBubble(task, text, nodes) {
+function appendUserTurnBubble(task, text, nodes, meta = {}) {
   if (!task) return null;
   const userMsg = document.createElement('div');
   userMsg.className = 'msg user';
+  const body = document.createElement('div');
+  body.className = 'msg-user-body';
   if (Array.isArray(nodes) && nodes.length) {
-    nodes.forEach((n) => userMsg.appendChild(n));
+    nodes.forEach((n) => body.appendChild(n));
   } else {
-    userMsg.textContent = String(text || '');
+    body.textContent = String(text || '');
   }
+  userMsg.appendChild(body);
+  const edit = document.createElement('button');
+  edit.type = 'button';
+  edit.className = 'msg-user-edit';
+  edit.innerHTML = ICONS.pencil;
+  const editLabel = t('rewindEdit');
+  edit.title = editLabel;
+  edit.setAttribute('aria-label', editLabel);
+  bindRewindEditButton(edit, () => rewindUserTurn(userMsg));
+  userMsg.appendChild(edit);
   const n = (task.el?.querySelectorAll('.msg.user').length || 0) + 1;
   userMsg.id = `turn-${n}`;
   userMsg.dataset.turnIndex = String(n);
+  userMsg.dataset.userIndex = String(n - 1);
+  if (meta.messageId) userMsg.dataset.messageId = String(meta.messageId);
   task.append(userMsg);
   rebuildTurnJumpRail();
   return userMsg;
+}
+
+function refreshUserEditButtons() {
+  const label = t('rewindEdit');
+  document.querySelectorAll('.msg-user-edit').forEach((btn) => {
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  });
+  syncRewindConfirmCopy(t);
+}
+
+function userBubbleText(el) {
+  return String(el?.querySelector?.('.msg-user-body')?.textContent || el?.textContent || '');
+}
+
+function stampLastUserMessage(task, sessionId, messageId) {
+  const id = String(messageId || '');
+  if (!id) return;
+  const users = task?.body?.querySelectorAll?.('.msg.user') || task?.el?.querySelectorAll?.('.msg.user');
+  const last = users && users.length ? users[users.length - 1] : null;
+  if (last && !last.dataset.messageId) last.dataset.messageId = id;
+  const sess = sessions.find((s) => String(s.id) === String(sessionId));
+  if (!sess || !Array.isArray(sess.messages)) return;
+  for (let i = sess.messages.length - 1; i >= 0; i--) {
+    if (sess.messages[i]?.role !== 'user') continue;
+    if (!sess.messages[i].messageId) sess.messages[i].messageId = id;
+    break;
+  }
+}
+
+function discardSessionThread(sid) {
+  dismissRewindConfirm();
+  const id = String(sid || '');
+  const u = uiState(id);
+  const el = u.liveTask?.el || null;
+  document.querySelectorAll('#taskStream .session-thread, #taskStream .task-card').forEach((node) => {
+    if (String(node.dataset.sessionId || '') === id) node.remove();
+  });
+  if (el?.isConnected) el.remove();
+  u.liveTask = null;
+  u.liveTurnThink = null;
+  u.liveTurnWrap = null;
+  u.liveTurnAnswerText = '';
+  u.liveTurnAnswerEl = null;
+  u.liveTurnSealed = false;
+  if (!liveTask || String(liveTask.sessionId || '') === id || liveTask.el === el) {
+    liveTask = null;
+    liveTurnThink = null;
+    liveTurnWrap = null;
+    liveTurnAnswerText = '';
+    liveTurnAnswerEl = null;
+    liveTurnSealed = false;
+    liveTurnThinkFromStream = false;
+  }
+}
+
+function focusComposerEnd() {
+  const el = composerEl();
+  if (!el) return;
+  el.focus();
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function rewindUserTurn(userMsg) {
+  const sid = getWorkspaceSessionId();
+  if (!sid || !userMsg) return;
+  openRewindInlineConfirm(userMsg, {
+    t,
+    onConfirm: () => { void commitRewindUserTurn(userMsg, sid); }
+  });
+}
+
+async function commitRewindUserTurn(userMsg, sid) {
+  if (!sid || !userMsg || getWorkspaceSessionId() !== sid) return;
+  stopAgentRun('rewind');
+  bumpTurnGen(sid);
+  const messageId = String(userMsg.dataset.messageId || '');
+  const userIndex = Number(userMsg.dataset.userIndex);
+  try {
+    const result = await workspaceRpc('rewindSession', {
+      sessionId: sid,
+      ...(messageId ? { messageId } : {}),
+      ...(Number.isInteger(userIndex) && userIndex >= 0 ? { userIndex } : {})
+    });
+    if (getWorkspaceSessionId() !== sid) return;
+    const sess = sessions.find((s) => String(s.id) === sid);
+    const messages = (Array.isArray(result?.messages) ? result.messages : []).map((m) => ({
+      role: m.role,
+      content: m.content,
+      thought: m.thought || '',
+      ts: m.createdAt || m.ts || Date.now(),
+      path: m.path,
+      toolCalls: m.toolCalls,
+      traces: m.traces,
+      messageId: m.messageId,
+      executionId: m.executionId,
+      status: m.status,
+      progress: m.progress,
+      startedAt: m.startedAt,
+      endedAt: m.endedAt,
+      latencyMs: m.latencyMs,
+      createdAt: m.createdAt
+    }));
+    if (sess) sess.messages = messages;
+    uiState(sid).running = false;
+    uiState(sid).sendInFlight = false;
+    discardSessionThread(sid);
+    savePersistentSessions();
+    await hydrateActiveSessionThread();
+    if (getWorkspaceSessionId() !== sid) return;
+    setComposerPlainText(String(result?.restored?.content || ''));
+    focusComposerEnd();
+    syncComposerActionLabels();
+    showQuickToast(t('rewindDone'));
+  } catch (err) {
+    console.warn('[workspace] rewindSession failed', err);
+    showQuickToast(t('rewindFailed'));
+  }
 }
 
 function rebuildTurnJumpRail() {
@@ -5521,7 +5693,7 @@ function rebuildTurnJumpRail() {
     btn.type = 'button';
     btn.className = 'turn-jump-item';
     btn.dataset.turnTarget = el.id;
-    const label = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+    const label = userBubbleText(el).replace(/\s+/g, ' ').trim();
     const tip = document.createElement('span');
     tip.className = 'turn-jump-tip';
     tip.textContent = truncateUi(label, 10);
@@ -5578,31 +5750,141 @@ function scrollPanelToTurn(turnId) {
   });
 }
 
+function paintSessionExportButton(btn) {
+  if (!(btn instanceof HTMLElement)) return;
+  btn.hidden = false;
+  btn.textContent = t('sessionExportBtn');
+  const title = devTrajectoryExportEnabled ? t('sessionExportBtnTitle') : t('exportSessionMdHint');
+  btn.title = title;
+  btn.setAttribute('aria-label', title);
+}
+
+function paintSessionExportMenu() {
+  const menu = sessionExportMenu;
+  if (!menu) return;
+  const choices = new Set(sessionHeaderDownloadChoices(devTrajectoryExportEnabled));
+  const messages = menu.querySelector('[data-kind="messages"]');
+  const trajectory = menu.querySelector('[data-kind="trajectory"]');
+  if (messages instanceof HTMLElement) {
+    messages.hidden = !choices.has('messages');
+    messages.textContent = t('moreSession');
+    messages.title = t('exportSessionMdHint');
+  }
+  if (trajectory instanceof HTMLElement) {
+    trajectory.hidden = !choices.has('trajectory');
+    trajectory.textContent = t('moreTrajectory');
+    trajectory.title = t('downloadTaskTrajectory');
+  }
+}
+
+function refreshSessionExportChrome() {
+  document.querySelectorAll('.session-traj-btn').forEach((btn) => {
+    paintSessionExportButton(btn);
+  });
+  if (sessionExportMenu && !sessionExportMenu.hidden) paintSessionExportMenu();
+}
+
+function positionSessionExportMenu(trigger) {
+  if (!sessionExportMenu || !(trigger instanceof HTMLElement)) return;
+  const r = trigger.getBoundingClientRect();
+  const menu = sessionExportMenu;
+  menu.style.position = 'fixed';
+  menu.style.inset = 'auto';
+  menu.style.margin = '0';
+  menu.style.top = `${Math.round(r.bottom + 4)}px`;
+  menu.style.left = 'auto';
+  menu.style.right = `${Math.round(Math.max(0, window.innerWidth - r.right))}px`;
+  menu.style.zIndex = '10050';
+}
+
+function closeSessionExportMenu() {
+  if (!sessionExportMenu) return;
+  sessionExportMenu.hidden = true;
+  sessionExportMenuTrigger?.setAttribute('aria-expanded', 'false');
+  sessionExportMenuTrigger = null;
+}
+
+function openSessionExportMenu(trigger) {
+  if (!(trigger instanceof HTMLElement)) return;
+  const menu = ensureSessionExportMenu();
+  paintSessionExportMenu();
+  sessionExportMenuTrigger = trigger;
+  menu.hidden = false;
+  positionSessionExportMenu(trigger);
+  trigger.setAttribute('aria-expanded', 'true');
+}
+
+function ensureSessionExportMenu() {
+  if (sessionExportMenu) return sessionExportMenu;
+  const menu = document.createElement('div');
+  menu.id = 'sessionExportMenu';
+  menu.className = 'session-export-menu';
+  menu.hidden = true;
+  menu.setAttribute('role', 'menu');
+  for (const kind of ['messages', 'trajectory']) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'session-export-item';
+    item.dataset.kind = kind;
+    item.setAttribute('role', 'menuitem');
+    menu.appendChild(item);
+  }
+  menu.addEventListener('click', (e) => {
+    const item = e.target instanceof Element ? e.target.closest('.session-export-item') : null;
+    if (!(item instanceof HTMLElement) || item.hidden) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const kind = item.dataset.kind;
+    closeSessionExportMenu();
+    if (kind === 'trajectory') openTrajectoryExportModal();
+    else exportCurrentSessionMarkdown();
+  });
+  document.addEventListener('click', (e) => {
+    if (!sessionExportMenu || sessionExportMenu.hidden) return;
+    const target = e.target;
+    if (target instanceof Node && sessionExportMenu.contains(target)) return;
+    if (sessionExportMenuTrigger && target instanceof Node && sessionExportMenuTrigger.contains(target)) return;
+    closeSessionExportMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !sessionExportMenu || sessionExportMenu.hidden) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const back = sessionExportMenuTrigger;
+    closeSessionExportMenu();
+    try {
+      back?.focus({ preventScroll: true });
+    } catch (_) {}
+  });
+  document.body.appendChild(menu);
+  sessionExportMenu = menu;
+  return menu;
+}
+
 function mountSessionTrajectoryButton(task) {
   if (!task?.el) return;
   const header = task.el.querySelector('.task-header');
   if (!header) return;
   let btn = header.querySelector('.session-traj-btn');
-  if (!devTrajectoryExportEnabled) {
-    btn?.remove();
-    return;
-  }
   if (!btn) {
     btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'session-traj-btn';
+    btn.setAttribute('aria-haspopup', 'menu');
+    btn.setAttribute('aria-controls', 'sessionExportMenu');
+    btn.setAttribute('aria-expanded', 'false');
     header.appendChild(btn);
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      openTrajectoryExportModal();
+      if (sessionExportMenu && !sessionExportMenu.hidden && sessionExportMenuTrigger === btn) {
+        closeSessionExportMenu();
+        return;
+      }
+      openSessionExportMenu(btn);
     });
   }
-  btn.textContent = currentLang === 'en' ? 'Traj' : '轨迹';
-  btn.title =
-    currentLang === 'en'
-      ? 'Dev: download this task tool path'
-      : '开发：下载本任务的工具与行为路径';
+  paintSessionExportButton(btn);
 }
 
 function applySessionTitle(title, sessionId) {
@@ -5669,6 +5951,7 @@ function createNewSession() {
   parkClarifyLive();
   hideForeignSessionThreads(id);
   setAgentRunningUi(false);
+  renderPromptQueue();
   void loadActiveGroupOntoPage();
   renderAttachmentPreviews();
 }
@@ -7507,48 +7790,142 @@ function applyTaskUiStatus(status) {
   }
 }
 
-function renderPromptQueueHint() {
-  const el = document.getElementById('promptQueueHint');
-  if (!el) return;
-  const n = (uiState(getWorkspaceSessionId()).promptQueue || []).length;
-  el.hidden = n <= 0;
-  el.textContent = n > 0 ? String(t('promptQueueN') || '').replace('{n}', String(n)) : '';
+function bumpTurnGen(sessionId) {
+  const st = uiState(sessionId);
+  st.turnGen = (st.turnGen || 0) + 1;
+  return st.turnGen;
 }
 
-function enqueueComposerTurn(sessionId) {
+function renderPromptQueueHint() {
+  renderPromptQueue();
+}
+
+function renderPromptQueue() {
+  const hint = document.getElementById('promptQueueHint');
+  if (hint) hint.hidden = true;
+  const el = document.getElementById('promptQueue');
+  if (!el) return;
+  const sid = getWorkspaceSessionId();
+  const queue = uiState(sid).promptQueue || [];
+  el.replaceChildren();
+  if (!queue.length) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  for (const item of queue) {
+    const row = document.createElement('div');
+    row.className = 'prompt-queue-row';
+    const text = document.createElement('span');
+    text.className = 'prompt-queue-text';
+    const preview = String(item.prompt || '').trim() || (currentLang === 'en' ? 'Attachment' : '附件');
+    text.textContent = preview;
+    text.title = preview;
+    const now = document.createElement('button');
+    now.type = 'button';
+    now.className = 'prompt-queue-now';
+    now.textContent = t('promptQueueSendNow');
+    now.addEventListener('click', () => sendQueuedNow(sid, item.id));
+    const drop = document.createElement('button');
+    drop.type = 'button';
+    drop.className = 'prompt-queue-drop';
+    drop.textContent = t('promptQueueRemove');
+    drop.addEventListener('click', () => {
+      const st = uiState(sid);
+      st.promptQueue = removeQueueItem(st.promptQueue, item.id);
+      renderPromptQueue();
+    });
+    row.append(text, now, drop);
+    el.appendChild(row);
+  }
+}
+
+function takeComposerTurn() {
   const promptInput = composerEl();
-  if (!promptInput) return false;
+  if (!promptInput) return null;
   const mentions = filterLivePageMentions(composerMentionsFromDom(promptInput));
   const prompt = composerPlainText(promptInput).trim();
   const attachments = [...pendingAttachments];
-  if (!prompt && attachments.length === 0) return false;
-  const st = uiState(sessionId);
-  if (!Array.isArray(st.promptQueue)) st.promptQueue = [];
-  st.promptQueue.push({
+  if (!prompt && attachments.length === 0) return null;
+  const turn = {
+    id: `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     prompt,
     mentions,
     attachments,
     composerNodes: cloneComposerNodes(promptInput)
-  });
+  };
   closeMentionPalette();
   clearComposer(promptInput);
   syncComposerTypewriterVisibility();
-  if (getWorkspaceSessionId() === sessionId) {
-    pendingAttachments = [];
-    renderAttachmentPreviews();
-  }
-  renderPromptQueueHint();
+  pendingAttachments = [];
+  renderAttachmentPreviews();
+  syncComposerActionLabels();
+  return turn;
+}
+
+function enqueueComposerTurn(sessionId) {
+  const turn = takeComposerTurn();
+  if (!turn) return false;
+  const st = uiState(sessionId);
+  if (!Array.isArray(st.promptQueue)) st.promptQueue = [];
+  st.promptQueue.push(turn);
+  renderPromptQueue();
   showQuickToast(t('promptQueued'));
   return true;
 }
 
+function sendQueuedNow(sessionId, id) {
+  const st = uiState(sessionId);
+  const before = st.promptQueue || [];
+  if (!before.some((item) => item && item.id === id)) return;
+  st.promptQueue = promoteQueueItem(before, id);
+  renderPromptQueue();
+  if (st.running || st.sendInFlight) {
+    stopAgentRun('send_now', { keepQueue: true });
+    return;
+  }
+  flushPromptQueue(sessionId);
+}
+
+function sendComposerNow() {
+  const sid = getWorkspaceSessionId();
+  const turn = takeComposerTurn();
+  if (!turn) return;
+  const st = uiState(sid);
+  if (!Array.isArray(st.promptQueue)) st.promptQueue = [];
+  st.promptQueue.unshift(turn);
+  renderPromptQueue();
+  if (st.running || st.sendInFlight) {
+    stopAgentRun('send_now', { keepQueue: true });
+    return;
+  }
+  flushPromptQueue(sid);
+}
+
+function onComposerSend(action) {
+  if (action === 'send-now') {
+    sendComposerNow();
+    return;
+  }
+  if (isCurrentSessionRunning()) {
+    enqueueComposerTurn(getWorkspaceSessionId());
+    return;
+  }
+  void submitUserPrompt(composerSubmitMode);
+}
+
 function flushPromptQueue(sessionId) {
   const st = uiState(sessionId);
-  if (!st || st.running) return;
+  if (!st || st.running || st.queueFlushing || st.sendInFlight) return;
   const next = Array.isArray(st.promptQueue) ? st.promptQueue.shift() : null;
-  renderPromptQueueHint();
+  renderPromptQueue();
   if (!next) return;
-  void submitUserPrompt('chat', { ...next, sessionId });
+  st.queueFlushing = true;
+  void submitUserPrompt('chat', { ...next, sessionId }).finally(() => {
+    const cur = uiState(sessionId);
+    cur.queueFlushing = false;
+    if (!cur.running && !cur.sendInFlight) flushPromptQueue(sessionId);
+  });
 }
 
 async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
@@ -7580,6 +7957,9 @@ async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
     currentAttach = [...pendingAttachments];
     composerNodes = cloneComposerNodes(promptInput);
   }
+  const turnGen = bumpTurnGen(runSessionId);
+  uiState(runSessionId).sendInFlight = true;
+  const turnCurrent = () => uiState(runSessionId).turnGen === turnGen;
   // Account notices belong to the turn that hit them; a new turn starts clean.
   clearNoticeCards(document.getElementById('taskStream'));
   // mode/composerSubmitMode is decorative only — architecture is always sendMessage
@@ -7629,7 +8009,10 @@ async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
     continueExisting: canContinue,
     sessionId: runSessionId
   });
-  if (!task) return;
+  if (!task) {
+    uiState(runSessionId).sendInFlight = false;
+    return;
+  }
 
   if (!Array.isArray(task.messages)) task.messages = [];
   task.messages.push({ role: 'user', content: fullUserContent, ts: Date.now() });
@@ -7685,6 +8068,8 @@ async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
       if (!workspaceResult) throw rpcErr;
     }
     const paintDone = () => {
+      if (!turnCurrent()) return;
+      stampLastUserMessage(task, runSessionId, workspaceResult?.message?.messageId);
       if (workspaceResult?.executionId) {
         currentWorkspaceTaskId = workspaceResult.executionId;
         uiState(runSessionId).executionId = workspaceResult.executionId;
@@ -7727,9 +8112,10 @@ async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
         toolCalls: workspaceResult?.toolCalls || []
       });
     };
-    withSessionLive(runSessionId, paintDone);
+    if (turnCurrent()) withSessionLive(runSessionId, paintDone);
     if (getWorkspaceSessionId() === runSessionId) void refreshArtifactShelf();
   } catch (err) {
+    if (!turnCurrent()) return;
     const msg = err instanceof Error ? err.message : String(err);
     const aborted = /abort/i.test(msg);
     const channel = isMessageChannelError(err);
@@ -7759,14 +8145,20 @@ async function submitUserPrompt(mode = 'chat', queuedTurn = null) {
       promoteFinalAnswer(finalStatusText, { force: true });
     });
   } finally {
-    await refreshExecutionFromWorkspace(runSessionId);
-    if (!uiState(runSessionId).running) {
-      uiState(runSessionId).abort = null;
-      if (getWorkspaceSessionId() === runSessionId) currentAgentAbort = null;
-      flushPromptQueue(runSessionId);
+    const st = uiState(runSessionId);
+    st.sendInFlight = false;
+    if (!turnCurrent()) {
+      renderSessionRailList();
+    } else {
+      await refreshExecutionFromWorkspace(runSessionId);
+      if (!uiState(runSessionId).running && !uiState(runSessionId).queueFlushing && turnCurrent()) {
+        uiState(runSessionId).abort = null;
+        if (getWorkspaceSessionId() === runSessionId) currentAgentAbort = null;
+        flushPromptQueue(runSessionId);
+      }
+      renderSessionRailList();
+      void refreshArtifactShelf();
     }
-    renderSessionRailList();
-    void refreshArtifactShelf();
   }
 }
 
@@ -8317,8 +8709,10 @@ function setupCoreEventListeners() {
   // Single up-arrow send; hover + wheel flips chat ↔ run (purple when run)
   const sendBtnEl = $('sendBtn');
   sendBtnEl?.addEventListener('click', () => {
-    if (isCurrentSessionRunning()) return;
-    void submitUserPrompt(composerSubmitMode);
+    onComposerSend('send');
+  });
+  $('sendNowBtn')?.addEventListener('click', () => {
+    onComposerSend('send-now');
   });
   sendBtnEl?.addEventListener(
     'wheel',
@@ -8361,6 +8755,7 @@ function setupCoreEventListeners() {
     chatInput.addEventListener('input', (e) => {
       syncComposerEmptyClass(chatInput);
       syncComposerTypewriterVisibility();
+      syncComposerActionLabels();
       if (e.isComposing || mentionComposing) return;
       syncMentionPaletteFromCaret();
     });
@@ -8399,6 +8794,13 @@ function setupCoreEventListeners() {
       syncMentionPaletteFromCaret();
     });
     chatInput.addEventListener('keydown', (e) => {
+      const enterAction = composerEnterAction(e);
+      if (enterAction === 'send' || enterAction === 'send-now') {
+        e.preventDefault();
+        if (mentionPaletteOpen) closeMentionPalette();
+        onComposerSend(enterAction);
+        return;
+      }
       if (mentionPaletteOpen) {
         if (e.key === 'ArrowDown') {
           e.preventDefault();
@@ -8444,15 +8846,6 @@ function setupCoreEventListeners() {
           closeMentionPalette();
           return;
         }
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (isCurrentSessionRunning()) {
-          stopAgentRun('user_stop');
-          return;
-        }
-        const mode = e.ctrlKey || e.metaKey ? 'run' : composerSubmitMode;
-        void submitUserPrompt(mode);
       }
     });
   }
@@ -8645,10 +9038,6 @@ function setupCoreEventListeners() {
   $('deleteSessionBtn')?.addEventListener('click', () => void deleteActiveSession());
   $('sessionSelect')?.addEventListener('change', (e) => switchSession(e.target.value));
   wireArtifactMenu();
-  $('exportMdBtn')?.addEventListener('click', () => {
-    closeMoreSheet();
-    exportCurrentSessionMarkdown();
-  });
   $('thinkEffortPop')?.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
   });
@@ -16507,10 +16896,7 @@ async function runUserSkillById(skillId) {
 
   const task = createTaskCard(truncateUi(skill.name || promptText, 48));
   if (!task) return;
-  const userMsg = document.createElement('div');
-  userMsg.className = 'msg user';
-  userMsg.textContent = display;
-  task.append(userMsg);
+  appendUserTurnBubble(task, display);
 
   const historyMessages = (activeSess.messages || []).slice(-10).map((m) => ({
     role: m.role,
@@ -16531,10 +16917,7 @@ async function runUserSkillById(skillId) {
 function appendUserMessageUI(text) {
   const task = createTaskCard(truncateUi(String(text || ''), 48));
   if (!task) return null;
-  const userMsg = document.createElement('div');
-  userMsg.className = 'msg user';
-  userMsg.textContent = text;
-  task.append(userMsg);
+  appendUserTurnBubble(task, text);
   return task;
 }
 

@@ -466,6 +466,7 @@
         <button type="button" class="sheet-sel-clear" id="canvasSelClear" data-i18n="canvasSelClear" hidden>清空</button>
       </div>
       <div class="composer-inner">
+        <div id="promptQueue" class="prompt-queue" hidden></div>
         <div class="attachment-preview-bar" id="attachmentPreviewBar" hidden></div>
         <div class="composer-input-row">
           <button type="button" class="attach-btn" id="attachFileBtn" title="上传图片或文本文件" aria-label="Attach">
@@ -529,8 +530,9 @@
               </div>
             </div>
             <span id="promptQueueHint" class="prompt-queue-hint" hidden></span>
+            <button type="button" class="send-now-btn" id="sendNowBtn" hidden data-i18n="promptQueueSendNow">立即发送</button>
             <!-- Hover + scroll wheel on send: chat (accent) ↔ run (purple). Same shape. -->
-            <button type="button" class="send-btn is-send" id="sendBtn" data-mode="chat" data-submit="chat" title="发送（对话）· 悬停滚轮切换运行" aria-label="发送（对话）">
+            <button type="button" class="send-btn is-send" id="sendBtn" data-mode="chat" data-submit="chat" title="发送 · Ctrl 或 ⌘ + Enter · Enter 换行" aria-label="发送">
               <span class="send-icon" aria-hidden="true"></span>
             </button>
             <button type="button" class="stop-btn" id="stopBtn" hidden title="停止" aria-label="停止" aria-hidden="true">
@@ -561,11 +563,6 @@
         <section class="sheet-section" aria-labelledby="moreSkillsTitle">
           <div class="sheet-section-title" id="moreSkillsTitle" data-i18n="moreSkills">技能</div>
           <button type="button" class="sheet-action-btn" id="moreSkillsBtn" data-i18n="moreSkillsOpen" data-i18n-title="settingsSkillsHint" title="打包 playbook 与本机 / GitHub overlay。对话输入 / 选用。instruction 按需 inspect，不进 system。">打开 Skills</button>
-        </section>
-
-        <section class="sheet-section" aria-labelledby="moreSessionTitle">
-          <div class="sheet-section-title" id="moreSessionTitle" data-i18n="moreSession">会话记录</div>
-          <button type="button" class="sheet-action-btn" id="exportMdBtn" data-i18n="exportSessionMd" data-i18n-title="exportSessionMdHint" title="导出当前会话的对话记录，不含运行轨迹。">导出 Markdown</button>
         </section>
       </div>
 

@@ -51,6 +51,9 @@ src/sidepanel/
   dom.js             # $, escapeHtml, sanitizeModelHtml, truncateUi
   theme.js           # system | light | dark (+ color-scheme)
   sendStop.js        # send↔stop morph UI
+  composerSubmit.js  # Enter 换行；Ctrl/Cmd+Enter 发送；队列提前/移除
+  rewindConfirm.js   # 用户气泡下方的回滚确认卡
+  sessionRecordExport.js # 标题栏「导出」：会话记录 Markdown
   hoverDrawer.js     # hover-intent FSM (clip/history/drafts)
   icons.js           # SVG composer icons
   scroll.js          # whole-panel #panelScroll wheel + edge fades
@@ -101,6 +104,8 @@ Critical actions (trajectory download, skill save, script quick-run) mount on **
 
 Trajectory controls live in **`trajectoryUi.js`** (`createTrajectoryUi({ t, getLang, getSessions, … })`).
 
+会话 Markdown 不在设置页。对话标题栏 `.session-traj-btn`（文案「导出」）打开菜单：`会话记录` 始终在；`运行轨迹` 只在开发者轨迹导出开启时出现（`browserbot_dev_trajectory`，默认开）。设置里只留这个开关。
+
 ## Rules
 
 1. Prefer new UI helpers here; keep agent imports in `sidepanel.js` until a full domain split.
@@ -113,7 +118,7 @@ Durable task cards（`taskStatus.js`）≠ 对话流里的 live `.task-card`（�
 
 `/plan` 与 task-start/amend 确认卡在线程里是 `.clarify-live.is-plan`。普通计划卡多一项默认勾选的「同时开启长任务」；task-start/amend 不加这项。批准 / 拒绝 / 提交修改后立刻收成一行 `.plan-receipt`（默认折叠，只留「已批准|未批准|需修改 · 标题」），不把完整步骤留在画面上。展开才能再看摘要和步骤。
 
-对话流里右对齐的粉胶囊是 **用户气泡**（`.msg.user`）。文案刚好是「继续」时也不是控件：durable `resume` 只出现在 `paused` 任务卡上；clarify 的「继续」只在多问题澄清条里。思考条复用逻辑在 `thinkUi.js`（一轮一条，禁止再叠一条「思考中」）。有真实 provider thought 时块必须在：流式与封条后都可展开，默认折叠，`aria-expanded` 与 Enter/Space。行动摘要不能顶替它。`#turnJumpRail` 走右槽，不盖思考条展开箭头。
+对话流里右对齐的粉胶囊是 **用户气泡**（`.msg.user`）。文案刚好是「继续」时也不是控件：durable `resume` 只出现在 `paused` 任务卡上；clarify 的「继续」只在多问题澄清条里。铅笔打开回滚确认：卡片插在橙色气泡**下方**（`.msg-rewind-confirm`，中性抬升面），不进气泡内部，也不是全页对话框。确认后 `rewindSession` 截掉这条及之后的 durable 记录，原文放回输入框；文件、交付物、页面副作用和未完成的 durable task 不回滚。思考条复用逻辑在 `thinkUi.js`（一轮一条，禁止再叠一条「思考中」）。有真实 provider thought 时块必须在：流式与封条后都可展开，默认折叠，`aria-expanded` 与 Enter/Space。行动摘要不能顶替它。`#turnJumpRail` 走右槽，不盖思考条展开箭头。
 
 `#botStatus` 已降级为隐藏 polite announcer（另有 `#botStatusLive` / `#botStatusAssertive`）。完成后不再在会话顶画完成/目标页/瞄准/任务大卡。运行中的 `.turn-disclosure` 是 Sider 式小图标活动列表：每行左侧 14px 描边图标（思考 lightbulb / 读取 book / 运行 wrench / 页面 wand / 写入 pencil / 等待 clock / 错误 alert，`currentColor` 跟 `--ink`，不用 emoji），右侧短灰字；流光/脉冲只扫**最新一行**活动标签字形（思考条「思考中」有行动行后不再扫字，只留圆点）；先前行保持静止灰字，不卸挂（窄栏仍只留当前行）。不画 next、租约占用、政策 chip、页面 snapshot「读取当前标签」、也不把 inspect/`run`/page-read 算进交付物。无 provider thought 时披露仍占思考块下方同一位置，不造假思考块。进度说明（`progress-note`，模型在带工具调用的那一步里写的一两句话）是同一条时间线里的**裸散文行**（`.turn-disclosure-note`，正文字色，不是 `.msg.assistant`，不进思考块），与灰色活动行按发生顺序穿插、最新在底部；活动行仍只留最近 8 条，进度说明全部保留，窄栏也不隐藏。进度说明从不成为 current / next，流光只扫最新活动行。完成 / 停止 / 失败 / 取消一律立刻把说明和活动行一起折成一行 `完成|已停止|失败 · {duration} · {k} 条进度 · {n} 个文件`（`k`/`n` 为 0 时省略；默认折叠，按需 hydrate；`n` 只计会话 artifact），展开后按顺序显示说明与行及时间（HH:MM），不留开放的活动列表或「客代码」行；不另写模型总结行。最终回答仍在折叠行下方展开，且不重复最后一条说明。只有等待用户、宿主审批、租约冲突、durable 暂停、needs_human 保持展开。进度说明随回合持久化：运行中在 `session.turnProgress`（`getSession().liveProgress`，只认当前活动 execution），侧栏重开 / 切回会话时 `seedEventsFromLiveProgress` 补画；结束后在该回合 assistant 记录的 `progress`，历史恢复用 `statusFromAssistantRecord` 重建折叠行（无说明的旧回合保持原样）。`#accessPolicyChip` 在 composer 浮层常驻，不跟大卡隐藏。审批/付款卡在披露下方，折叠完成墙不得盖住它们。next 仍只来自 `task.nextAction`，且不画进直播摘要。历史摘要按 `executionId` 展开时才 hydrate，同时只开一张，内存完整投影只留 8 轮。思考块合同不变（卡片 chrome），状态不从 thought 推断。Stop 走 `abortCurrentExecution({sessionId})`。选区是可选瞄准，不是权限门。
 
@@ -144,6 +149,7 @@ Selector 同时服务直接工具与 Bot 引用。点选负责对象识别、来
 - Uploaded/captured images show thumbnails. A pasted screenshot retains its existing inline screenshot mention and pending attachment; insert that mention **before** rendering previews to avoid duplicating the image below it. Removing an attachment still only changes the outgoing pending list.
 - There is no access-mode control. The top-left logo and name, and the home logo, are links to BrowserKitten.com with a faint signal glow on hover and focus; the home logo is inert while it is a watermark.
 - Composer controls show model, References and artifacts. The reference button shows the bound collection count; its tooltip and `#composerAiming` accessible description report the real binding state. The unbound state has no animated call-to-action border.
+- Enter 插入换行。Ctrl/Cmd+Enter 发送。Ctrl/Cmd+Shift+Enter 立即发送。回合进行中，发送把这条排进输入框上方的 `#promptQueue`；每一项可以立即发送（停掉当前回合，其余队列保留）或移除。Stop 清空未发送队列。
 - Collection destinations appear only when the selection summary has content; their tooltip and accessible description explain first-pick auto-creation. Active conversations use a neutral border; running status remains in the existing execution indicators.
 
 Selection drawer copy stays in tooltips and accessible labels: no visible gray explanatory paragraphs or “Selected” / “Collect into” prefixes. Counts, item names, collection picker and action labels remain visible.

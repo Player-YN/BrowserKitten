@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { I18N } from '../src/sidepanel/i18n.js';
 import {
   buildSessionRecordMarkdown,
+  sessionHeaderDownloadChoices,
   sessionRecordFilename,
   sessionRecordPlainText,
   sessionRecordTurns
@@ -20,15 +21,18 @@ const MORE_I18N = [
   'exportSessionMd',
   'exportSessionMdHint',
   'exportSessionEmpty',
-  'exportSessionDone'
+  'exportSessionDone',
+  'sessionExportBtn',
+  'sessionExportBtnTitle'
 ];
 
-test('more-sheet copy is conversation export, not trajectory', () => {
+test('session markdown export lives on the chat header, not the more sheet', () => {
   const html = readFileSync(new URL('../src/sidepanel.html', import.meta.url), 'utf8');
   const more = html.slice(html.indexOf('id="moreSheet"'), html.indexOf('id="appModalOverlay"'));
-  assert.match(more, /data-i18n="moreSession"/);
-  assert.match(more, /id="exportMdBtn"/);
-  assert.match(more, /data-i18n="exportSessionMd"/);
+  const side = readFileSync(new URL('../src/sidepanel.js', import.meta.url), 'utf8');
+  assert.equal(more.includes('exportMdBtn'), false);
+  assert.equal(more.includes('moreSessionTitle'), false);
+  assert.equal(more.includes('data-i18n="exportSessionMd"'), false);
   assert.equal(more.includes('moreTrajectory'), false);
   assert.equal(more.includes('🛤️'), false);
   assert.equal(more.includes('导出任务 Markdown'), false);
@@ -38,6 +42,13 @@ test('more-sheet copy is conversation export, not trajectory', () => {
   assert.match(more, /id="moreSettingsBtn"/);
   assert.match(more, /id="moreSkillsBtn"/);
   assert.match(more, /id="sheetClose"/);
+  assert.equal(side.includes('exportMdBtn'), false);
+  assert.match(side, /sessionHeaderDownloadChoices/);
+  assert.match(side, /exportCurrentSessionMarkdown\(/);
+  assert.match(side, /openTrajectoryExportModal\(/);
+  assert.equal(side.includes('btn.hidden = !devTrajectoryExportEnabled'), false);
+  assert.deepEqual(sessionHeaderDownloadChoices(false), ['messages']);
+  assert.deepEqual(sessionHeaderDownloadChoices(true), ['messages', 'trajectory']);
   for (const key of MORE_I18N) {
     assert.equal(typeof I18N.zh[key], 'string', `zh missing ${key}`);
     assert.equal(typeof I18N.en[key], 'string', `en missing ${key}`);
@@ -45,6 +56,8 @@ test('more-sheet copy is conversation export, not trajectory', () => {
   assert.equal(I18N.zh.moreSkills.includes('Skills'), false);
   assert.equal(I18N.zh.moreSession, '会话记录');
   assert.equal(I18N.en.moreSession, 'Conversation');
+  assert.equal(I18N.zh.sessionExportBtn, '导出');
+  assert.equal(I18N.en.sessionExportBtn, 'Export');
 });
 
 test('session record markdown is user/assistant text only', () => {

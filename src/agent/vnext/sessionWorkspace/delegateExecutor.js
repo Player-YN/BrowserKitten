@@ -1,10 +1,11 @@
 /**
- * Planner/executor split (flag `browserbot_executor_v2`, default off).
- * The main model hands `action op=delegate` a subgoal, its own fill values, an
- * `until` and a step budget. A cheap System1-provider model picks ONE next step
- * as strict JSON; the host dispatches it through the ordinary gated action path
- * (hostPageAction: Access Policy + journal + ticket + tab lease + rev/documentId).
- * Nothing here dispatches a page write by itself.
+ * System1 click executor. The planner assigns a subgoal and the values it may
+ * type. System1 picks the control and one step (click / fill / select / press /
+ * scroll / pointer). Each step is dispatched through the ordinary gated action
+ * path (hostPageAction: Access Policy + journal + ticket + tab lease +
+ * rev/documentId). Nothing here writes the page by itself.
+ *
+ * `browserbot_executor_v2` is a legacy storage key. It does not gate this path.
  */
 import { classifyRisk, RISK_DELETE, RISK_PAYMENT } from '../host/riskClassify.js';
 import { BK_CLIENT_HEADER, BK_PURPOSE_HEADER, bkClientHeaderValue, isCloudApiUrl } from '../../cloudModels.js';
@@ -18,6 +19,17 @@ export const DELEGATE_STEP_CAP = 12;
 const CONTROL_CAP = 60;
 const DATA_CAP = 20;
 const PRESS_KEYS = new Set(['Enter', 'Tab', 'Escape', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Space', 'Backspace', 'PageDown', 'PageUp']);
+
+/** Enter and Space activate a control. Those presses are clicks for System1. */
+export function isButtonPress(key) {
+  const text = String(key || '').trim().toLowerCase();
+  return text === 'enter' || text === 'return' || text === 'space' || text === ' ';
+}
+
+function canonicalButtonKey(key) {
+  const text = String(key || '').trim().toLowerCase();
+  return text === 'space' || text === ' ' ? 'Space' : 'Enter';
+}
 const CAPTCHA = /验证码|人机验证|滑块验证|captcha|recaptcha|hcaptcha|i'?m not a robot|verify you are (a )?human/i;
 /** Host refusals: the executor never retries around these. */
 const GATE_CODES = new Set([
@@ -42,7 +54,10 @@ export const EXECUTOR_SYSTEM = [
   'Use only refs from controls. Never type a value that is not in data. Do not repeat a step that changed nothing.'
 ].join('\n');
 
-/** @param {{get?:Function}|undefined} storage chrome.storage.local-like */
+/**
+ * Legacy key. Product clicks do not read this; System1 is the click path either way.
+ * @param {{get?:Function}|undefined} storage chrome.storage.local-like
+ */
 export async function readExecutorV2Flag(storage = globalThis.chrome?.storage?.local) {
   try {
     const got = await storage?.get?.(EXECUTOR_V2_KEY);
@@ -70,6 +85,160 @@ export function normalizeDelegateData(raw) {
     if (out.length >= DATA_CAP) break;
   }
   return out;
+}
+
+/**
+ * The planner asked for a deletion in its own words, so the host may raise the
+ * one-shot approval card for the control System1 selected. A vague subgoal does not.
+ * @param {string} subgoal
+ */
+export function assignmentRequestsDelete(subgoal) {
+  return classifyRisk({ channel: 'action', op: 'click', name: String(subgoal || '') }).risk === RISK_DELETE;
+}
+
+/**
+ * Planner click-like calls become a System1 assignment.
+ * Returns null when the op stays with the planner (snapshot, scroll, wait,
+ * upload, listen, record, non-button press, choose).
+ * The planner's ref, x, and y are never copied onto the assignment.
+ * @param {object} input
+ */
+export function plannerClickAssignment(input = {}) {
+  const op = String(input.op || '').trim();
+  const until = input.until;
+  const maxSteps = input.maxSteps;
+  if (op === 'delegate') {
+    return { requestedOp: 'delegate', subgoal: String(input.subgoal || '').trim(), until, data: input.data, maxSteps };
+  }
+  if (op === 'press') {
+    if (!isButtonPress(input.key)) return null;
+    const key = canonicalButtonKey(input.key);
+    const name = String(input.name || '').trim();
+    const subgoal = String(input.subgoal || '').trim()
+      || (name ? `Activate ${name}` : `Press ${key} to activate the focused control`);
+    return { requestedOp: 'press', subgoal, data: [], until, maxSteps: maxSteps ?? 4 };
+  }
+  if (op === 'click' || op === 'pointer') {
+    const named = String(input.subgoal || input.name || '').trim();
+    if (named) {
+      return {
+        requestedOp: op,
+        subgoal: String(input.subgoal || '').trim() || `Click ${named}`,
+        data: [],
+        until,
+        maxSteps: maxSteps ?? 4
+      };
+    }
+    const ref = String(input.ref || '').trim();
+    if (op === 'click' && ref) {
+      return { requestedOp: op, resolveRef: ref, resolveKind: 'click', until, maxSteps: maxSteps ?? 4 };
+    }
+    return { requestedOp: op, error: 'A click needs a name or subgoal. System1 chooses the control; do not pass a ref or x,y.' };
+  }
+  if (op === 'fill' || op === 'select') {
+    if (input.value == null || String(input.value) === '') {
+      return { requestedOp: op, error: `${op} needs the value to type or select. System1 only types your value.` };
+    }
+    const value = String(input.value);
+    const field = String(input.name || '').trim();
+    const subgoal = String(input.subgoal || '').trim();
+    if (field || subgoal) {
+      const label = field || subgoal;
+      return {
+        requestedOp: op,
+        subgoal: subgoal || (op === 'fill' ? `Fill ${label}` : `Select ${value} for ${label}`),
+        data: [{ field: label, value }],
+        until,
+        maxSteps: maxSteps ?? 4
+      };
+    }
+    const ref = String(input.ref || '').trim();
+    if (ref) {
+      return { requestedOp: op, resolveRef: ref, resolveKind: op, resolveValue: value, until, maxSteps: maxSteps ?? 4 };
+    }
+    return { requestedOp: op, error: `${op} needs a field name or subgoal and the value. System1 chooses the control.` };
+  }
+  if (op === 'fill_form') {
+    const fields = Array.isArray(input.fields) ? input.fields : [];
+    if (!fields.length) return { requestedOp: op, error: 'fill_form needs fields. Each value is yours; System1 chooses the controls.' };
+    const data = [];
+    let needsNames = false;
+    for (const row of fields) {
+      if (!row || typeof row !== 'object' || row.value == null) continue;
+      const field = String(row.name || row.field || '').trim();
+      if (field) data.push({ field, value: String(row.value) });
+      else if (row.ref) needsNames = true;
+      else return { requestedOp: op, error: 'fill_form field needs a name and a value. System1 chooses the control.' };
+    }
+    if (!data.length && !needsNames) return { requestedOp: op, error: 'fill_form needs fields with values.' };
+    const cap = Math.min(DELEGATE_STEP_CAP, Math.max(4, (data.length || fields.length) * 2));
+    return {
+      requestedOp: op,
+      subgoal: String(input.subgoal || '').trim() || (data.length ? `Fill ${data.map((row) => row.field).join(', ')}` : ''),
+      data,
+      until,
+      maxSteps: maxSteps ?? cap,
+      resolveFields: needsNames
+    };
+  }
+  return null;
+}
+
+/**
+ * Replace a planner ref with the control's accessible name. The ref is not clicked.
+ * @param {object} assignment plannerClickAssignment result
+ * @param {Array<object>|undefined} controls
+ * @param {Array<object>|undefined} fields original fill_form fields
+ */
+export function bindClickAssignmentNames(assignment, controls, fields) {
+  if (!assignment || assignment.error || (!assignment.resolveRef && !assignment.resolveFields)) return assignment;
+  const byRef = new Map();
+  for (const row of Array.isArray(controls) ? controls : []) {
+    const ref = String(row?.ref || '').trim();
+    if (ref) byRef.set(ref, row);
+  }
+  const nameOf = (ref) => String(byRef.get(String(ref || ''))?.name || '').trim();
+  if (assignment.resolveRef) {
+    const name = nameOf(assignment.resolveRef);
+    if (!name) {
+      return { error: 'That ref has no name on the current page. Pass a name or subgoal. System1 chooses the control, and the ref is not clicked.' };
+    }
+    if (assignment.resolveKind === 'fill' || assignment.resolveKind === 'select') {
+      const value = String(assignment.resolveValue ?? '');
+      return {
+        requestedOp: assignment.requestedOp,
+        subgoal: assignment.resolveKind === 'fill' ? `Fill ${name}` : `Select ${value} for ${name}`,
+        data: [{ field: name, value }],
+        until: assignment.until,
+        maxSteps: assignment.maxSteps
+      };
+    }
+    return {
+      requestedOp: assignment.requestedOp,
+      subgoal: `Click ${name}`,
+      data: [],
+      until: assignment.until,
+      maxSteps: assignment.maxSteps
+    };
+  }
+  const data = Array.isArray(assignment.data) ? assignment.data.slice() : [];
+  for (const row of Array.isArray(fields) ? fields : []) {
+    if (!row || typeof row !== 'object' || row.value == null) continue;
+    if (String(row.name || row.field || '').trim()) continue;
+    const name = nameOf(row.ref);
+    if (!name) {
+      return { error: 'A fill_form ref has no name. Pass field names. System1 chooses the controls, and those refs are not filled.' };
+    }
+    data.push({ field: name, value: String(row.value) });
+  }
+  if (!data.length) return { error: 'fill_form needs values. System1 chooses the controls.' };
+  return {
+    requestedOp: 'fill_form',
+    subgoal: assignment.subgoal || `Fill ${data.map((row) => row.field).join(', ')}`,
+    data,
+    until: assignment.until,
+    maxSteps: assignment.maxSteps
+  };
 }
 
 /**
@@ -264,11 +433,25 @@ export function publicDelegateReceipt(input = {}) {
   };
   if (status === 'escalated') out.code = String(input.code || 'DELEGATE_ESCALATED');
   if (input.error) out.error = String(input.error).slice(0, 240);
+  if (input.pending?.ref && input.pending?.rev) {
+    out.pending = {
+      op: input.pending.op === 'press' ? 'press' : 'click',
+      ref: String(input.pending.ref),
+      rev: String(input.pending.rev),
+      name: String(input.pending.name || '').slice(0, 80)
+    };
+    if (input.pending.key) out.pending.key = String(input.pending.key);
+  }
+  const reason = String(input.reason || status);
   out.hint = status === 'arrived'
-    ? 'until was met. Steps already happened; do not repeat them. Snapshot to verify before the next mutate.'
+    ? 'until was met. Steps already happened; do not repeat them. Snapshot to verify before the next assignment.'
     : status === 'done'
       ? 'Executor says done; no until was checked. Snapshot to verify.'
-      : 'Executor stopped and you have control. Steps already happened. Snapshot, then act yourself or delegate a narrower subgoal.';
+      : reason === 'delete'
+        ? 'System1 selected a delete control and did not click it. If you intend that deletion, delegate a subgoal that names it so the host can show the approval card. Do not pass a ref.'
+        : reason === 'payment'
+          ? 'Payment is never clicked. Stop.'
+          : 'Executor stopped. Steps already happened. Snapshot, then assign a narrower subgoal and data. Do not pass a ref or x,y.';
   return out;
 }
 
@@ -380,7 +563,22 @@ export async function runDelegateLoop(opts) {
     if (risk) {
       steps.push({ ...stepRow(steps.length + 1, step, control, { ok: false, code: risk === 'payment' ? 'PAYMENT_DENIED' : 'DELETE_NEEDS_PLANNER' }), changed: false });
       opts.onStep?.(steps[steps.length - 1]);
-      return stop('escalated', risk, { code: risk === 'payment' ? 'PAYMENT_DENIED' : 'DELETE_NEEDS_PLANNER', error: risk === 'payment' ? 'Payment is never delegated.' : 'Deletion goes back to the planner and its approval card.' });
+      const extra = {
+        code: risk === 'payment' ? 'PAYMENT_DENIED' : 'DELETE_NEEDS_PLANNER',
+        error: risk === 'payment' ? 'Payment is never delegated.' : 'Deletion goes back to the planner and its approval card.'
+      };
+      // The click is not dispatched here. The tool raises the host approval card
+      // only when the planner's own subgoal names this deletion.
+      if (risk === 'delete' && step.ref && snap?.rev && (step.op === 'click' || step.op === 'press')) {
+        extra.pending = {
+          op: step.op === 'press' ? 'press' : 'click',
+          ref: step.ref,
+          rev: String(snap.rev),
+          name: String(control?.name || '').slice(0, 80),
+          ...(step.key ? { key: step.key } : {})
+        };
+      }
+      return stop('escalated', risk, extra);
     }
 
     acted += 1;
@@ -435,7 +633,7 @@ export async function fetchExecutorStep(config, payload, opts = {}) {
   const apiKey = String(config?.apiKey || '').trim();
   const model = String(config?.model || '').trim();
   const url = executorChatUrl(config?.apiBase);
-  if (!apiKey || !url) return { ok: false, code: 'NEED_JEV', error: 'No active System1 provider. Add one in Settings, or act with ref yourself.' };
+  if (!apiKey || !url) return { ok: false, code: 'NEED_JEV', error: 'No active System1 provider. Add one in Settings. Clicks are not sent without it.' };
   if (!model) return { ok: false, code: 'NEED_MODEL', error: 'System1 model id is required on the active provider.' };
   const { image, ...facts } = payload || {};
   const text = JSON.stringify(facts);

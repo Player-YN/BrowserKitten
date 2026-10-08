@@ -436,7 +436,6 @@ export async function sendMessage(store, input) {
     hostPageAction: typeof input.hostPageAction === 'function' ? input.hostPageAction : null,
     listenRuntime: input.listenRuntime || null,
     settings: input.settings,
-    executorV2: input.executorV2 === true,
     mediaCapabilities: input.mediaCapabilities,
     mediaContext: input.mediaContext,
     hostFindTab: typeof input.hostFindTab === 'function' ? input.hostFindTab : null,

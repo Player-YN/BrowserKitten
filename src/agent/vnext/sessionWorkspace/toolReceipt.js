@@ -5,7 +5,7 @@
 
 export const TOOL_FAILURE_HINTS = Object.freeze({
   ACTION_OUTCOME_UNKNOWN: 'read the page or artifact after this hop, then decide; do not replay the write',
-  AMBIGUOUS: 'action op=snapshot and use a unique ref, or disambiguate name',
+  AMBIGUOUS: 'action op=delegate with a subgoal that names the one control; do not pass a ref',
   AMBIGUOUS_SITE: 'pass artifactId for the existing site, or read before clone',
   ARTIFACT_CONFLICT: 're-read the artifact revision, then write with the current expectedRevision',
   BAD_INPUT: 'check required fields for this op; mutations need rev; inspect view=sys for the sys ISA',
@@ -25,15 +25,15 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   OP_REMOVED: 'there is no canvas HTML op. Use run op=doc for a document, or write_artifact with data-browserbot-kind=site for a website.',
   COORD_MISMATCH: 'snapshot again; x,y are 0–1 against the current CSS viewport',
   FALLBACK_VISUAL:
-    'call action op=pointer on this tabId with x,y in 0–1 and method=cdp. The host does not choose the point',
+    'action op=delegate with a subgoal describing the control. System1 chooses the click. Do not pass x,y or a ref',
   NO_TARGET:
-    'action op=snapshot and pass a current ref, or wait with matching text. FALLBACK_VISUAL means op=pointer with x,y in 0–1 and method=cdp. If the page forbids the act, run + sys.eval world:"MAIN" on this tabId',
+    'action op=delegate with a subgoal naming the control. Do not pass a ref or x,y. If the page forbids the act, run + sys.eval world:"MAIN" on this tabId',
   PAYMENT_DENIED: 'stop; payment surfaces are not dispatched',
   PERMISSION_REQUIRED:
     'tell the user which ability is off (see permission) and that they can turn it on in Settings → Advanced abilities; meanwhile use action ops that do not need it',
   SNAPSHOT_TOO_LARGE: 'pass a smaller a1; do not silently truncate',
-  STALE_REF: 'action op=snapshot then retry with the new rev',
-  VISUAL_UNCHANGED: 'do not repeat the same pointer coordinates in this execution',
+  STALE_REF: 'action op=snapshot if you need to read the page, then op=delegate with the control name as subgoal. Do not pass the old ref',
+  VISUAL_UNCHANGED: 'do not repeat that click; delegate a different subgoal, or snapshot',
   SYS_DENIED: 'inspect view=sys and pick an allowed op',
   TAB_LEASED: 'wait for the other session to finish, or target a different tabId',
   TAB_NOT_VISIBLE: 'bring the tab into a visible window, then snapshot, listen or record again',

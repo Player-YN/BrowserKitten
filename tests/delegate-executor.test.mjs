@@ -7,8 +7,12 @@ import {
   executorVision,
   executorChatUrl,
   readExecutorV2Flag,
-  EXECUTOR_V2_KEY
+  EXECUTOR_V2_KEY,
+  plannerClickAssignment,
+  bindClickAssignmentNames,
+  assignmentRequestsDelete
 } from '../src/agent/vnext/sessionWorkspace/delegateExecutor.js';
+import { SYSTEM_PROMPT_VERSION, buildSessionAgentInstructions } from '../src/agent/vnext/sessionWorkspace/prompt.js';
 import { createSessionTools } from '../src/agent/vnext/sessionWorkspace/tools.js';
 import { SessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspace/store.js';
 import { createSessionGuestFs } from '../src/agent/vnext/sessionWorkspace/fs.js';
@@ -204,37 +208,83 @@ function tools(extra = {}) {
 }
 const schemaOf = (t) => JSON.parse(JSON.stringify({ d: t.action.description, p: t.action.parameters }));
 
-test('flag off: the action schema is exactly the old one; flag on only adds delegate', () => {
-  const off = schemaOf(tools());
-  assert.deepEqual(schemaOf(tools({ executorV2: false })), off);
-  assert.equal(off.p.properties.op.enum.includes('delegate'), false);
-  assert.equal('data' in off.p.properties, false);
-  assert.doesNotMatch(off.d, /delegate/);
-  const on = schemaOf(tools({ executorV2: true }));
-  assert.deepEqual(on.p.properties.op.enum, [...off.p.properties.op.enum, 'delegate']);
-  for (const key of Object.keys(off.p.properties)) {
-    if (['op', 'subgoal', 'until', 'maxSteps'].includes(key)) continue;
-    assert.deepEqual(on.p.properties[key], off.p.properties[key], key);
-  }
-  assert.ok(on.d.startsWith(off.d));
-  assert.match(on.d, /escalated returns control/);
-  assert.ok(on.d.length <= 850, `flag-on action description ${on.d.length}`);
-  assert.equal(on.p.properties.data.type, 'array');
+test('action schema always assigns clicks to System1, with or without the legacy flag', () => {
+  const schema = schemaOf(tools());
+  assert.deepEqual(schema, schemaOf(tools({ executorV2: false })));
+  assert.deepEqual(schema, schemaOf(tools({ executorV2: true })));
+  const props = schema.p.properties;
+  assert.ok(props.op.enum.includes('delegate'));
+  assert.ok(props.op.enum.includes('click'));
+  assert.ok(props.op.enum.includes('pointer'));
+  assert.ok(props.op.enum.includes('choose'));
+  assert.equal(props.data.type, 'array');
+  assert.match(schema.d, /op=delegate/);
+  assert.match(schema.d, /Do not pass a ref/);
+  assert.match(schema.d, /pointer/);
+  assert.match(schema.d, /sys\.eval/);
+  assert.doesNotMatch(schema.d, /x,y in 0–1/);
+  assert.ok(schema.d.length <= 700, `action description ${schema.d.length}`);
 });
 
-test('flag off: op=delegate is not run by the executor loop', async () => {
+test('the system prompt tells the planner to assign clicks, not to pick refs', () => {
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v26-system1-clicks');
+  const text = buildSessionAgentInstructions();
+  assert.match(text, /op=delegate/);
+  assert.match(text, /不要传 ref/);
+  assert.doesNotMatch(text, /自己带 ref/);
+  assert.doesNotMatch(text, /op=pointer/);
+});
+
+test('a planner click assignment keeps the goal and the values, and drops the planner ref', () => {
+  const click = plannerClickAssignment({ op: 'click', ref: 'f0.planner', name: 'Next', rev: 'old', x: 0.1, y: 0.2 });
+  assert.equal(click.subgoal, 'Click Next');
+  assert.equal('ref' in click, false);
+  assert.equal('x' in click, false);
+  assert.equal(plannerClickAssignment({ op: 'pointer', x: 0.2, y: 0.3 }).error.includes('name or subgoal'), true);
+  const fill = plannerClickAssignment({ op: 'fill', ref: 'f0.no', name: 'Email', value: 'ann@example.com' });
+  assert.deepEqual(fill.data, [{ field: 'Email', value: 'ann@example.com' }]);
+  assert.equal('ref' in fill, false);
+  assert.equal(plannerClickAssignment({ op: 'press', key: 'Space', name: 'Play' }).subgoal, 'Activate Play');
+  assert.equal(plannerClickAssignment({ op: 'press', key: 'Tab' }), null);
+  assert.equal(plannerClickAssignment({ op: 'scroll' }), null);
+  assert.equal(plannerClickAssignment({ op: 'snapshot' }), null);
+  assert.equal(plannerClickAssignment({ op: 'upload' }), null);
+  const unnamed = bindClickAssignmentNames(
+    plannerClickAssignment({ op: 'click', ref: 'f0.stale' }),
+    [{ ref: 'f0.a1', name: 'Next' }]
+  );
+  assert.match(unnamed.error, /not clicked/);
+  const named = bindClickAssignmentNames(
+    plannerClickAssignment({ op: 'click', ref: 'f0.a1' }),
+    [{ ref: 'f0.a1', name: 'Next' }]
+  );
+  assert.equal(named.subgoal, 'Click Next');
+  assert.equal('resolveRef' in named, false);
+  assert.equal(assignmentRequestsDelete('Click Delete'), true);
+  assert.equal(assignmentRequestsDelete('open the help page'), false);
+});
+
+test('delegate runs the System1 loop without the legacy flag', async () => {
   const calls = [];
-  const t = tools({ activeTab: { tabId: 3, url: 'https://x.test' }, hostPageAction: async (p) => { calls.push(p.op); return { ok: false, code: 'BAD_INPUT' }; } });
-  await t.action.execute({ op: 'delegate', subgoal: 'x' });
-  assert.deepEqual(calls, ['delegate']);
+  const t = tools({
+    activeTab: { tabId: 3, url: 'https://x.test' },
+    hostPageAction: async (p) => {
+      calls.push(p.op);
+      if (p.op === 'snapshot') return { ok: true, rev: 'r', page: { url: 'https://x.test' }, controls: [{ ref: 'f0.a1', name: 'Go', role: 'button' }] };
+      return { ok: false, code: 'BAD_INPUT' };
+    }
+  });
+  const out = await t.action.execute({ op: 'delegate', subgoal: 'x' });
+  assert.deepEqual(calls, ['snapshot']);
+  assert.equal(out.code, 'NEED_JEV');
+  assert.equal(out.requestedOp, 'delegate');
 });
 
-test('flag on: delegate observes and acts only through hostPageAction and calls the cloud executor route', async () => {
+test('delegate observes and acts only through hostPageAction and calls the cloud executor route', async () => {
   const calls = [];
   let moved = false;
   const fetches = [];
   const t = tools({
-    executorV2: true,
     activeTab: { tabId: 7, url: 'https://x.test/a', title: 'A' },
     settings: { jev: { apiKey: 'dev-token', apiBase: 'https://browserkitten.com/api/v1', model: 'bk-system1' }, jevProviderId: 'bk_cloud_jev', jevProviderName: 'Browser Kitten' },
     fetchImpl: async (url, init) => {
@@ -293,11 +343,162 @@ test('BYOK executor posts to its own chat/completions without our purpose header
   assert.equal(executorVision({}), false);
 });
 
-test('the feature flag is read from browserbot_executor_v2 and defaults off', async () => {
+test('the legacy feature flag is still readable and defaults off; it does not gate clicks', async () => {
   assert.equal(EXECUTOR_V2_KEY, 'browserbot_executor_v2');
   assert.equal(await readExecutorV2Flag({ get: async () => ({}) }), false);
   assert.equal(await readExecutorV2Flag({ get: async () => ({ browserbot_executor_v2: 'yes' }) }), false);
   assert.equal(await readExecutorV2Flag({ get: async () => ({ browserbot_executor_v2: true }) }), true);
   assert.equal(await readExecutorV2Flag({ get: async () => { throw new Error('x'); } }), false);
   assert.equal(await readExecutorV2Flag(undefined), false);
+});
+
+const JEV = {
+  jev: { apiKey: 'dev-token', apiBase: 'https://browserkitten.com/api/v1', model: 'bk-system1' },
+  jevProviderId: 'bk_cloud_jev',
+  jevProviderName: 'Browser Kitten'
+};
+
+function scripted(pages, replies) {
+  const calls = [];
+  const seen = [];
+  let n = 0;
+  const t = tools({
+    activeTab: { tabId: 7, url: 'https://x.test/a', title: 'A' },
+    settings: JEV,
+    fetchImpl: async (_url, init) => {
+      seen.push(JSON.parse(init.body));
+      const content = replies[Math.min(n, replies.length - 1)];
+      n += 1;
+      return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
+    },
+    hostPageAction: async (p) => {
+      calls.push({ op: p.op, ref: p.ref, rev: p.rev, value: p.value, key: p.key, x: p.x, y: p.y, observe: p.observe });
+      if (p.op !== 'snapshot') return { ok: true };
+      const page = pages[Math.min(calls.filter((row) => row.op === 'snapshot').length - 1, pages.length - 1)];
+      return { ok: true, rev: page.rev || 'r1', page: page.page, controls: page.controls, canvasCount: page.canvasCount, modelParts: page.modelParts };
+    }
+  });
+  return { t, calls, seen };
+}
+
+const pageOf = (controls, extra = {}) => ({
+  rev: 'r1',
+  page: { url: 'https://x.test/a', title: 'A' },
+  controls,
+  ...extra
+});
+
+test('planner op=click is performed by System1; the planner ref is not the click', async () => {
+  const { t, calls, seen } = scripted(
+    [pageOf([{ ref: 'f0.a1', name: 'Next', role: 'link' }, { ref: 'f0.a2', name: 'Help', role: 'link' }])],
+    ['{"action":"click","ref":"f0.a1"}', '{"action":"done"}']
+  );
+  const out = await t.action.execute({ op: 'click', ref: 'f0.planner', name: 'Next', rev: 'old', x: 0.1, y: 0.2 });
+  assert.equal(out.requestedOp, 'click');
+  assert.equal(out.status, 'done');
+  assert.equal(calls.some((row) => row.ref === 'f0.planner'), false);
+  assert.deepEqual(calls.filter((row) => row.op === 'click'), [{ op: 'click', ref: 'f0.a1', rev: 'r1', value: undefined, key: undefined, x: undefined, y: undefined, observe: 'none' }]);
+  assert.equal(JSON.stringify(seen).includes('f0.planner'), false);
+  assert.match(seen[0].messages[1].content, /Click Next/);
+});
+
+test('a ref-only click recovers the name and still does not click that ref itself', async () => {
+  const { t, calls } = scripted(
+    [pageOf([{ ref: 'f0.a1', name: 'Next', role: 'link' }, { ref: 'f0.a2', name: 'Help', role: 'button' }])],
+    ['{"action":"click","ref":"f0.a2"}', '{"action":"done"}']
+  );
+  const out = await t.action.execute({ op: 'click', ref: 'f0.a1', rev: 'old' });
+  assert.equal(out.status, 'done');
+  assert.equal(calls.filter((row) => row.op === 'click').map((row) => row.ref).join(','), 'f0.a2');
+  const missing = await tools({
+    activeTab: { tabId: 7, url: 'https://x.test/a' },
+    settings: JEV,
+    hostPageAction: async (p) => {
+      calls.push(p);
+      return { ok: true, rev: 'r1', page: { url: 'https://x.test/a' }, controls: [{ ref: 'f0.a1', name: 'Next', role: 'link' }] };
+    }
+  }).action.execute({ op: 'click', ref: 'f0.missing' });
+  assert.equal(missing.code, 'BAD_INPUT');
+  assert.match(missing.error, /not clicked/);
+});
+
+test('planner pointer coordinates are ignored; System1 chooses the point', async () => {
+  const shot = [{ type: 'file', data: 'AAAA', mediaType: 'image/jpeg' }];
+  const { t, calls } = scripted(
+    [pageOf([], { canvasCount: 1, modelParts: shot })],
+    ['{"action":"pointer","x":0.8,"y":0.2}', '{"action":"done"}']
+  );
+  const out = await t.action.execute({ op: 'pointer', name: 'canvas button', x: 0.1, y: 0.9, method: 'cdp' });
+  assert.equal(out.requestedOp, 'pointer');
+  const point = calls.find((row) => row.op === 'pointer');
+  assert.equal(point.x, 0.8);
+  assert.equal(point.y, 0.2);
+  assert.equal(calls.some((row) => row.x === 0.1 || row.y === 0.9), false);
+});
+
+test('fill and fill_form type only the planner value, on the control System1 chooses', async () => {
+  const controls = [{ ref: 'f0.a1', name: 'Email', role: 'textbox' }];
+  const { t, calls } = scripted([pageOf(controls)], ['{"action":"fill","ref":"f0.a1","value":"ann@example.com"}', '{"action":"done"}']);
+  const out = await t.action.execute({ op: 'fill', ref: 'f0.planner', name: 'Email', value: 'ann@example.com' });
+  assert.equal(out.status, 'done');
+  assert.deepEqual(calls.filter((row) => row.op === 'fill').map((row) => ({ ref: row.ref, value: row.value })), [{ ref: 'f0.a1', value: 'ann@example.com' }]);
+  const form = scripted([pageOf(controls)], ['{"action":"fill","ref":"f0.a1","value":"ann@example.com"}', '{"action":"done"}']);
+  const formed = await form.t.action.execute({ op: 'fill_form', fields: [{ name: 'Email', value: 'ann@example.com' }] });
+  assert.equal(formed.status, 'done');
+  assert.equal(form.calls.some((row) => row.op === 'fill_form'), false);
+  assert.deepEqual(form.calls.filter((row) => row.op === 'fill').map((row) => row.value), ['ann@example.com']);
+  const missing = [];
+  const rejected = await tools({
+    activeTab: { tabId: 7, url: 'https://x.test/a' },
+    settings: JEV,
+    hostPageAction: async (p) => {
+      missing.push(p.op);
+      return { ok: true, rev: 'r1', page: { url: 'https://x.test/a' }, controls };
+    }
+  }).action.execute({ op: 'fill_form', fields: [{ ref: 'f0.nope', value: 'nope' }] });
+  assert.equal(rejected.code, 'BAD_INPUT');
+  assert.deepEqual(missing, ['snapshot']);
+});
+
+test('Enter is a System1 click; Tab, scroll, snapshot, and upload stay with the planner', async () => {
+  const { t, calls } = scripted(
+    [pageOf([{ ref: 'f0.a1', name: 'Search', role: 'textbox' }])],
+    ['{"action":"press","key":"Enter"}', '{"action":"done"}']
+  );
+  const entered = await t.action.execute({ op: 'press', key: 'Enter', ref: 'f0.planner', name: 'Search', rev: 'old' });
+  assert.equal(entered.requestedOp, 'press');
+  assert.equal(calls.some((row) => row.ref === 'f0.planner'), false);
+  assert.equal(calls.some((row) => row.op === 'press' && row.key === 'Enter'), true);
+  for (const input of [
+    { op: 'press', key: 'Tab', ref: 'f0.a1', rev: 'r9' },
+    { op: 'scroll', ref: 'f0.a1', rev: 'r9' },
+    { op: 'snapshot' },
+    { op: 'upload', path: '/scratch/a.txt' }
+  ]) {
+    const direct = [];
+    const bare = tools({
+      activeTab: { tabId: 7, url: 'https://x.test/a' },
+      hostPageAction: async (p) => { direct.push(p.op); return { ok: true, rev: 'r9' }; }
+    });
+    await bare.action.execute(input);
+    assert.deepEqual(direct, [input.op], input.op);
+  }
+});
+
+test('a delete assignment raises one gated click; a vague subgoal and payment do not', async () => {
+  const controls = [{ ref: 'f0.a4', name: 'Delete', role: 'button' }, { ref: 'f0.a5', name: 'Pay now', role: 'button' }];
+  const deleting = scripted([pageOf(controls)], ['{"action":"click","ref":"f0.a4"}']);
+  const deleted = await deleting.t.action.execute({ op: 'click', name: 'Delete', ref: 'f0.planner' });
+  assert.equal(deleted.reason, 'delete_approved');
+  assert.equal(deleted.pending, undefined);
+  assert.deepEqual(deleting.calls.filter((row) => row.op === 'click').map((row) => row.ref), ['f0.a4']);
+  const vague = scripted([pageOf(controls)], ['{"action":"click","ref":"f0.a4"}']);
+  const held = await vague.t.action.execute({ op: 'delegate', subgoal: 'open the help page' });
+  assert.equal(held.code, 'DELETE_NEEDS_PLANNER');
+  assert.equal(held.pending, undefined);
+  assert.equal(vague.calls.some((row) => row.op === 'click'), false);
+  const paying = scripted([pageOf(controls)], ['{"action":"click","ref":"f0.a5"}']);
+  const pay = await paying.t.action.execute({ op: 'click', name: 'Pay now' });
+  assert.equal(pay.code, 'PAYMENT_DENIED');
+  assert.equal(paying.calls.some((row) => row.op === 'click'), false);
 });
