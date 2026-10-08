@@ -217,6 +217,9 @@ export async function runChooseLoop(opts) {
   }
   for (let i = 0; i < maxSteps; i++) {
     const snap = await opts.observe();
+    if (snap && snap.ok === false) {
+      return publicChooseReceipt({ ok: false, code: snap.code || 'NEED_PAGE', reason: 'observe_failed', error: snap.error || 'snapshot failed', steps });
+    }
     page = snap?.page || page;
     const controls = snap?.controls || [];
     if (arrivalMet(until, page, controls)) {
@@ -263,6 +266,11 @@ export async function runChooseLoop(opts) {
       });
     }
     const afterSnap = await opts.observe();
+    if (afterSnap && afterSnap.ok === false) {
+      steps.push(stepRow(subgoal, picked, via, false, before));
+      opts.onStep?.(steps[steps.length - 1]);
+      return publicChooseReceipt({ ok: false, code: afterSnap.code || 'NEED_PAGE', reason: 'observe_failed', error: afterSnap.error || 'snapshot after the click failed', steps });
+    }
     const afterPage = afterSnap?.page || page;
     const verified = pageMoved(before, afterPage) || arrivalMet(until, afterPage, afterSnap?.controls) || namesChanged(controls, afterSnap?.controls);
     const row = stepRow(subgoal, picked, via, verified, afterPage);

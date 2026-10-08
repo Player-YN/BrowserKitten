@@ -29,6 +29,7 @@ import { routeMediaInput } from './mediaInput.js';
 import { transcribeSessionAudio } from './transcribe.js';
 import { executeListenAction } from './listenAction.js';
 import { executorVision, fetchExecutorStep, runDelegateLoop } from './delegateExecutor.js';
+import { runOffscreenChoose } from './chooseAction.js';
 import { byokAllowedForProvider, BYOK_PLAN_MESSAGE, BYOK_REQUIRES_PLAN } from '../../byokGate.js';
 import { guessMimeFromName } from './artifactValidate.js';
 import { coerceToUint8Array } from './fs.js';
@@ -1548,7 +1549,38 @@ export function createSessionTools(env) {
         return executeDelegateAction(input, host);
       }
       try {
-        const result = await host({
+        const result = op === 'choose' ? await runOffscreenChoose({
+          host,
+          base: {
+            sessionId,
+            tabId: resolveActionTabId(input, env),
+            url: env.activeTab?.url,
+            executionId: execution?.executionId
+          },
+          input,
+          settings: env.settings,
+          fetchImpl,
+          onStep: (step) => {
+            try {
+              onEvent?.({
+                type: 'action-outcome',
+                sessionId,
+                op: 'choose',
+                ok: step.verified === true,
+                name: step.name || '',
+                subgoal: step.subgoal || '',
+                ref: step.ref || '',
+                via: step.via || '',
+                verified: step.verified === true,
+                url: step.url || '',
+                tabId: resolveActionTabId(input, env),
+                title: env.activeTab?.title || ''
+              });
+            } catch {
+              /* UI fact must not fail the tool */
+            }
+          }
+        }) : await host({
           sessionId,
           op,
           ref: input.ref,
@@ -1568,29 +1600,6 @@ export function createSessionTools(env) {
           x: input.x,
           y: input.y,
           observe: input.observe,
-          subgoal: input.subgoal,
-          until: input.until,
-          maxSteps: input.maxSteps,
-          onChooseStep: (step) => {
-            try {
-              onEvent?.({
-                type: 'action-outcome',
-                sessionId,
-                op: 'choose',
-                ok: step.verified === true,
-                name: step.name || '',
-                subgoal: step.subgoal || '',
-                ref: step.ref || '',
-                via: step.via || '',
-                verified: step.verified === true,
-                url: step.url || '',
-                tabId: resolveActionTabId(input, env),
-                title: env.activeTab?.title || ''
-              });
-            } catch {
-              /* UI fact must not fail the tool */
-            }
-          },
           tabId: resolveActionTabId(input, env),
           url: env.activeTab?.url,
           executionId: execution?.executionId

@@ -20,9 +20,6 @@ import {
 } from './uploadChannel.js';
 import { captureVisibleJpeg } from './pageScreenshot.js';
 import { handleWorkspaceTabListen } from './tabListen.js';
-import { loadLlmSettings } from '../../llm.js';
-import { fetchJevChoice, runChooseLoop } from './jevSelect.js';
-import { BYOK_PLAN_MESSAGE, BYOK_REQUIRES_PLAN, byokAllowedForProvider } from '../../byokGate.js';
 import {
   shouldAttachPageScreenshot,
   screenshotToModelParts,
@@ -88,7 +85,21 @@ function rememberControls(tabId, controls) {
 }
 
 function lookupControl(tabId, ref, name) {
-  const list = lastControls.get(Number(tabId)) || [];
+  return findControl(lastControls.get(Number(tabId)) || [], ref, name);
+}
+
+/**
+ * Control facts for intent resolution. Offscreen passes the cached snapshot's own
+ * controls (it never sees the SW map); the SW registry snapshot has none and falls
+ * back to the SW map captured with that same rev. Both sides must hash and classify
+ * the same control, or the last door refuses with APPROVAL_MISMATCH.
+ */
+function lookupSnapshotControl(snapshot, tabId, ref, name) {
+  if (Array.isArray(snapshot?.controls)) return findControl(snapshot.controls, ref, name);
+  return lookupControl(tabId, ref, name);
+}
+
+function findControl(list, ref, name) {
   const want = String(ref || '').trim();
   if (want) {
     const hit = list.find((row) => String(row.ref || '') === want || String(row.ref || '').endsWith(want));
@@ -380,7 +391,7 @@ async function resolveFillFormTargets(request, tabId, snapshot) {
     const localRef = hit.local || '';
     const expectedFrame = snapshot?.frames.find((frame) => frame.frameId === frameId);
     const prefixed = localRef ? `f${frameId}.${localRef}` : (field.ref || '');
-    const found = lookupControl(tabId, prefixed, field.name || field.label);
+    const found = lookupSnapshotControl(snapshot, tabId, prefixed, field.name || field.label);
     const control = {
       ...(found || {}),
       name: found?.name || field.name || field.label || '',
@@ -506,7 +517,7 @@ async function resolveMutationIntent(request, tabId, snapshot) {
   localRef = hit.local || '';
   const expectedFrame = snapshot?.frames.find((f) => f.frameId === frameId);
   const prefixed = localRef ? `f${frameId}.${localRef}` : (request.ref || '');
-  const found = lookupControl(tabId, prefixed, request.name || request.label || request.fields?.[0]?.name);
+  const found = lookupSnapshotControl(snapshot, tabId, prefixed, request.name || request.label || request.fields?.[0]?.name);
   const control = {
     ...(found || {}),
     name: found?.name || request.name || request.label || '',
@@ -1126,68 +1137,6 @@ async function runWorkspacePageAction(request) {
   return withPageActionTab(result, tabId, title);
 }
 
-async function clickChosenControl(request, tabId, snap, control) {
-  const frameId = Number.isFinite(Number(control.frameId)) ? Number(control.frameId) : 0;
-  const expected = (snap?.frames || []).find((frame) => frame.frameId === frameId);
-  const local = String(control.ref || '').replace(/^f\d+\./i, '');
-  const gate = await authorizePageActionDispatch(request, {
-    op: 'click',
-    tabId,
-    frameId,
-    ref: control.ref,
-    documentId: expected?.documentId || control.documentId,
-    frameUrl: expected?.url || control.frameUrl || '',
-    control: {
-      ...control,
-      frameId,
-      documentId: expected?.documentId || control.documentId || '',
-      frameUrl: expected?.url || control.frameUrl || ''
-    }
-  });
-  if (!gate.ok) return gate;
-  await assertTabLeaseOwnerActive(request.sessionId, request.executionId);
-  return sendPageActionToFrame(tabId, frameId, { op: 'click', ref: local, name: control.name }, expected);
-}
-
-async function runChooseAction(request, tabId) {
-  const settings = await loadLlmSettings();
-  const jev = settings.jev;
-  const jevVia = String(settings.jevProviderName || 'jev').slice(0, 80);
-  return runChooseLoop({
-    subgoal: request.subgoal,
-    until: request.until,
-    maxSteps: request.maxSteps,
-    onStep: request.onChooseStep,
-    jevVia,
-    observe: async () => {
-      const snap = await snapshotPageActionFrames(tabId, { scope: 'all' });
-      return { page: snap.page, controls: snap.controls, frames: snap.frames, title: snap.title };
-    },
-    select: async (payload) => {
-      if (!jev?.apiKey || !jev?.apiBase) {
-        return {
-          code: 'NEED_JEV',
-          error: 'No active System1 provider. Add one in Settings, or click with ref yourself.'
-        };
-      }
-      if (!(await byokAllowedForProvider('jev', settings.jevProviderId))) {
-        return { code: BYOK_REQUIRES_PLAN, error: BYOK_PLAN_MESSAGE };
-      }
-      const chosen = await fetchJevChoice(
-        {
-          apiKey: jev.apiKey,
-          apiBase: jev.apiBase,
-          model: jev.model
-        },
-        payload
-      );
-      if (!chosen.ok) return { code: chosen.code, error: chosen.error };
-      return { ref: chosen.ref };
-    },
-    act: (picked, snap) => clickChosenControl(request, tabId, snap, picked)
-  });
-}
-
 async function executeWorkspacePageAction(request) {
   const gated = await preparePersistentPageActionTarget(request);
   if (!gated.ok) return decorateTabLeaseDenied(gated);
@@ -1204,7 +1153,10 @@ async function executeWorkspacePageAction(request) {
     };
   }
   const op = String(request?.op || '').trim().toLowerCase();
-  if (op === 'choose') return runChooseAction(request, tabId);
+  if (op === 'choose') {
+    // choose runs in offscreen; each click arrives here as its own ticketed op=click.
+    return { ok: false, code: 'BAD_INPUT', error: 'choose is not a page op; the workspace dispatches each chosen click separately.' };
+  }
   if (op === 'listen' || op === 'record') {
     return handleWorkspaceTabListen({ ...request, tabId, url: resolved.url });
   }
