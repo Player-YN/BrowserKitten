@@ -12411,7 +12411,8 @@ async function renderModelPickerList() {
     heading.className = 'model-select-modality-title';
     heading.textContent = title;
     section.appendChild(heading);
-    const accordion = rows.length > 1;
+    // Every provider row folds, even a lone one: it is the only control that hides its list.
+    const accordion = rows.length > 0;
     let anyRow = false;
     for (const p of rows) {
       if (isCloudProvider(p)) {
