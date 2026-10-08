@@ -107,6 +107,7 @@ import { appendSessionAudit, readSessionAudit } from '../sessionWorkspace/sessio
 import { persistableCapabilityHint } from '../sessionWorkspace/artifactCapability.js';
 import { ARTIFACT_CHUNK_SIZE, DOWNLOAD_INLINE_MAX } from '../sessionWorkspace/artifactDownload.js';
 import { openPersonalLibraryStore } from '../sessionWorkspace/personalLibraryStore.js';
+import { readExecutorV2Flag } from '../sessionWorkspace/delegateExecutor.js';
 import { runPersonalLibraryTool } from './personalLibraryRunner.js';
 import { libraryError, validatePersonalLibraryDefinition, validatePersonalLibraryInput, personalLibraryManifestPatch, requireLibraryRevision } from './personalLibraryContract.js';
 import {
@@ -2010,6 +2011,7 @@ export class SessionWorkspaceService {
           ),
         listenRuntime: this._listenRuntime,
         settings,
+        executorV2: await readExecutorV2Flag(),
         mediaCapabilities,
         mediaContext,
         hostFindTab: (url) =>
