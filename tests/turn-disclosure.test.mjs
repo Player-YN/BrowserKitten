@@ -498,7 +498,7 @@ test('after complete or stop the live activity list is folded away', () => {
 test('fold line i18n omits deliverables when count is 0', () => {
   assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 0 }, zh), '完成 · 12 秒');
   assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 1 }, zh), '完成 · 12 秒 · 1 个文件');
-  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 2 }, en), 'Done · 12S · 2 files');
+  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, artifactCount: 2 }, en), 'Done · 12s · 2 files');
 });
 
 test('run inspect and page-read never become deliverable chips or increment the count', () => {
