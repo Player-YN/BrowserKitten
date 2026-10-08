@@ -57,31 +57,42 @@ const SCRIPTS = {
         f(/Full name/, 'Li Wei'), f(/^Email/, 'liwei@example.com'), f(/^Password/, 'Kitten2026x'), f(/Confirm password/, 'Kitten2026x')] } };
     },
     (c) => act(c, 'select', /Country/, { value: 'Japan' }),
-    (c) => act(c, 'click', /agree to the Terms/),
-    // the snapshot names this submit button after the nearby checkbox label (see README finding 2)
-    (c) => act(c, 'click', /agree to the Terms/, {}, 'button'),
+    (c) => act(c, 'click', /agree to the Terms/, {}, 'checkbox'),
+    (c) => act(c, 'click', /^Create account$/, {}, 'button'),
     () => ({ text: 'Submitted the sign-up form.' })
   ],
   'survey': [
     () => snap(),
     (c) => act(c, 'click', /Desktop app/),
     (c) => act(c, 'click', /^4 stars$/),
-    (c) => act(c, 'fill', /Comments/, { value: 'Great speed, would recommend' }),
-    // submit button is named "Comments" by the snapshot (nearby label wins over its own text)
-    (c) => act(c, 'click', /^Comments$/, {}, 'button'),
+    (c) => act(c, 'fill', /^Comments$/, { value: 'Great speed, would recommend' }, 'textbox'),
+    (c) => act(c, 'click', /^Submit feedback$/, {}, 'button'),
     () => ({ text: 'Feedback submitted.' })
   ],
   'cookie-modal': [
     () => snap(),
     (c) => act(c, 'click', /Reject non-essential/, {}, 'button'),
-    (c) => act(c, 'click', /best stories/, {}, 'button'),
+    (c) => act(c, 'click', /^Subscribe to newsletter$/, {}, 'button'),
     () => snap(),
     (c) => act(c, 'fill', /^Email/, { value: 'kitten@example.com' }),
     (c) => act(c, 'click', /^Subscribe$/, {}, 'button'),
     () => ({ text: 'Declined non-essential cookies and subscribed kitten@example.com.' })
   ],
+  // Plain div menu: the items only exist as heuristic `generic-clickable` controls.
+  'admin-menu': [
+    () => snap(),
+    (c) => act(c, 'click', /^System/, {}, 'generic-clickable'),
+    () => snap(),
+    (c) => act(c, 'click', /^Preferences/, {}, 'generic-clickable'),
+    () => snap(),
+    (c) => act(c, 'click', /^Notifications$/, {}, 'generic-clickable'),
+    () => snap(),
+    (c) => act(c, 'click', /^Email digest$/, {}, 'switch'),
+    (c) => act(c, 'click', /^Save changes$/, {}, 'button'),
+    () => ({ text: 'Turned on Email digest and saved.' })
+  ],
   // Clicks through the DOM path and then claims success. The page only accepts trusted events, so the
-  // harness must score this as a failure no matter what the model says. (No script for admin-menu etc:
+  // harness must score this as a failure no matter what the model says. (No script for date-picker etc:
   // unscripted tasks answer "no script" and must also score as failures.)
   'trusted-click': [
     () => snap(),
@@ -90,7 +101,7 @@ const SCRIPTS = {
   ]
 };
 
-const INFER = [['shop-cheapest', /USB/], ['signup-form', /Li Wei/], ['survey', /问卷/], ['cookie-modal', /newsletter/i], ['trusted-click', /Activate device/]];
+const INFER = [['shop-cheapest', /USB/], ['signup-form', /Li Wei/], ['survey', /问卷/], ['cookie-modal', /newsletter/i], ['trusted-click', /Activate device/], ['admin-menu', /Email digest/]];
 function inferTask(messages) {
   const text = messages.filter((m) => m.role === 'user').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
   const hit = INFER.find(([, re]) => re.test(text));

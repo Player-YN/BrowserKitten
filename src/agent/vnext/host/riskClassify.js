@@ -328,7 +328,7 @@ function classifyAction(input = {}) {
     });
   }
 
-  if ((/discard|destroy/i.test(name) && (role === 'button' || type === 'submit' || /danger|destructive/.test(String(input.control?.region || ''))))) {
+  if ((/discard|destroy/i.test(name) && (role === 'button' || role === 'generic-clickable' || type === 'submit' || /danger|destructive/.test(String(input.control?.region || ''))))) {
     return verdict({
       risk: RISK_DELETE,
       confidence: CONF_KNOWN,

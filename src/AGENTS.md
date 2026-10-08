@@ -100,6 +100,7 @@ Background：
 Content script：
 
 - 本 frame snapshot：可交互节点 cap **80**（`ACTION_SNAPSHOT_CAP`）；本地 ref 为 `a1`…。
+- 控件名（`computeActionName`）：aria-labelledby → aria-label → 字段取 label/placeholder/title；按钮、链接、menuitem 等取自身文本（含 img alt、submit 的 value）再 title；附近文本只在都为空时兜底。无 role/tabindex 的 div/span/li 菜单：可见、短文本、自身 `cursor:pointer` / `onclick` / `data-action` / 交互 role、或位于 nav/menu 容器内时，以 role `generic-clickable` 补入（每 frame 最多 40，嵌套取最内层）。纯逻辑在 content_script 的 `action-controls:pure` 标记块，`tests/action-controls.test.mjs` 直接求值测试。
 - 公开 op：`snapshot` / `fill_form` / `click` / `fill` / `select` / `press` / `scroll` / `wait`；`upload` 不在 content script 里赋文件（SW MAIN-world 注入）。另有内部 `resolve_name` / `mark_upload`。`fill` 对 file input 仍 `FILE_INPUT`；`click` 打到 file input 回 `FILE_CHOOSER`。
 - `resolveActionTarget` 另有 `css` 路径；模型工具参数未暴露该字段。
 - `wait`：无 `text`/`ref` 时睡 `ms`（默认 300，上限 5000）。
