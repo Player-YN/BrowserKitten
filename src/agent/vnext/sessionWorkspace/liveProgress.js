@@ -2,6 +2,8 @@
  * Live progress for the current agent turn.
  * Host tool events are a fallback lamp. Model text before/during tools is
  * commentary (not the final bubble). Final text only after stop + no pending tools.
+ * The user-visible copy of that commentary is the host `progress-note` event
+ * (progressNotes.js → turn timeline); this reducer never paints it.
  */
 
 const COMMENTARY_MAX = 160;

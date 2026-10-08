@@ -26,7 +26,7 @@ function sessionTools() {
 }
 
 test('prefix prefers ready-made site tools and does not dump the skill body', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v24-browser-kitten');
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v25-browser-kitten');
   const prefix = buildSessionAgentInstructions();
   assert.match(prefix, /你是"Browser Kitten"/);
   assert.match(prefix, /不预设某种工具或路径总是更好/);

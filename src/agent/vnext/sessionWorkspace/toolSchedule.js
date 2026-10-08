@@ -44,7 +44,7 @@ export function scheduleSessionTools(tools, inventory, runtime = {}) {
  * prepareStep keeps the same always-on list each hop (no mid-turn hide/reveal).
  * After the user approves a plan, re-inject the pinned contract every step.
  * Occupancy over COMPACT_RATIO can return shortened `messages` (SDK wire only).
- * @param {{ store?: object, sessionId?: string, fs?: object, tools?: Record<string, any>, execution?: object, instructions?: string, taskContext?: object|null, getTaskContext?: Function, contextWindow?: number, onMidLoopCompact?: Function }} env
+ * @param {{ store?: object, sessionId?: string, fs?: object, tools?: Record<string, any>, execution?: object, instructions?: string, taskContext?: object|null, getTaskContext?: Function, contextWindow?: number, onMidLoopCompact?: Function, progress?: { nudge: Function } }} env
  */
 export function makeOfficePrepareStep(env = {}) {
   let lastHop = -1;
@@ -63,6 +63,11 @@ export function makeOfficePrepareStep(env = {}) {
     const taskText = formatTaskInstructions(task);
     const pinned = taskText ? '' : formatFrozenPlanInstructions(env.execution?.frozenPlan);
     const media = env.mediaContext ? await env.mediaContext.refresh() : env.mediaCapabilities;
+    // Long silent stretch: one host reminder per gap (progressNotes.js).
+    const nudge = env.progress?.nudge?.({
+      steps: Array.isArray(step.steps) ? step.steps.length : 0,
+      now: Date.now()
+    });
     const refreshInstructions = () => {
       const sess = env.store && env.sessionId ? env.store.get('sessions', env.sessionId) : env.session || null;
       const additions = [
@@ -73,6 +78,7 @@ export function makeOfficePrepareStep(env = {}) {
       if (media) additions.push(
         `Current chat media input (host-resolved for this step): ${JSON.stringify(media)}\nVideo picture capability does not prove soundtrack perception; when videoAudio is unknown, use separate audio input or STT for sound evidence. Never issue capability checks from tools.`
       );
+      if (nudge) additions.push(nudge);
       if (additions.length) out.instructions = [String(env.instructions || '').trim(), ...additions].filter(Boolean).join('\n\n');
     };
     refreshInstructions();
