@@ -161,6 +161,12 @@ export function actionResultToModelFacts(result) {
   for (const key of ['listen', 'listening', 'path', 'mediaType', 'bytes', 'audible', 'text', 'transcriptPath', 'model', 'media', 'mediaElements', 'stt', 'captureKind', 'scope', 'durationMs', 'truncated']) {
     if (result[key] != null) facts[key] = result[key];
   }
+  // delegate receipt is already compact (no snapshots); other ops keep their old facts.
+  if (compact.op === 'delegate') {
+    for (const key of ['status', 'reason', 'steps', 'final']) {
+      if (result[key] != null) facts[key] = result[key];
+    }
+  }
   return facts;
 }
 

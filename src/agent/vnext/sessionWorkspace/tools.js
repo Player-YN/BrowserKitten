@@ -28,6 +28,8 @@ import { generateSessionImage } from './imageGen.js';
 import { routeMediaInput } from './mediaInput.js';
 import { transcribeSessionAudio } from './transcribe.js';
 import { executeListenAction } from './listenAction.js';
+import { executorVision, fetchExecutorStep, runDelegateLoop } from './delegateExecutor.js';
+import { byokAllowedForProvider, BYOK_PLAN_MESSAGE, BYOK_REQUIRES_PLAN } from '../../byokGate.js';
 import { guessMimeFromName } from './artifactValidate.js';
 import { coerceToUint8Array } from './fs.js';
 import { createRunDeadline, clampRunTimeout } from './runDeadline.js';
@@ -1542,6 +1544,9 @@ export function createSessionTools(env) {
         }
         return result;
       }
+      if (op === 'delegate' && env.executorV2 === true) {
+        return executeDelegateAction(input, host);
+      }
       try {
         const result = await host({
           sessionId,
@@ -1643,6 +1648,82 @@ export function createSessionTools(env) {
     },
     toModelOutput: actionToModelOutput
   };
+  if (env.executorV2 === true) withDelegateSchema(action);
+
+  /**
+   * Planner/executor split (flag browserbot_executor_v2): the System1 provider picks one
+   * step at a time; every step goes back through host (the gated action path).
+   */
+  async function executeDelegateAction(input, host) {
+    const tabId = resolveActionTabId(input, env);
+    const settings = env.settings || {};
+    const jev = settings.jev;
+    const allowed = jev?.apiKey ? await byokAllowedForProvider('jev', settings.jevProviderId) : true;
+    const vision = executorVision(settings);
+    const base = { sessionId, tabId, url: env.activeTab?.url, executionId: execution?.executionId };
+    const result = await runDelegateLoop({
+      subgoal: input.subgoal,
+      until: input.until,
+      data: input.data,
+      maxSteps: input.maxSteps,
+      vision,
+      tabId,
+      signal,
+      observe: async ({ screenshot }) => {
+        const snap = await host({ ...base, op: 'snapshot', observe: screenshot ? 'screenshot' : 'none' });
+        if (!snap || snap.ok === false) return snap || { ok: false, code: 'NEED_PAGE' };
+        const file = (Array.isArray(snap.modelParts) ? snap.modelParts : []).find((part) => part?.type === 'file' && part.data);
+        return {
+          ok: true,
+          rev: snap.rev,
+          page: snap.page,
+          controls: snap.controls,
+          canvasCount: snap.canvasCount,
+          image: file ? { data: file.data, mediaType: file.mediaType } : null
+        };
+      },
+      decide: async (payload) => {
+        if (!jev?.apiKey || !jev?.apiBase) {
+          return { ok: false, code: 'NEED_JEV', error: 'No active System1 provider. Add one in Settings, or act with ref yourself.' };
+        }
+        if (!allowed) return { ok: false, code: BYOK_REQUIRES_PLAN, error: BYOK_PLAN_MESSAGE };
+        return fetchExecutorStep(jev, payload, { fetchImpl, signal });
+      },
+      act: (step, snap) =>
+        host({
+          ...base,
+          op: step.op,
+          rev: snap.rev,
+          ref: step.ref,
+          value: step.value,
+          key: step.key,
+          x: step.x,
+          y: step.y,
+          method: step.op === 'pointer' ? 'cdp' : undefined,
+          observe: 'none'
+        }),
+      onStep: (row) => {
+        try {
+          onEvent?.({
+            type: 'action-outcome',
+            sessionId,
+            op: 'delegate',
+            ok: row.ok === true,
+            code: row.code || undefined,
+            name: row.name || '',
+            subgoal: String(input.subgoal || '').slice(0, 160),
+            ref: row.ref || '',
+            via: String(settings.jevProviderName || 'executor').slice(0, 80),
+            tabId,
+            title: env.activeTab?.title || ''
+          });
+        } catch {
+          /* UI fact must not fail the tool */
+        }
+      }
+    });
+    return { ...result, tabId };
+  }
 
   const office = createOfficeTools({
     store,
@@ -1678,6 +1759,26 @@ export function createSessionTools(env) {
       taskShouldYield: env.taskShouldYield
     }
   ).tools;
+}
+
+/**
+ * Flag-on schema for action: adds op=delegate and its data field. Flag off never calls this,
+ * so the default tool schema stays exactly as before.
+ * @param {{description:string, parameters:object}} action
+ */
+function withDelegateSchema(action) {
+  const props = action.parameters.properties;
+  action.description +=
+    ' Mechanical multi-step navigation/forms: op=delegate (subgoal, until, data, maxSteps); a cheap executor acts under the same gates and types only your data. Verify with a snapshot; status=escalated returns control.';
+  props.op = { ...props.op, enum: [...props.op.enum, 'delegate'] };
+  props.subgoal = { ...props.subgoal, description: 'choose/delegate: one-line target (control name, page to reach, or the form task)' };
+  props.until = { ...props.until, description: 'choose/delegate: stop when the URL contains this or a control has this exact name (delegate: or the title contains it)' };
+  props.maxSteps = { ...props.maxSteps, description: 'choose: step cap, default 4, max 8. delegate: default 6, max 12' };
+  props.data = {
+    type: 'array',
+    description: 'delegate: the only values the executor may type: [{ field, value }]',
+    items: { type: 'object', properties: { field: { type: 'string' }, value: { type: 'string' } } }
+  };
 }
 
 /**
