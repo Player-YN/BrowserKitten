@@ -3516,6 +3516,31 @@ body[data-theme='light'] .topbar {
   white-space: nowrap;
   color: var(--text-muted);
 }
+/* Progress note: the model's own update, bare prose like the answer. */
+.turn-disclosure-note {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: 4px 0;
+}
+.turn-disclosure-note-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.turn-disclosure-time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
 .turn-disclosure-line {
   display: flex;
   align-items: center;

@@ -96,11 +96,13 @@ Guest FS（`fs.js`）：
 
 审查证据、边界和验收见 [COMPACT_INTENT.md](../../docs/COMPACT_INTENT.md)。
 
+进度说明（`progressNotes.js`）：只取**以工具调用结束的那一步**里模型写的正文（不带工具调用的一步会结束 ToolLoopAgent，成为最终回答，按 finishReason 区分）。不加工具、不加步。`sessionAgent.consumeAgentStream` 在该步第一个 tool-call 之前发 `progress-note { text, stepIndex, toolIndex, at }`（`sendMessage` 补 `sessionId`/`executionId`）；运行中写 `session.turnProgress = { executionId, startedAt, notes }`，结束（completed / failed / aborted）写进本回合唯一的 assistant 记录 `progress: [{ at, text, stepIndex, toolIndex }]` 并删掉 `turnProgress`，不额外追加 assistant 消息。`getSession().liveProgress` 只返回当前活动 execution 的槽位。task yield 时 SDK 把最后一步说明当最终文本，这条从 `progress` 去掉（回答拥有它）。说明是模型原话，不是宿主事实，不进 audit。催促：距上条说明（或回合开始）≥ 6 步或 ≥ 60 s，`prepareStep` 在 instructions 末尾加一次 `PROGRESS_NUDGE_TEXT`，同一段空白只催一次；System1 / 标题 / 压缩等轻量调用不经过 prepareStep。
+
 普通回合与 durable-task 回合都无 hop 上限。task 停点：`task wait` / `task complete` / host yield / abort（`createTaskStopState`）。成功 `wait`/`complete` 之后 gate 抑制后续（含同步兄弟）工具。非法 tool call 会 `repairSessionToolCall` 一次。
 
 清单：`canvasInventory.js` 的 `SESSION_TOOL_NAMES`（含 `task`）。`toolSchedule.js` 原样返回该列表。
 
-System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v23-browser-kitten'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions；语气：说话清楚、先把事情做对、不确定就问、受阻直说、尽最大努力且不凑合——不越过宿主门。`createSession` 即写入 `/artifacts/AGENTS.md`、`Memory.md`、`STATUS.md`。AGENTS 是短合同，每 hop 有界注入，Pointers 在 `settleExecution` 重写，不是用户授权。Memory 是跨回合事实，宿主不覆盖已改正文。STATUS 是日常进度；绑定 Task 时 checkpoint 优先。Durable Task 仍只来自确认过的 `task start`/`amend`、勾选长任务的 `/plan`、或 `task schedule`。普通 send 不建 task。回合结束清空 `/artifacts/.trash/`）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
+System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v25-browser-kitten'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions；多步骤任务在节点（新阶段、重要发现、受阻、改计划）于同一步工具调用前写一两句进展；语气：说话清楚、先把事情做对、不确定就问、受阻直说、尽最大努力且不凑合——不越过宿主门。`createSession` 即写入 `/artifacts/AGENTS.md`、`Memory.md`、`STATUS.md`。AGENTS 是短合同，每 hop 有界注入，Pointers 在 `settleExecution` 重写，不是用户授权。Memory 是跨回合事实，宿主不覆盖已改正文。STATUS 是日常进度；绑定 Task 时 checkpoint 优先。Durable Task 仍只来自确认过的 `task start`/`amend`、勾选长任务的 `/plan`、或 `task schedule`。普通 send 不建 task。回合结束清空 `/artifacts/.trash/`）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
 
 交付物打开：`openClassify.js` 负责 kind；`artifactCapability.js` 是家族 × 打开面 × 徽标的单一映射。主 chip 是 `docs` / `data` / `web` / `media` / `files`；`design`/`slides` 只兼容旧数据。未知 HTML/JS 不得在 extension origin 执行。仅文件名的 `.html` 保持中性，不假装 proven site/doc；首次打开分类后可持久化 `capability` hint。site 本波 = 可编辑/可渲染的静态 HTML+CSS + 宿主 postMessage bridge（`src/sandbox/siteFrame.*`），**不是**任意 guest JS。
 

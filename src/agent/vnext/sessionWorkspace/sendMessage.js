@@ -63,6 +63,11 @@ import { resolveContextWindow } from '../../modelCatalog.js';
 import { loadWebAcquireSettings } from '../../webAcquireSettings.js';
 import { gateWebAcquire } from '../../byokGate.js';
 import { resolveFocusPage, rememberVisitedPage } from './pageContext.js';
+import {
+  appendProgressNote,
+  createProgressTracker,
+  dropEchoedFinalNote
+} from './progressNotes.js';
 
 /**
  * @param {import('./store.js').SessionWorkspaceStore} store
@@ -270,8 +275,36 @@ export async function sendMessage(store, input) {
   let thoughtBuf = '';
   /** Live tool + host path for trajectory export (not the chat bubble). */
   const pathLog = [];
+  // Progress notes belong to this turn. While it runs they live on
+  // session.turnProgress (so a reopened panel can repaint them); the settled
+  // assistant record carries them as `progress`. Never extra assistant messages.
+  let progressNotes = [];
+  const progressTracker = createProgressTracker({ startedAt: message.createdAt });
+  const persistTurnProgress = () => {
+    const s = store.get('sessions', sessionId);
+    if (!s) return;
+    store.put('sessions', sessionId, {
+      ...s,
+      turnProgress: {
+        executionId: execution.executionId,
+        startedAt: Number(message.createdAt) || Date.now(),
+        notes: progressNotes
+      }
+    });
+  };
   const upstreamEvent = typeof input.onEvent === 'function' ? input.onEvent : null;
-  const onEvent = (ev) => {
+  const onEvent = (raw) => {
+    let ev = raw;
+    if (ev && typeof ev === 'object' && ev.type === 'progress-note') {
+      ev = { ...ev, sessionId, executionId: execution.executionId };
+      progressNotes = appendProgressNote(progressNotes, ev);
+      progressTracker.markNote(ev);
+      try {
+        persistTurnProgress();
+      } catch {
+        /* the settled record still carries the notes */
+      }
+    }
     if (ev && typeof ev === 'object' && ev.type === 'thought') {
       const piece = ev.text != null ? ev.text : ev.chunk;
       if (typeof piece === 'string' && piece && piece !== '[object Object]') thoughtBuf += piece;
@@ -574,6 +607,7 @@ export async function sendMessage(store, input) {
           mediaContext: input.mediaContext,
           mediaCapabilities: input.mediaCapabilities,
           contextWindow,
+          progress: progressTracker,
           onMidLoopCompact: async ({ messages: sdkMessages, promptTokens }) => {
             const sessNow = store.get('sessions', sessionId);
             const mid = await maybeCompactHistory(sessNow?.messages || messages, promptTokens);
@@ -662,6 +696,8 @@ export async function sendMessage(store, input) {
       content: finalText,
       thought,
       status: 'completed',
+      executionId: execution.executionId,
+      progress: dropEchoedFinalNote(progressNotes, finalText),
       // Storage gets the bounded projection; the RPC return keeps the live
       // toolCallsLog for the current turn's UI traces.
       toolCalls: projectJsonForWire(toolCallsLog),
@@ -698,7 +734,7 @@ export async function sendMessage(store, input) {
     };
     if (sess2 && store.has('sessions', sessionId)) {
       store.put('sessions', sessionId, {
-        ...sess2,
+        ...withoutTurnProgress(sess2),
         title: sessionTitle,
         name: sessionTitle,
         titleLocked: !!sess2?.titleLocked,
@@ -786,6 +822,8 @@ export async function sendMessage(store, input) {
         content: '',
         thought: String(thoughtBuf || '').trim(),
         status: aborted ? 'aborted' : 'failed',
+        executionId: execution.executionId,
+        progress: progressNotes,
         error: {
           code: aborted ? USER_STOP : String(err?.code || 'ERROR'),
           message: formatRpcError(err).slice(0, 500)
@@ -801,7 +839,7 @@ export async function sendMessage(store, input) {
       };
       if (sessFail && store.has('sessions', sessionId)) {
         store.put('sessions', sessionId, {
-          ...sessFail,
+          ...withoutTurnProgress(sessFail),
           messages: [...(sessFail.messages || []), failAssistant],
           updatedAt: Date.now()
         });
@@ -831,6 +869,13 @@ export async function sendMessage(store, input) {
     if (wrapped !== err && err?.code) wrapped.code = err.code;
     throw wrapped;
   }
+}
+
+/** The settled assistant record owns the notes; drop the in-flight slot. */
+function withoutTurnProgress(sess) {
+  if (!sess || !('turnProgress' in sess)) return sess;
+  const { turnProgress: _settled, ...rest } = sess;
+  return rest;
 }
 
 /**

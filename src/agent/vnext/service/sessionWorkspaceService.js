@@ -1153,6 +1153,7 @@ export class SessionWorkspaceService {
       createdAt: s?.createdAt || 0,
       shelf: s?.shelf && typeof s.shelf === 'object' ? s.shelf : null,
       activeExecution: this._snapshotActiveExecution(sessionId),
+      liveProgress: liveTurnProgress(s, this._snapshotActiveExecution(sessionId)),
       activeTaskId: getActiveTaskId(this.runtime.store, sessionId),
       audit: readSessionAudit(this.runtime.store, sessionId)
     };
@@ -2799,6 +2800,21 @@ function slimWorkspaceUiValue(value, depth = 0) {
     return out;
   }
   return undefined;
+}
+
+/**
+ * In-flight progress notes for a reopened panel. Only the running execution's
+ * slot counts; a slot left by a crashed turn is ignored.
+ */
+export function liveTurnProgress(session, activeExecution) {
+  const slot = session?.turnProgress;
+  const id = String(activeExecution?.executionId || '');
+  if (!slot || !id || String(slot.executionId || '') !== id) return null;
+  return {
+    executionId: id,
+    startedAt: Number(slot.startedAt) || 0,
+    notes: Array.isArray(slot.notes) ? slot.notes.slice() : []
+  };
 }
 
 /** Chrome runtime messages cannot carry megabyte data URLs; artifacts stay on the shelf. */

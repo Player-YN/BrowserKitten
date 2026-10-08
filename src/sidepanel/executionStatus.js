@@ -1,7 +1,9 @@
 /**
  * Pure reducer for Bot-visible run status and the compact action summary.
- * Host / tool facts only. Thought, reasoning, and model prose never become
- * current / next / summary.
+ * Host / tool facts only. Thought, reasoning, and streamed model prose never
+ * become current / next. The one exception to "no prose in the summary" is
+ * `progress-note`: commentary from a step that ended in tool calls, kept as a
+ * `kind: 'note'` timeline row between activity rows. It never sets current.
  */
 
 import { ACTIVITY_ICONS } from './icons.js';
@@ -10,6 +12,8 @@ const TERMINAL_TASK = new Set(['completed', 'failed', 'cancelled']);
 const PROMINENT_TASK = new Set(['ready', 'running', 'waiting', 'paused']);
 const NARRATIVE = new Set(['thought', 'thought-open', 'text', 'reasoning']);
 const SUMMARY_CAP = 24;
+const NOTE_CAP = 60;
+const NOTE_TEXT_CAP = 600;
 const NAME_CAP = 48;
 
 function text(value, cap = 240) {
@@ -403,10 +407,35 @@ function summaryLabel(kind, current, lang) {
   return isZh ? '读取 / 外网' : 'Read / network';
 }
 
+export function isNoteRow(row) {
+  return row?.kind === 'note';
+}
+
+/** Activity rows cap at SUMMARY_CAP; notes are capped separately and kept. */
 function pushSummary(summary, row) {
   const next = Array.isArray(summary) ? summary.slice() : [];
   next.push(row);
-  return next.length > SUMMARY_CAP ? next.slice(next.length - SUMMARY_CAP) : next;
+  const notes = next.filter(isNoteRow).length;
+  const acts = next.length - notes;
+  let dropActs = Math.max(0, acts - SUMMARY_CAP);
+  let dropNotes = Math.max(0, notes - NOTE_CAP);
+  if (!dropActs && !dropNotes) return next;
+  return next.filter((r) => {
+    if (isNoteRow(r) ? dropNotes > 0 && dropNotes-- : dropActs > 0 && dropActs--) return false;
+    return true;
+  });
+}
+
+function noteText(value) {
+  const t = String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return t.length > NOTE_TEXT_CAP ? `${t.slice(0, NOTE_TEXT_CAP).trimEnd()}…` : t;
+}
+
+export function progressNoteRowId(ev = {}) {
+  return `note-${Math.max(0, Number(ev.stepIndex) || 0)}-${Math.max(0, Number(ev.toolIndex) || 0)}`;
 }
 
 function markRecovered(summary, code) {
@@ -441,6 +470,7 @@ export function createExecutionStatus(seed = {}) {
     startedAt: 0,
     endedAt: 0,
     artifactCount: 0,
+    noteCount: 0,
     lastLiveAction: text(seed.lastLiveAction, 160)
   };
 }
@@ -636,6 +666,7 @@ function reduceExecutionStatus(state, ev, ctx = {}) {
     next.lastLiveAction = '';
     next.summary = [];
     next.artifactCount = 0;
+    next.noteCount = 0;
     next.startedAt = Number(ev.startedAt) || Date.now();
     next.endedAt = 0;
     next.executionId = text(ev.executionId, 80) || next.executionId;
@@ -709,6 +740,24 @@ function reduceExecutionStatus(state, ev, ctx = {}) {
     return next;
   }
 
+  if (type === 'progress-note') {
+    // Model commentary: a timeline row only. current / next / phase unchanged.
+    const body = noteText(ev.text);
+    const id = progressNoteRowId(ev);
+    if (body && !next.summary.some((row) => row.id === id)) {
+      next.summary = pushSummary(next.summary, {
+        id,
+        kind: 'note',
+        label: body,
+        status: 'note',
+        at: Number(ev.at) || 0
+      });
+      next.noteCount = Math.max(0, Number(next.noteCount) || 0) + 1;
+    }
+    next.next = resolveNext(next, lang);
+    return next;
+  }
+
   if (type === 'tool-call') {
     const name = toolName(ev);
     const args = toolArgs(ev);
@@ -733,7 +782,8 @@ function reduceExecutionStatus(state, ev, ctx = {}) {
         object: current.object,
         status: 'running',
         tool: name,
-        code: ''
+        code: '',
+        at: Number(ev.at) || (ev.replay ? 0 : Date.now())
       });
     }
     next.next = resolveNext(next, lang);
@@ -934,6 +984,7 @@ function reduceExecutionStatus(state, ev, ctx = {}) {
 
   if (type === 'assistant-final' || type === 'execution-end') {
     const status = text(ev.status).toLowerCase();
+    if (type === 'assistant-final') next = dropEchoedNoteRow(next, ev.content);
     const pendingHuman = next.approvalOpen === true || !!next.policyBlocked || next.clarifyOpen === true;
     // assistant-final is "the model finished talking", not "the human interrupt is gone".
     if (type === 'assistant-final' && pendingHuman) {
@@ -968,7 +1019,20 @@ function reduceExecutionStatus(state, ev, ctx = {}) {
   return next;
 }
 
+/** A task-yield stop can report the last note's prose as the answer. */
+function dropEchoedNoteRow(state, content) {
+  const fin = noteText(content);
+  const last = state.summary[state.summary.length - 1];
+  if (!fin || !isNoteRow(last) || noteText(last.label) !== fin) return state;
+  return {
+    ...state,
+    summary: state.summary.slice(0, -1),
+    noteCount: Math.max(0, (Number(state.noteCount) || 0) - 1)
+  };
+}
+
 export function summaryCollapseKey(row) {
+  if (isNoteRow(row)) return `note\0${row.id || ''}\0${row.label || ''}`;
   return [row?.kind || '', row?.label || '', row?.object || '', row?.tool || ''].join('\0');
 }
 
@@ -1012,6 +1076,7 @@ export function activityIconKind(row = {}) {
 }
 
 export function formatActivityRow(row, t) {
+  if (isNoteRow(row)) return { iconKind: 'note', icon: '', label: noteText(row.label), note: true };
   const iconKind = activityIconKind(row);
   return {
     iconKind,
@@ -1081,23 +1146,45 @@ export function formatSummaryRowText(row, t) {
   return main || kind || rawLabel;
 }
 
+/**
+ * Timeline projection: every progress note stays; activity rows keep the
+ * last `limit` (after collapsing consecutive repeats). Order is preserved.
+ */
 export function visibleSummaryRows(summary, limit = 8) {
   const list = collapseConsecutiveSummary(summary);
-  return list.slice(Math.max(0, list.length - limit));
+  let budget = Math.max(0, Number(limit) || 0);
+  const keep = new Array(list.length).fill(false);
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (isNoteRow(list[i])) keep[i] = true;
+    else if (budget > 0) {
+      keep[i] = true;
+      budget -= 1;
+    }
+  }
+  return list.filter((_, i) => keep[i]);
 }
 
 /**
- * Shine the latest activity label, never the think-bar header.
- * Fallback line shimmers only when there is not yet a tool row.
+ * Shine the latest activity label, never the think-bar header or a note.
+ * Fallback line shimmers only when there is not yet any timeline row.
  */
 export function latestActivityShine(state) {
   const rows = visibleSummaryRows(state?.summary, 8);
   const last = rows[rows.length - 1] || null;
+  const act = [...rows].reverse().find((row) => !isNoteRow(row)) || null;
   return {
     shineOn: last ? 'latest-row' : 'fallback',
-    rowId: last ? String(last.id || '') : '',
+    rowId: act ? String(act.id || '') : '',
     thinkHeaderShimmer: false
   };
+}
+
+/** Local wall-clock HH:MM for expanded timeline rows; '' when unknown. */
+export function formatRowTime(at) {
+  const n = Number(at);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 export function phaseLabelKey(phase) {
@@ -1160,16 +1247,20 @@ export function formatDisclosureDuration(ms) {
   return `${m}M ${String(s).padStart(2, '0')}S`;
 }
 
-export function formatFoldLine({ phase, durationMs, artifactCount } = {}, t) {
+export function formatFoldLine({ phase, durationMs, artifactCount, noteCount } = {}, t) {
   const p = String(phase || '');
   const word =
     p === 'stopped' ? t('tdFoldStopped') : p === 'failed' ? t('tdFoldFailed') : t('tdFoldDone');
-  const dur = formatDisclosureDuration(durationMs);
+  const parts = [word, formatDisclosureDuration(durationMs)];
+  const notes = Math.max(0, Number(noteCount) || 0);
+  if (notes) {
+    parts.push(notes === 1 ? t('tdNoteOne') : String(t('tdNoteMany') || '').replace('{n}', String(notes)));
+  }
   const n = Math.max(0, Number(artifactCount) || 0);
-  if (!n) return `${word} · ${dur}`;
-  const piece =
-    n === 1 ? t('tdDeliverableOne') : String(t('tdDeliverableMany') || '').replace('{n}', String(n));
-  return `${word} · ${dur} · ${piece}`;
+  if (n) {
+    parts.push(n === 1 ? t('tdDeliverableOne') : String(t('tdDeliverableMany') || '').replace('{n}', String(n)));
+  }
+  return parts.join(' · ');
 }
 
 export function foldStubFromState(state, t, extras = {}) {
@@ -1183,13 +1274,58 @@ export function foldStubFromState(state, t, extras = {}) {
     turnIndex: Number(extras.turnIndex) || 0,
     mode: mode === 'sticky' ? 'sticky' : mode === 'live' ? 'live' : 'folded',
     line: formatFoldLine(
-      { phase: state?.phase, durationMs, artifactCount: state?.artifactCount },
+      { phase: state?.phase, durationMs, artifactCount: state?.artifactCount, noteCount: state?.noteCount },
       t
     ),
     durationMs,
     artifactCount: Math.max(0, Number(state?.artifactCount) || 0),
+    noteCount: Math.max(0, Number(state?.noteCount) || 0),
     hydrated: false
   };
+}
+
+/**
+ * Rebuild a settled turn's timeline from its persisted assistant record:
+ * notes (`progress`, anchored by toolIndex) interleaved with replayed
+ * toolCalls. Returns null when the record has no progress notes, so older
+ * turns keep their previous bare restore.
+ * @param {object} m assistant record from getSession
+ */
+export function statusFromAssistantRecord(m, ctx = {}) {
+  const notes = Array.isArray(m?.progress) ? m.progress.filter((n) => n && String(n.text || '').trim()) : [];
+  if (!notes.length) return null;
+  const calls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
+  const endedAt = Number(m.endedAt || m.createdAt) || 0;
+  const startedAt = Number(m.startedAt) || (endedAt && Number(m.latencyMs) ? endedAt - Number(m.latencyMs) : endedAt);
+  const executionId = text(m.executionId || m.messageId, 80);
+  const events = [{ type: 'execution-start', executionId, startedAt: startedAt || 1 }];
+  const sorted = notes.slice().sort((a, b) => (Number(a.toolIndex) || 0) - (Number(b.toolIndex) || 0));
+  let ni = 0;
+  const flushNotes = (upto) => {
+    while (ni < sorted.length && (Number(sorted[ni].toolIndex) || 0) <= upto) {
+      events.push({ type: 'progress-note', ...sorted[ni] });
+      ni += 1;
+    }
+  };
+  calls.forEach((call, i) => {
+    flushNotes(i);
+    const id = text(call?.toolCallId, 80) || `replay-${i}`;
+    const name = call?.toolName || call?.name || 'tool';
+    const args = call?.args ?? call?.input ?? {};
+    const result = call?.result && typeof call.result === 'object' ? call.result : {};
+    events.push({ type: 'tool-call', toolCallId: id, name, args, replay: true });
+    events.push({ type: 'tool-result', toolCallId: id, name, args, result, ok: result.ok !== false, replay: true });
+  });
+  flushNotes(Number.MAX_SAFE_INTEGER);
+  const status = text(m.status).toLowerCase();
+  events.push({
+    type: 'execution-end',
+    status: status === 'aborted' ? 'aborted' : status === 'failed' ? 'failed' : 'completed',
+    endedAt: endedAt || startedAt || 1
+  });
+  let state = createExecutionStatus(ctx);
+  for (const ev of events) state = applyExecutionStatus(state, ev, ctx);
+  return state;
 }
 
 export function projectStatusForSessionStash(state) {
@@ -1233,4 +1369,29 @@ export function rememberEndedProjection(full, stubs, executionId, slice) {
     if (stub) stub.hydrated = false;
   }
   return { full: fullMap, stubs: stubMap };
+}
+
+/**
+ * Reopened panel mid-turn: events that repaint the running turn's notes from
+ * getSession().liveProgress. Notes already in `state` are skipped by row id.
+ * @param {object} state current execution status
+ * @param {{ executionId?: string, startedAt?: number, notes?: object[] }|null} slot
+ */
+export function seedEventsFromLiveProgress(state, slot, sessionId = '') {
+  const executionId = text(slot?.executionId, 80);
+  const notes = Array.isArray(slot?.notes) ? slot.notes : [];
+  if (!executionId || !notes.length) return [];
+  const out = [];
+  const same = text(state?.executionId, 80) === executionId;
+  if (!same) {
+    out.push({ type: 'execution-start', sessionId, executionId, startedAt: Number(slot.startedAt) || 0 });
+  }
+  const have = new Set(
+    same && Array.isArray(state?.summary) ? state.summary.filter(isNoteRow).map((row) => row.id) : []
+  );
+  for (const note of notes) {
+    const ev = { type: 'progress-note', sessionId, executionId, ...note };
+    if (!have.has(progressNoteRowId(ev))) out.push(ev);
+  }
+  return out.length > (same ? 0 : 1) ? out : [];
 }

@@ -610,6 +610,18 @@ test('liveProgress commentary never becomes execution current', () => {
   assert.equal(state.current, null);
   assert.equal(state.next, null);
   assert.equal(progress.visible, false);
+  // Settled commentary (progress-note) is a timeline row, still never current.
+  state = applyExecutionStatus(state, {
+    type: 'progress-note',
+    text: '我先写两句说明下一步会点提交',
+    stepIndex: 0,
+    toolIndex: 0,
+    at: 1
+  });
+  assert.equal(state.current, null);
+  assert.equal(state.next, null);
+  assert.equal(state.summary.at(-1).kind, 'note');
+  assert.equal(liveActionBrief(state), '');
 });
 
 test('resolveLiveDisclosureHost reuses the same wrap', () => {

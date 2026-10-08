@@ -12,6 +12,7 @@ import {
   NoSuchToolError
 } from '../adapters/vendor/ai-sdk-loader.mjs';
 import { createWireRecorder } from './wireTranscript.js';
+import { createProgressNoteEmitter, progressNotesFromSteps } from './progressNotes.js';
 import { isAbortLike, toAbortError } from '../host/userStop.js';
 import { formatRpcError } from '../host/rpcError.js';
 
@@ -215,6 +216,15 @@ export async function runSessionToolLoopAgent(args) {
       await consumeAgentStream(result, onEvent, recorder, args.signal);
     } else {
       result = await agent.generate(callArgs);
+      // No stream: same tool-call-step rule over the finished steps.
+      for (const note of progressNotesFromSteps(await maybePromise(result.steps))) {
+        if (!onEvent) break;
+        try {
+          onEvent(note);
+        } catch {
+          /* UI emitter must not fail the turn */
+        }
+      }
     }
 
     const steps = await maybePromise(result.steps);
@@ -326,6 +336,7 @@ async function maybePromise(value) {
 async function consumeAgentStream(result, onEvent, recorder, signal) {
   const stream = result?.fullStream || result?.stream;
   if (!stream || typeof stream[Symbol.asyncIterator] !== 'function') return;
+  const progress = createProgressNoteEmitter();
   try {
     for await (const part of stream) {
       if (!part || typeof part !== 'object') continue;
@@ -336,8 +347,10 @@ async function consumeAgentStream(result, onEvent, recorder, signal) {
           /* wire recorder must not fail the turn */
         }
       }
-      const ev = mapStreamPartToUiEvent(part);
-      if (ev && onEvent) {
+      // Commentary of a tool-call step goes out before that step's tool row.
+      const note = progress.ingest(part);
+      for (const ev of [note, mapStreamPartToUiEvent(part)]) {
+        if (!ev || !onEvent) continue;
         try {
           onEvent(ev);
         } catch {

@@ -559,7 +559,7 @@ body {
   .turn-disclosure-meta [data-k='access'] {
     display: none;
   }
-  .turn-disclosure.is-live:not(.is-sticky) .turn-disclosure-rows > :not(.turn-disclosure-current) {
+  .turn-disclosure.is-live:not(.is-sticky) .turn-disclosure-rows > :not(.turn-disclosure-current):not(.turn-disclosure-note) {
     display: none;
   }
   .turn-disclosure-current {

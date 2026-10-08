@@ -1,6 +1,8 @@
 /**
  * Turn-local host instrument. Lives under the think block of one assistant
  * turn. Never invents thought chrome. Never writes Runtime / next.
+ * Timeline: progress notes (bare prose) interleave with small gray activity
+ * rows, in order; the same list folds into one line when the turn ends.
  */
 
 import {
@@ -10,6 +12,7 @@ import {
   foldStubFromState,
   formatActivityRow,
   formatDisclosureDuration,
+  formatRowTime,
   latestActivityShine,
   liveActivityVisual,
   persistLiveActionBrief,
@@ -19,6 +22,7 @@ import {
 } from './executionStatus.js';
 
 const HYDRATED_DOM_CAP = 3;
+const HYDRATE_ROW_LIMIT = 24;
 
 /** Shine the glyphs only — never the full-width row chrome. */
 export const LIVE_ACTION_SHINE = {
@@ -126,13 +130,31 @@ function existingLiveBrief(el) {
   return String(glyphs?.textContent || '').trim();
 }
 
-function fillRows(list, rows, t, { shineRowId, labelId } = {}) {
+function rowTime(at) {
+  const label = formatRowTime(at);
+  if (!label) return null;
+  const el = node('time', 'turn-disclosure-time', label);
+  el.setAttribute('datetime', new Date(Number(at)).toISOString());
+  return el;
+}
+
+function fillRows(list, rows, t, { shineRowId, labelId, showTimes = false } = {}) {
   list.replaceChildren();
   const lastId = shineRowId != null && shineRowId !== '' ? String(shineRowId) : '';
   const markLatest = lastId !== '';
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const visual = formatActivityRow(row, t);
+    if (visual.note) {
+      // Progress note: the model's own words as plain prose, not a tool row.
+      const li = node('li', 'turn-disclosure-note');
+      li.dataset.status = 'note';
+      li.append(node('p', 'turn-disclosure-note-text', visual.label));
+      const time = showTimes ? rowTime(row.at) : null;
+      if (time) li.append(time);
+      list.append(li);
+      continue;
+    }
     const isLatest = markLatest && String(row.id || '') === lastId;
     const li = node('li', isLatest ? `turn-disclosure-row ${LIVE_ACTION_SHINE.rowClass}` : 'turn-disclosure-row');
     li.dataset.status = row.status || '';
@@ -143,6 +165,8 @@ function fillRows(list, rows, t, { shineRowId, labelId } = {}) {
     const label = node('span', textClass, visual.label);
     if (isLatest && labelId) li.id = labelId;
     li.append(icon, label);
+    const time = showTimes ? rowTime(row.at) : null;
+    if (time) li.append(time);
     list.append(li);
   }
 }
@@ -324,6 +348,10 @@ export function createTurnDisclosureUi(deps) {
     details.append(summary, body);
     if (el) el.replaceWith(details);
     else insertTurnDisclosure(wrap, details);
+    // Restored turns can outnumber the memory LRU; keep their own slice.
+    if (Array.isArray(state?.summary) && state.summary.length) {
+      details._tdSlice = { executionId: details.dataset.executionId, summary: state.summary.slice() };
+    }
     bindDetails(details, wrap);
     remember(state, { ...extra, ...stub });
     return details;
@@ -332,13 +360,14 @@ export function createTurnDisclosureUi(deps) {
   function hydrate(el, state) {
     if (!el) return false;
     const body = el.querySelector('.turn-disclosure-body') || el;
-    const rows = visibleSummaryRows(state?.summary, 8);
+    // Expanded fold shows the whole retained timeline, not the live window.
+    const rows = visibleSummaryRows(state?.summary, HYDRATE_ROW_LIMIT);
     const list = node('ol', 'turn-disclosure-rows');
     list.setAttribute('role', 'list');
     if (!rows.length) {
       body.replaceChildren(node('p', 'turn-disclosure-empty', t('tdNoSummary')));
     } else {
-      fillRows(list, rows, t);
+      fillRows(list, rows, t, { showTimes: true });
       body.replaceChildren(list);
     }
     el.dataset.hydrated = '1';
@@ -353,7 +382,7 @@ export function createTurnDisclosureUi(deps) {
       if (el.open) {
         exclusiveHistoricalOpen(root || el.parentNode, el);
         const id = el.dataset.executionId || '';
-        const slice = full.get(id);
+        const slice = full.get(id) || el._tdSlice;
         if (slice) hydrate(el, slice);
         else if (el.dataset.hydrated !== '1') {
           const body = el.querySelector('.turn-disclosure-body');

@@ -144,7 +144,9 @@ import {
   createExecutionStatus,
   disclosureMode,
   projectStatusForSessionStash,
-  shouldKeepApprovalVisible
+  seedEventsFromLiveProgress,
+  shouldKeepApprovalVisible,
+  statusFromAssistantRecord
 } from './sidepanel/executionStatus.js';
 import { createBotStatusUi } from './sidepanel/botStatusUi.js';
 import { createTurnDisclosureUi } from './sidepanel/turnDisclosureUi.js';
@@ -2056,6 +2058,7 @@ function applyWorkspaceExecutionSnapshot(sessionId, payload, { rpcFailed = false
       withSessionLive(sid, () => {
         liveTurnSealed = false;
       });
+      seedLiveProgressNotes(sid, payload?.liveProgress);
     }
     renderSessionRailList();
     return;
@@ -2084,6 +2087,27 @@ function applyWorkspaceExecutionSnapshot(sessionId, payload, { rpcFailed = false
   });
   if (foreground) setAgentRunningUi(false);
   renderSessionRailList();
+}
+
+/**
+ * Reopened / switched-back panel while the turn runs: repaint the notes the
+ * store already holds (session.turnProgress) so new ones append below them.
+ */
+function seedLiveProgressNotes(sid, slot) {
+  // Thread not mounted yet: a later snapshot (hydrate) repeats this call.
+  if (!liveTask?.body || !Array.isArray(slot?.notes) || !slot.notes.length) return;
+  const events = seedEventsFromLiveProgress(botStatusUi.snapshot(), slot, sid);
+  for (const ev of events) botStatusUi.apply(ev, botStatusContext());
+  if (events.length) uiState(sid).executionStatus = projectStatusForSessionStash(botStatusUi.snapshot());
+  if (!liveTurnWrap?.isConnected) {
+    liveTurnWrap = resolveLiveDisclosureHost(liveTask.body, null).wrap;
+    if (!liveTurnWrap) {
+      liveTurnWrap = document.createElement('div');
+      liveTurnWrap.className = 'agent-turn';
+      liveTask.append(liveTurnWrap);
+    }
+  }
+  paintLiveTurnDisclosure();
 }
 
 async function refreshExecutionFromWorkspace(sessionId) {
@@ -4875,13 +4899,17 @@ function renderSealedThinkBlock(thoughtText) {
   return block;
 }
 
-function appendAssistantTurn(task, { thought = '', content = '', disclosureStub = null } = {}) {
+function appendAssistantTurn(task, { thought = '', content = '', disclosureStub = null, record = null } = {}) {
   if (!task) return null;
   const wrap = document.createElement('div');
   wrap.className = 'agent-turn';
   const thoughtText = String(thought || '').trim();
   if (thoughtText) wrap.appendChild(renderSealedThinkBlock(thoughtText));
-  if (disclosureStub?.line) {
+  // Persisted progress notes come back as the folded timeline line.
+  const restored = record ? statusFromAssistantRecord(record, { lang: currentLang }) : null;
+  if (restored) {
+    turnDisclosureUi.fold(wrap, restored, { messageId: record.messageId || '' });
+  } else if (disclosureStub?.line) {
     turnDisclosureUi.fold(wrap, {
       executionId: disclosureStub.executionId,
       phase: disclosureStub.phase || 'completed',
@@ -5310,7 +5338,8 @@ function appendPendingThreadMessages(task, messages) {
     else if (m.role === 'assistant') {
       appendAssistantTurn(task, {
         thought: m.thought || '',
-        content: String(m.content || '')
+        content: String(m.content || ''),
+        record: m
       });
     }
   }
@@ -5372,7 +5401,15 @@ async function hydrateActiveSessionThread() {
       ts: m.createdAt || m.ts || Date.now(),
       path: m.path,
       toolCalls: m.toolCalls,
-      traces: m.traces
+      traces: m.traces,
+      messageId: m.messageId,
+      executionId: m.executionId,
+      status: m.status,
+      progress: m.progress,
+      startedAt: m.startedAt,
+      endedAt: m.endedAt,
+      latencyMs: m.latencyMs,
+      createdAt: m.createdAt
     }));
     if (messages.length) sess.messages = messages;
     if (full?.title) sess.name = full.title;
@@ -5429,7 +5466,8 @@ async function hydrateActiveSessionThread() {
       } else if (m.role === 'assistant') {
         appendAssistantTurn(task, {
           thought: m.thought || '',
-          content: String(m.content || '')
+          content: String(m.content || ''),
+          record: m
         });
       }
     }
