@@ -297,12 +297,12 @@ test('timeline keeps every note while activity rows keep the live window', () =>
 test('fold line counts notes and files in zh and en', () => {
   assert.equal(
     formatFoldLine({ phase: 'completed', durationMs: 480_000, noteCount: 5, artifactCount: 2 }, zh),
-    '完成 · 8M 00S · 5 条进度 · 2 个文件'
+    '完成 · 8 分 · 5 条进度 · 2 个文件'
   );
-  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, noteCount: 1 }, zh), '完成 · 12S · 1 条进度');
-  assert.equal(formatFoldLine({ phase: 'failed', durationMs: 12_000, noteCount: 3, artifactCount: 1 }, en), 'Failed · 12S · 3 updates · 1 file');
-  assert.equal(formatFoldLine({ phase: 'stopped', durationMs: 12_000, noteCount: 1 }, en), 'Stopped · 12S · 1 update');
-  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000 }, zh), '完成 · 12S');
+  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000, noteCount: 1 }, zh), '完成 · 12 秒 · 1 条进度');
+  assert.equal(formatFoldLine({ phase: 'failed', durationMs: 12_000, noteCount: 3, artifactCount: 1 }, en), 'Failed · 12s · 3 updates · 1 file');
+  assert.equal(formatFoldLine({ phase: 'stopped', durationMs: 12_000, noteCount: 1 }, en), 'Stopped · 12s · 1 update');
+  assert.equal(formatFoldLine({ phase: 'completed', durationMs: 12_000 }, zh), '完成 · 12 秒');
 
   const state = run([
     { type: 'execution-start', executionId: 'e1', startedAt: 1_000 },
@@ -310,7 +310,7 @@ test('fold line counts notes and files in zh and en', () => {
     { type: 'progress-note', text: 'b', stepIndex: 1, toolIndex: 0, at: 2 },
     { type: 'execution-end', status: 'completed', endedAt: 61_000 }
   ]);
-  assert.equal(foldStubFromState(state, zh).line, '完成 · 1M 00S · 2 条进度');
+  assert.equal(foldStubFromState(state, zh).line, '完成 · 1 分 · 2 条进度');
 });
 
 test('final answer equal to the last note drops that note (task-yield echo)', () => {
@@ -349,11 +349,11 @@ test('restore rebuilds the folded line and interleaved notes from the persisted 
     state.summary.map((r) => (r.kind === 'note' ? `note:${r.label}` : `row:${r.id}`)),
     ['note:Looking at existing files first.', 'row:c1', 'note:Nothing usable; writing both CSVs now.', 'row:c2', 'row:c3']
   );
-  assert.equal(foldStubFromState(state, zh).line, '完成 · 8M 00S · 2 条进度 · 2 个文件');
+  assert.equal(foldStubFromState(state, zh).line, '完成 · 8 分 · 2 条进度 · 2 个文件');
   assert.equal(state.summary.find((r) => r.id === 'c1').at, 0, 'replayed tool rows carry no invented time');
   assert.equal(statusFromAssistantRecord({ ...record, progress: [] }), null, 'records without notes keep the old restore');
   const failed = statusFromAssistantRecord({ ...record, status: 'aborted', toolCalls: [] }, { lang: 'en' });
-  assert.match(foldStubFromState(failed, en).line, /^Stopped · 8M 00S · 2 updates$/);
+  assert.match(foldStubFromState(failed, en).line, /^Stopped · 8m · 2 updates$/);
 });
 
 test('reopened panel seeds only the running execution notes it lacks', () => {
@@ -378,4 +378,14 @@ test('reopened panel seeds only the running execution notes it lacks', () => {
   ]);
   assert.deepEqual(seedEventsFromLiveProgress(partial, slot, 's').map((e) => e.text), ['two']);
   assert.deepEqual(seedEventsFromLiveProgress(partial, null, 's'), []);
+});
+
+test('turn durations read naturally in the UI language', async () => {
+  const { formatDisclosureDuration } = await import('../src/sidepanel/executionStatus.js');
+  assert.equal(formatDisclosureDuration(5_000, zh), '5 秒');
+  assert.equal(formatDisclosureDuration(485_000, zh), '8 分 5 秒');
+  assert.equal(formatDisclosureDuration(3_780_000, zh), '1 小时 3 分');
+  assert.equal(formatDisclosureDuration(485_000, en), '8m 5s');
+  assert.equal(formatDisclosureDuration(3_600_000, en), '1h');
+  assert.equal(formatDisclosureDuration(5_000), '5s');
 });

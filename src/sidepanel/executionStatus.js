@@ -1239,19 +1239,34 @@ export function shouldKeepApprovalVisible(state, eventType) {
   return false;
 }
 
-export function formatDisclosureDuration(ms) {
+/**
+ * Turn duration in the UI language: "5 秒" / "8 分 5 秒" / "1 小时 3 分" (zh),
+ * "5s" / "8m 5s" / "1h 3m" (en). Without a translator, the en form.
+ */
+export function formatDisclosureDuration(ms, t) {
+  const tr = (key, fallback) => {
+    const out = typeof t === 'function' ? t(key) : '';
+    return out && out !== key ? out : fallback;
+  };
+  const sec = tr('tdDurSec', '{n}s');
+  const min = tr('tdDurMin', '{n}m');
+  const hour = tr('tdDurHour', '{n}h');
+  const join = tr('tdDurJoin', ' ');
+  const fill = (tpl, n) => String(tpl).replace('{n}', String(n));
   const totalSec = Math.max(0, Math.round(Number(ms) / 1000) || 0);
-  if (totalSec < 60) return `${totalSec}S`;
-  const m = Math.floor(totalSec / 60);
+  if (totalSec < 60) return fill(sec, totalSec);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  return `${m}M ${String(s).padStart(2, '0')}S`;
+  if (h) return m ? fill(hour, h) + join + fill(min, m) : fill(hour, h);
+  return s ? fill(min, m) + join + fill(sec, s) : fill(min, m);
 }
 
 export function formatFoldLine({ phase, durationMs, artifactCount, noteCount } = {}, t) {
   const p = String(phase || '');
   const word =
     p === 'stopped' ? t('tdFoldStopped') : p === 'failed' ? t('tdFoldFailed') : t('tdFoldDone');
-  const parts = [word, formatDisclosureDuration(durationMs)];
+  const parts = [word, formatDisclosureDuration(durationMs, t)];
   const notes = Math.max(0, Number(noteCount) || 0);
   if (notes) {
     parts.push(notes === 1 ? t('tdNoteOne') : String(t('tdNoteMany') || '').replace('{n}', String(notes)));
