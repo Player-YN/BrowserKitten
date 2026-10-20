@@ -676,7 +676,7 @@
 
         <section class="settings-api-card" id="settingsWebAcquireCard" aria-labelledby="settingsWebAcquireTitle">
           <h4 class="settings-api-card-title" id="settingsWebAcquireTitle">3. 网页搜索 / 抽取 API</h4>
-          <p class="settings-hint" id="webAcquireStatusLine">未添加搜索 Key 时模型不能公开网搜索。绑定页优先于公开网。</p>
+          <p class="settings-hint" id="webAcquireStatusLine">新安装默认使用 Parallel 免费搜索，无需搜索 Key。绑定页优先于公开网。</p>
           <div id="webVendorList" class="api-vendor-list"></div>
           <button type="button" class="api-add-btn" id="addWebAcquireBtn">＋ 添加搜索 / 抽取 API</button>
           <div id="webAcquireEditor" class="api-vendor-editor" hidden>
@@ -687,7 +687,9 @@
               <button type="button" class="provider-preset-chip" data-web-preset="firecrawl">Firecrawl</button>
             </div>
             <select id="webSearchProviderSelect" class="modal-input" hidden>
-              <option value="tavily">Tavily（默认）</option>
+              <option value="parallel">Parallel（无需 Key）</option>
+              <option value="disabled">关闭公开网搜索</option>
+              <option value="tavily">Tavily</option>
               <option value="brave">Brave Search</option>
             </select>
             <div id="tavilyKeyRow">

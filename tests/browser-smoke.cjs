@@ -29,6 +29,86 @@ const path = require('node:path');
     page.on('pageerror', error => evidence.errors.push(error.message));
     page.on('console', msg => { if (['error', 'warning'].includes(msg.type())) evidence.console.push(msg.text()); });
     await page.goto(`chrome-extension://${id}/src/sidepanel.html`);
+    // Offscreen exposes chrome.runtime, not chrome.storage. Verify the real
+    // settings bridge and tool loop there, rather than only in the side panel.
+    await page.evaluate(async () => {
+      const { workspaceRpc } = await import('./agent/vnext/host/workspaceClient.js');
+      await workspaceRpc('getWorkspaceState', { sessionId: 'search-smoke' });
+    });
+    const browserCdp = await context.browser().newBrowserCDPSession();
+    const targets = (await browserCdp.send('Target.getTargets')).targetInfos;
+    const offscreen = targets.find(target => target.url === `chrome-extension://${id}/src/offscreen/runtime.html`);
+    if (!offscreen) throw new Error('offscreen runtime did not start');
+    const attached = await browserCdp.send('Target.attachToTarget', { targetId: offscreen.targetId, flatten: false });
+    let evaluateId = 0;
+    async function inOffscreen(expression) {
+      const requestId = ++evaluateId;
+      const response = new Promise(resolve => {
+        const listener = message => {
+          if (message.sessionId !== attached.sessionId) return;
+          const data = JSON.parse(message.message);
+          if (data.id !== requestId) return;
+          browserCdp.off('Target.receivedMessageFromTarget', listener);
+          resolve(data);
+        };
+        browserCdp.on('Target.receivedMessageFromTarget', listener);
+      });
+      await browserCdp.send('Target.sendMessageToTarget', { sessionId: attached.sessionId,
+        message: JSON.stringify({ id: requestId, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }) });
+      const result = (await response).result;
+      if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+      return result.result.value;
+    }
+    evidence.searchSettings = [];
+    for (const settings of [null, { searchProvider: 'disabled' }, { searchProvider: 'brave', braveKey: 'fixture-brave' },
+      { searchProvider: 'tavily', tavilyKey: 'fixture-tavily' }, { firecrawlKey: 'fixture-firecrawl' }]) {
+      await page.evaluate(async settings => {
+        if (settings) await chrome.storage.local.set({ pagewand_web_acquire: settings });
+        else await chrome.storage.local.remove('pagewand_web_acquire');
+      }, settings);
+      evidence.searchSettings.push(await inOffscreen('(async()=>({storage:typeof chrome.storage,settings:await (await import("../agent/webAcquireSettings.js")).loadWebAcquireSettings()}))()'));
+    }
+    await page.evaluate(() => chrome.storage.local.remove('pagewand_web_acquire'));
+    evidence.searchLoop = await inOffscreen(`(${async function () {
+      const { SessionWorkspaceService } = await import('../agent/vnext/service/sessionWorkspaceService.js');
+      const service = new SessionWorkspaceService();
+      service.ensureSession('search-smoke-loop');
+      const requests = [];
+      let step = 0; let consumed = false;
+      const result = await service.sendMessage({ sessionId: 'search-smoke-loop', content: 'Find browser documentation',
+        fetchImpl: async (url, init) => {
+          const request = JSON.parse(init.body); requests.push({ url, headers: init.headers, request });
+          if (request.method === 'notifications/initialized') return new Response(null, { status: 202 });
+          const data = request.method === 'initialize' ? { protocolVersion: '2025-03-26', capabilities: { tools: {} } }
+            : request.method === 'tools/list' ? { tools: [{ name: 'web_search' }] }
+            : { structuredContent: { results: [{ url: 'https://example.com/research', excerpts: ['offscreen-search-evidence'] }] } };
+          return Response.json({ jsonrpc: '2.0', id: request.id, result: data });
+        },
+        callModel: async ({ messages }) => {
+          if (step++ === 0) return { toolCalls: [{ id: 'search-fixture', name: 'acquire', args: { action: 'search', query: 'browser documentation' } }] };
+          consumed = JSON.stringify(messages).includes('offscreen-search-evidence');
+          return { text: 'Search evidence consumed.' };
+        }
+      });
+      return { consumed, requests, result, searchId: service.runtime.store.get('sessions', 'search-smoke-loop').parallelSearchSessionId };
+    }})()`);
+    await page.evaluate(() => chrome.storage.local.set({ pagewand_web_acquire: { searchProvider: 'disabled' } }));
+    evidence.searchDisabled = await inOffscreen(`(${async function () {
+      const { SessionWorkspaceService } = await import('../agent/vnext/service/sessionWorkspaceService.js');
+      const service = new SessionWorkspaceService(); service.ensureSession('disabled-search-smoke');
+      let step = 0; let network = 0; let disabled = false;
+      await service.sendMessage({ sessionId: 'disabled-search-smoke', content: 'Try searching',
+        fetchImpl: async () => { network++; throw new Error('Search off must not use the network'); },
+        callModel: async ({ messages }) => {
+          if (step++ === 0) return { toolCalls: [{ id: 'disabled-fixture', name: 'acquire', args: { action: 'search', query: 'must remain private' } }] };
+          disabled = JSON.stringify(messages).includes('SEARCH_DISABLED'); return { text: 'Search is off.' };
+        }
+      });
+      return { network, disabled };
+    }})()`);
+    await page.evaluate(() => chrome.storage.local.remove('pagewand_web_acquire'));
+    await browserCdp.send('Target.detachFromTarget', { sessionId: attached.sessionId });
+    await browserCdp.detach();
     evidence.storage = await page.evaluate(async () => {
       const { DurableSessionWorkspaceStore } = await import('./agent/vnext/sessionWorkspace/durableStore.js');
       const results = [];
@@ -121,6 +201,15 @@ const path = require('node:path');
       return handleWorkspaceSys({ op: 'waitFor', params: { text: 'x' } });
     });
     const assert = require('node:assert/strict');
+    assert.ok(evidence.searchSettings.every(entry => entry.storage === 'undefined'));
+    assert.deepEqual(evidence.searchSettings.map(entry => entry.settings.searchProvider), ['parallel', 'disabled', 'brave', 'tavily', 'tavily']);
+    assert.equal(evidence.searchSettings[2].settings.braveKey, 'fixture-brave');
+    assert.equal(evidence.searchSettings[3].settings.tavilyKey, 'fixture-tavily');
+    assert.equal(evidence.searchSettings[4].settings.firecrawlKey, 'fixture-firecrawl');
+    assert.equal(evidence.searchLoop.consumed, true);
+    assert.equal(evidence.searchLoop.result.finalText, 'Search evidence consumed.');
+    assert.equal(evidence.searchLoop.requests.at(-1).request.params.arguments.session_id, evidence.searchLoop.searchId);
+    assert.deepEqual(evidence.searchDisabled, { network: 0, disabled: true });
     for (const entry of evidence.storage) assert.deepEqual(entry.bytes, [4,5,6]);
     assert.match(evidence.sandbox[0].stdout || '', /guest-ok/);
     assert.match(evidence.sandbox[1].stdout || '', /SYS_DENIED/);

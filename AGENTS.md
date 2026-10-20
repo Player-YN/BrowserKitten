@@ -139,7 +139,7 @@ src/
 ## 日常约定
 
 - 改代码 → `chrome://extensions` 点本扩展 **重新加载**。offscreen / SW 会重建；`action` 的 `rev` 在 SW 内存，重载后需重新 `snapshot`。
-- 权限见 `manifest.json`：`sidePanel` `activeTab` `tabs` `scripting` `storage` `alarms` `downloads` `offscreen` `tabGroups` `webNavigation` `userScripts` `debugger`；`host_permissions: <all_urls>`。`userScripts` / `debugger` 只服务 guest `sys`（[src/AGENTS.md](src/AGENTS.md)）。`alarms` 只唤醒 due task，不是 journal。
+- 权限见 `manifest.json`：`sidePanel` `activeTab` `tabs` `scripting` `storage` `declarativeNetRequestWithHostAccess` `alarms` `downloads` `offscreen` `tabGroups` `webNavigation` `userScripts` `debugger`；`host_permissions: <all_urls>`。`declarativeNetRequestWithHostAccess` 仅为本扩展发往 Parallel MCP 的请求设置 User-Agent。`userScripts` / `debugger` 只服务 guest `sys`（[src/AGENTS.md](src/AGENTS.md)）。`alarms` 只唤醒 due task，不是 journal。
 - 命令：`toggle-picker` = Alt+Shift+S；`capture-screenshot` = Alt+Shift+C。
 - Git：本地 `main`；`origin` = `https://github.com/Player-YN/PawWork_ZhuaZhua.git`。不要改 `git config`。不要 force-push `main`。
 - 逻辑回归：`node --test tests/*.test.mjs`（与 CI 同一 glob：`runtime-regression` + `tab-lease` + `task-*`。覆盖磁盘失败恢复与原子性、OPFS 替换失败、慢文档/表格保存、画布重试与冲突、截图目标、流读取限额、fetch 取消、`saveTo`、CDP 并发与权限探测、guest `sleep`、`sys.waitFor`、tab 租约、task 模型/调度/接线/卡片）。

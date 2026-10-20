@@ -31,6 +31,7 @@ CSP：`extension_pages` 允许 `'wasm-unsafe-eval'`（QuickJS / Univer）；sand
     sheet_host             → 打开/复用 sheet.html，再 pawwork_sheet_rpc
     canvas_host            → docs.html 同类 RPC（无 Design/Slides）
     workspace_fetch / workspace_sys / workspace_capture_* / workspace_find_tab / …
+    workspace_parallel_search_headers → fixed session header rule for this extension's Parallel MCP requests
     workspace_tab_lease_peek|release / workspace_task_resolve_page
     storage_local_get|set  → chrome.storage.local 代理
     workspace_get_llm_settings / workspace_get_active_page

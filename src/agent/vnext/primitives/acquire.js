@@ -1,7 +1,7 @@
 /**
  * acquire primitive — import external read-only information.
  * Writes `/work/sources/...` (legacy path). Session guest remaps `/work` → `/scratch`.
- * search: Tavily (default), Brave, or site-read API search when that is the only key.
+ * search: Parallel for fresh settings, or saved BYOK providers.
  * fetch: site-read scrape when configured, else anonymous public GET.
  * map / crawl: site-read API only (host-capped).
  */
@@ -24,10 +24,10 @@ export async function acquire(ctx, input = {}) {
   if (ctx.signal?.aborted) return { ok: false, error: 'aborted' };
 
   try {
-    if (action === 'search') return searchWeb(ctx, input, fetchImpl);
-    if (action === 'fetch') return fetchSource(ctx, input, fetchImpl);
-    if (action === 'map') return mapSite(ctx, input, fetchImpl);
-    if (action === 'crawl') return crawlSite(ctx, input, fetchImpl);
+    if (action === 'search') return await searchWeb(ctx, input, fetchImpl);
+    if (action === 'fetch') return await fetchSource(ctx, input, fetchImpl);
+    if (action === 'map') return await mapSite(ctx, input, fetchImpl);
+    if (action === 'crawl') return await crawlSite(ctx, input, fetchImpl);
     return { ok: false, error: 'action must be search, fetch, map, or crawl' };
   } catch (error) {
     return { ok: false, action, error: error instanceof Error ? error.message : String(error) };
@@ -44,7 +44,8 @@ async function searchWeb(ctx, input, fetchImpl) {
     query,
     limit,
     fetchImpl,
-    signal: ctx.signal
+    signal: ctx.signal,
+    searchSessionId: ctx.searchSessionId
   });
   if (!found.ok) return found;
   if (!found.results?.length) {

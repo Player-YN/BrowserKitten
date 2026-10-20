@@ -23,6 +23,7 @@ import {
 } from './auth.js';
 import { run as runCodePrimitive } from '../primitives/run.js';
 import { acquire as acquirePrimitive } from '../primitives/acquire.js';
+import { normalizeWebAcquireSettings } from '../../webAcquireSettings.js';
 import { generateSessionImage } from './imageGen.js';
 import { guessMimeFromName } from './artifactValidate.js';
 import { coerceToUint8Array } from './fs.js';
@@ -747,6 +748,16 @@ export function createSessionTools(env) {
       }
 
       // Real search/fetch via shared primitive; map /work/sources → /scratch/sources
+      let searchSessionId;
+      if (action === 'search' && normalizeWebAcquireSettings(env.webAcquire).searchProvider === 'parallel') {
+        const session = store.get('sessions', sessionId);
+        if (!session) return { ok: false, code: 'AUTH_DENIED', error: 'session not found' };
+        // Conversation-owned, durable across turns/restarts; never a shared client ID.
+        searchSessionId = session.parallelSearchSessionId || crypto.randomUUID();
+        if (!session.parallelSearchSessionId) {
+          store.put('sessions', sessionId, { ...session, parallelSearchSessionId: searchSessionId });
+        }
+      }
       const codeFs = createCodeFsBridge(fs);
       let fetchUrl = input.url;
       let fetchMeta = null;
@@ -773,6 +784,7 @@ export function createSessionTools(env) {
           fs: codeFs,
           signal,
           fetchImpl: fetchImpl || globalThis.fetch,
+          searchSessionId,
           webAcquire: env.webAcquire
         },
         {

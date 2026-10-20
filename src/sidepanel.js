@@ -12621,7 +12621,8 @@ function renderVendorCard({ name, meta, active, onSelect, onDelete }) {
     e.stopPropagation();
     onDelete();
   });
-  card.append(main, del);
+  card.append(main);
+  if (onDelete) card.append(del);
   return card;
 }
 
@@ -12731,7 +12732,18 @@ async function renderWebVendorList() {
   const cfg = await loadWebAcquireSettings();
   const en = settingsLangEn();
   const line = document.getElementById('webAcquireStatusLine');
-  const vendors = [];
+  const vendors = [
+    {
+      kind: 'parallel', name: 'Parallel',
+      meta: en ? 'Free search · no account or key' : '免费搜索 · 无需账号或 Key',
+      active: cfg.searchProvider === 'parallel'
+    },
+    {
+      kind: 'disabled', name: en ? 'Search off' : '关闭公开网搜索',
+      meta: en ? 'Keep page access and fetch available' : '仍可访问绑定页与抓取 URL',
+      active: cfg.searchProvider === 'disabled'
+    }
+  ];
   if (cfg.tavilyKey) {
     vendors.push({
       kind: 'tavily',
@@ -12757,15 +12769,9 @@ async function renderWebVendorList() {
     });
   }
   if (line) {
-    if (!vendors.length) {
-      line.textContent = en
-        ? 'No search key · public-web search is off. Bound page still works.'
-        : '未添加搜索 Key · 模型不能公开网搜索。绑定页仍然可用。';
-    } else {
-      line.textContent = en
-        ? 'Tap a search card to use it. Firecrawl only upgrades fetch scrape.'
-        : '点搜索卡片设为当前使用。Firecrawl 只增强 fetch 抽取。';
-    }
+    line.textContent = en
+      ? 'Tap a search card to use it. Parallel sends search queries to search.parallel.ai. Firecrawl upgrades fetch scrape.'
+      : '点搜索卡片设为当前使用。Parallel 会将搜索词发送至 search.parallel.ai。Firecrawl 增强 fetch 抽取。';
   }
   for (const v of vendors) {
     list.appendChild(
@@ -12775,6 +12781,12 @@ async function renderWebVendorList() {
         active: v.active,
         onSelect: () => {
           void (async () => {
+            if (v.kind === 'parallel' || v.kind === 'disabled') {
+              await saveWebAcquireSettings({ searchProvider: v.kind });
+              setWebEditorOpen(false);
+              await renderWebVendorList();
+              return;
+            }
             if (v.kind === 'tavily' || v.kind === 'brave') {
               await saveWebAcquireSettings({ searchProvider: v.kind });
               await renderWebVendorList();
@@ -12782,7 +12794,8 @@ async function renderWebVendorList() {
             openWebEditor(v.kind);
           })();
         },
-        onDelete: () => confirmDeleteVendor(v.name, () => deleteWebVendor(v.kind))
+        onDelete: v.kind === 'parallel' || v.kind === 'disabled'
+          ? null : () => confirmDeleteVendor(v.name, () => deleteWebVendor(v.kind))
       })
     );
   }

@@ -15,6 +15,7 @@
     "tabs",
     "scripting",
     "storage",
+    "declarativeNetRequestWithHostAccess",
     "alarms",
     "downloads",
     "offscreen",

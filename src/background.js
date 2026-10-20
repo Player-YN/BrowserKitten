@@ -4,6 +4,7 @@ import { loadLlmSettings } from './agent/llm.js';
 import { sheetTabMatches, htmlTabMatches } from './sidepanel/sessionIsolation.js';
 import { previewEntryForItem } from './agent/vnext/sessionWorkspace/openClassify.js';
 import { handleWorkspaceSys } from './agent/vnext/host/browserSysHost.js';
+import { ensureParallelSearchHeaders } from './agent/vnext/host/parallelSearchHeaders.js';
 import {
   peekTabLease,
   preparePageActionTarget,
@@ -1295,6 +1296,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       captureBytes: request.captureBytes === true
     }).then((result) => sendResponse(result || { ok: false, error: 'empty capture result' }))
       .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (request?.target === 'pawwork-background' && request?.action === 'workspace_parallel_search_headers') {
+    ensureParallelSearchHeaders(sender).then(sendResponse).catch(error => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 

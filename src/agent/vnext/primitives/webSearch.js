@@ -3,6 +3,9 @@
  * Output is always { results: [{ title, url, snippet, content }] }.
  */
 
+import { normalizeWebAcquireSettings } from '../../webAcquireSettings.js';
+import { searchParallel } from './parallelSearch.js';
+
 function clip(s, n) {
   const t = String(s || '').replace(/\s+/g, ' ').trim();
   return t.length > n ? `${t.slice(0, n)}…` : t;
@@ -104,7 +107,15 @@ export async function searchFirecrawl({ query, limit, apiKey, baseURL, fetchImpl
   throw new Error(lastErr);
 }
 
-export async function runConfiguredSearch(settings, { query, limit, fetchImpl, signal }) {
+export async function runConfiguredSearch(settings, { query, limit, fetchImpl, signal, searchSessionId }) {
+  settings = normalizeWebAcquireSettings(settings);
+  if (settings.searchProvider === 'disabled') {
+    return { ok: false, action: 'search', code: 'SEARCH_DISABLED', error: 'Public-web search is disabled' };
+  }
+  if (settings.searchProvider === 'parallel') {
+    const hits = await searchParallel({ query, fetchImpl, signal, sessionId: searchSessionId });
+    return { ok: true, provider: 'parallel', results: normalizeHits(hits, limit) };
+  }
   const wantBrave = settings?.searchProvider === 'brave';
   if (wantBrave && settings?.braveKey) {
     const results = await searchBrave({
