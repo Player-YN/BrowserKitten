@@ -11,6 +11,7 @@ function fixture() {
   mkdirSync(join(root, 'src')); mkdirSync(join(root, 'icons'));
   writeFileSync(join(root, 'manifest.json'), JSON.stringify({ manifest_version: 3, version: '1.2.0', background: { service_worker: 'src/background.js' } }));
   writeFileSync(join(root, 'LICENSE'), 'test');
+  writeFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), 'Third-party license notices');
   writeFileSync(join(root, 'src/background.js'), "import './untracked.js';\n");
   writeFileSync(join(root, 'src/untracked.js'), 'export const value = 1;\n');
   return root;
@@ -23,6 +24,7 @@ test('no-git working-tree package includes new runtime modules and excludes hidd
     writeFileSync(join(root, 'src/credentials.json'), '{"secret":1}');
     writeFileSync(join(root, 'src/AGENTS.md'), '# private development note');
     runPack(root);
+    assert.equal(readFileSync(join(root, 'extension/THIRD_PARTY_NOTICES.md'), 'utf8'), 'Third-party license notices');
     assert.equal(readFileSync(join(root, 'extension/src/untracked.js'), 'utf8'), 'export const value = 1;\n');
     for (const file of ['.secret.js', 'credentials.json', 'AGENTS.md']) assert.equal(existsSync(join(root, 'extension/src', file)), false);
   } finally { rmSync(root, { recursive: true, force: true }); }

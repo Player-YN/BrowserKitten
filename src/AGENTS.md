@@ -1,6 +1,6 @@
 # src — Chrome 宿主面
 
-本目录是扩展的可执行面。产品分层见根 [AGENTS.md](../AGENTS.md)。模型循环与工具契约见 [agent/AGENTS.md](agent/AGENTS.md)。画布页见 [preview/AGENTS.md](preview/AGENTS.md)。侧栏模块见 [sidepanel/README.md](sidepanel/README.md)。
+本目录是扩展的可执行面。进程分层见根 [AGENTS.md](../AGENTS.md)。模型循环与工具契约见 [agent/AGENTS.md](agent/AGENTS.md)。画布页见 [preview/AGENTS.md](preview/AGENTS.md)。侧栏模块见 [sidepanel/README.md](sidepanel/README.md)。
 
 Service worker 会被 Chrome 杀掉。会话仓库、AI SDK、`run` 沙箱客户端都放在 **offscreen**，不放 SW。
 
@@ -8,7 +8,7 @@ Service worker 会被 Chrome 杀掉。会话仓库、AI SDK、`run` 沙箱客户
 
 | 面 | 路径 | 现状 |
 |----|------|------|
-| Service worker | `background.js` | `manifest.background.type=module`。标签 / 下载 / 预览页 / office RPC / offscreen 转发 / **`workspace_page_action` 跨 frame 扇出** / **`workspace_sys`** / **tab 租约（storage.session）** / **`chrome.alarms` 唤醒 due task** |
+| Service worker | `background.js` | `manifest.background.type=module`。标签 / 下载 / 预览页 / office RPC / offscreen 转发 / **`workspace_page_action` 跨 frame 扇出** / **`workspace_sys`** / **tab 租约（storage.session）** / **`chrome.alarms` 唤醒 due task / 定时 Workflow** |
 | Offscreen | `offscreen/runtime.html` + `runtime.js` | `SessionWorkspaceService.create()`；收 `workspace_rpc_execute`。内嵌 sandbox iframe，**不**把 workspace boot 闸在 handshake 上 |
 | Content script | `content_script.js` | `matches: <all_urls>`，`run_at: document_idle`，**`all_frames: true`**。点选选区 + 每 frame 的 action。经典脚本（IIFE），`executeScript` 可再注入 |
 | Sidepanel | `sidepanel.html` + `sidepanel.js` | 对话 UI。`workspaceRpc` → background。编排器仍是 `sidepanel.js` |
@@ -127,7 +127,7 @@ Content script：
 
 ## 其它宿主事实
 
-- 权限与命令见根 AGENTS.md / `manifest.json`。`userScripts` 给 `sys.eval` / page `fetch`，也是 guest `sys.cdp` 脚本类命令（`Runtime.evaluate` 等，见 `cdpScriptGate.js`）的开关；`debugger` 给 `sys.cdp`。Chrome 135+ 的 `userScripts.execute` 需要扩展卡片 **允许运行用户脚本**（或更早的开发者模式）。CDP 挂上时 Chrome 会显示调试横幅；F12 已打开会 `CDP_BUSY`。`eval` / page `fetch` / `cdp` 不注入扩展预览页。`sys` 是系统调用表，不是产品功能列表（[agent/AGENTS.md](agent/AGENTS.md)）。
+- 权限与命令见根 AGENTS.md / `manifest.json`。`userScripts` 给 `sys.eval` / page `fetch`，也是 guest `sys.cdp` 脚本类命令（`Runtime.evaluate` 等，见 `cdpScriptGate.js`）的开关；`debugger` 给 `sys.cdp`。Chrome 135+ 的 `userScripts.execute` 需要扩展卡片 **允许运行用户脚本**（或更早的开发者模式）。CDP 挂上时 Chrome 会显示调试横幅；F12 已打开会 `CDP_BUSY`。`eval` / page `fetch` / `cdp` 不注入扩展预览页。`sys` ABI 目录见（[agent/AGENTS.md](agent/AGENTS.md)）。
 - 区域截图：Alt+Shift+C → content script 框选 → SW `captureVisibleTab` 裁剪 → 剪贴板 + 对话附件。
 - `llm_proxy_fetch`：侧栏/设置探测模型时走 SW，避免页面 CORS。
 
@@ -138,3 +138,7 @@ Content script：
 ## 顺序 Workflow 宿主
 
 `workflowHost.js` 接收仅 offscreen 可用的 `workspace_workflow_host`；该入口只提供录制运输、标签/下载读取及 UI 高亮，不增加回放执行通道。真实内容事件由 SW 验证 sender 的 tab/frame/document 身份，再转内部 RPC；网页与 preview 不能发布或运行流程。显式录制范围包含已加入标签及 opener 子标签。重启/运输或存储失败暂停录制，不能静默遗漏后声称完整。页面回放依旧走 pageActionHost；针对 Workflow 的窄目标 snapshot 保持原 ref/rev/documentId 校验，滚动距离也参与派发哈希。详见 [Workflow 合同](../docs/WORKFLOW_V1.md)。
+
+## 当前事件入口
+
+网页侧已有点选、截图和 Workflow 录制事件；Workflow 录制由 SW 核验原生 sender 的 tab/frame/document 身份后转内部 RPC。Task 与已发布 Workflow 的后台启动来自 alarms。当前没有通用网页事件订阅、聊天新消息队列或自动回复入口；这些不能由既有 workflow_record_event 直接启动。

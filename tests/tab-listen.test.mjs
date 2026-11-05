@@ -16,7 +16,8 @@ import { createSessionTools } from '../src/agent/vnext/sessionWorkspace/tools.js
 import { SessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspace/store.js';
 import { createSessionGuestFs } from '../src/agent/vnext/sessionWorkspace/fs.js';
 import { attachToolFailureHint } from '../src/agent/vnext/sessionWorkspace/toolReceipt.js';
-import { SYSTEM_PROMPT_VERSION, buildSessionAgentInstructions } from '../src/agent/vnext/sessionWorkspace/prompt.js';
+import { SYSTEM_PROMPT_VERSION } from '../src/agent/vnext/sessionWorkspace/prompt.js';
+import { buildSessionRuntimeInstructions } from '../src/agent/vnext/sessionWorkspace/runtimeInstructions.js';
 
 function memorySessionStorage(initial = {}) {
   const bag = { ...initial };
@@ -114,9 +115,9 @@ test('listen is ACTION_READ and schema includes listen', () => {
   assert.match(tools.action.description, /listen/);
 });
 
-test('prompt mentions listen', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v26-system1-clicks');
-  assert.match(buildSessionAgentInstructions(), /op=listen/);
+test('runtime instructions preserve listen routing', () => {
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v27-agent-personality');
+  assert.match(buildSessionRuntimeInstructions(), /op=listen/);
 });
 
 test('no grant returns NEED_CAPTURE_GRANT with side-panel hint', async () => {
@@ -307,8 +308,8 @@ test('snapshot media clues reach the model and prompt chooses evidence without v
   const mediaElements = [{ kind: 'video', sourceKind: 'stream', paused: false, frameId: 2 }];
   const facts = tools.action.toModelOutput({ output: { ok: true, op: 'snapshot', mediaElements } }).value;
   assert.deepEqual(facts.mediaElements, mediaElements);
-  const prompt = buildSessionAgentInstructions();
-  assert.match(prompt, /不以用户是否说“看视频”为前提/);
-  assert.match(prompt, /动作先后、动画故障/);
+  const prompt = buildSessionRuntimeInstructions();
+  assert.match(prompt, /without requiring the user to explicitly request video analysis/);
+  assert.match(prompt, /sequence, animation, changing state/);
   assert.match(prompt, /op=record/);
 });

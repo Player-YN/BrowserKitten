@@ -6,7 +6,7 @@
 
 原始消息没有因 compact 从存储中被删掉；但旧实现的模型输入存在意图丢失风险，不能把“数据库还在”当成“模型仍记得”。
 
-保留的设计：`session.messages` 全文持久化；80% 窗口触发；至少保留最近两个 user turn；durable task 每步从 store 注入 originalGoal/plan/checkpoint；普通聊天不自动绑定 task；崩溃不盲重放副作用；工具数仍为九个。
+保留的设计：`session.messages` 全文持久化；80% 窗口触发；至少保留最近两个 user turn；durable task 每步从 store 注入 originalGoal/plan/checkpoint；普通聊天不自动新建 task；有效 activeTaskId 会延续任务上下文；崩溃不盲重放副作用；当前工具清单为八个（以 canvasInventory.js 为准）。
 
 确认的问题及改动：
 
@@ -33,7 +33,7 @@
 
 - [OpenAI Codex `compact.rs`](https://github.com/openai/codex/blob/main/codex-rs/core/src/compact.rs)：收集真实 user messages，保留源身份，按最新优先在有界预算内重建历史。这支持“摘要之外保留用户原文”，不要求Browser Kitten改用 OpenAI 专用 compact API。
 - [Claude Code memory](https://code.claude.com/docs/en/memory)：持久记忆与会话上下文分开；有界索引配合详情按需读取。这里采用会话内原文归档，不引入跨 session 的自动偏好推断。
-- [Claude Code hooks](https://code.claude.com/docs/en/hooks)：PreCompact/PostCompact 提供围绕 transcript 和 summary 的保存/恢复时点。Browser Kitten采用宿主每步重注入，无需额外 hook 产品面。
+- [Claude Code hooks](https://code.claude.com/docs/en/hooks)：PreCompact/PostCompact 提供围绕 transcript 和 summary 的保存/恢复时点。Browser Kitten采用宿主每步重注入，当前未接入额外 hook。
 
 ## 验证与边界
 
@@ -43,11 +43,11 @@
 
 Chrome 手测：长会话给出原目标与末尾约束，触发 compact；增加局部子任务，检查整体目标仍在；明确取消/替换目标，再次 compact；刷新扩展并续跑，验证模型可按消息 ID 读取原文、遵守最新修正。另验证 scheduled task 续跑能保留属于该任务的修正，同时普通新话题不误改它。
 
-产品路径已改为：**用户授权只在确认过的 Durable Task 合同里**。`intentState` 提取与 `sessionGoal` 独立注入已停止消费；原文归档、clarify 持久化和 Compact 预算仍保留。
+当前代码使用确认过的 Durable Task 合同记录任务范围，普通消息原文继续作为用户要求注入。`intentState` 提取与 `sessionGoal` 独立注入已停止消费；原文归档、clarify 持久化和 Compact 预算仍保留。
 
 ## Session 意图保持 v1：终点与实现
 
-（历史实现。模块仍在仓库，产品不再每条消息提取。）终点曾是持久化、增量修订、每跳加载、结束前语义核对和机制回归；不包含跨 Session 记忆、编辑 UI、向量检索或宿主业务完成证明。
+（历史实现。模块仍在仓库，当前代码不再每条消息提取。）终点曾是持久化、增量修订、每跳加载、结束前语义核对和机制回归；不包含跨 Session 记忆、编辑 UI、向量检索或宿主业务完成证明。
 
 `session.intentState` 保存 revision、items、processedMessageIds、更新时间和固定类别的最近错误。项目使用稳定 ID，区分 objective / constraint / completion / question，状态为 active / cancelled / superseded，可关联已有 taskId，并保存用户/被采纳助手方案的 sourceMessageIds。省略项目不删除，原始消息始终独立保留。宿主检查出处和结构，无法确定性判断语义正确。没有自动按助手的“已完成”声明关闭目标；任务进度仍由 task 管理。
 

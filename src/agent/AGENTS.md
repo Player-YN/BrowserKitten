@@ -1,8 +1,8 @@
 # src/agent — Session Workspace Runtime
 
-产品分层见根 [AGENTS.md](../../AGENTS.md)。Chrome 运输见 [../AGENTS.md](../AGENTS.md)。
+进程分层见根 [AGENTS.md](../../AGENTS.md)。Chrome 运输见 [../AGENTS.md](../AGENTS.md)。
 
-本目录是 **offscreen 里跑的产品 runtime**。侧栏只 `import` 设置、标签、workspace 客户端；**不**在侧栏跑 `ToolLoopAgent`。
+本目录是 **offscreen 里跑的会话 runtime**。侧栏只 `import` 设置、标签、workspace 客户端；**不**在侧栏跑 `ToolLoopAgent`。
 
 入口：`vnext/service/sessionWorkspaceService.js`。每条用户消息：`vnext/sessionWorkspace/sendMessage.js` → AI SDK 7 `ToolLoopAgent`（`sessionAgent.js`，`toolChoice=auto`）。没有手写多步 tool loop，没有 chat/run 模式分裂。
 
@@ -30,15 +30,15 @@ sidepanel workspaceRpc('sendMessage')
 | `webAcquireSettings.js` | `browserbot_web_acquire` |
 | `byokGate.js` | 自己的 Key 需要付费套餐：`browserbot_cloud_entitlement` 缓存、`byokAllowed`、`BYOK_REQUIRES_PLAN`；unpacked 豁免 |
 | `skills.js` | 用户固化 skill（`browserbot_user_skills`），侧栏用；与 `vnext/skills` 不同 |
-| `artifacts.js` `draftStore.js` `state.js` `trajectory.js` `documentRender.js` `render/` | 旧表面。产品交付物走 `sessionWorkspace/artifacts.js`。改功能前先确认调用方 |
+| `artifacts.js` `draftStore.js` `state.js` `trajectory.js` `documentRender.js` `render/` | 旧表面。当前交付物走 `sessionWorkspace/artifacts.js`。改功能前先确认调用方 |
 
 ## 领域与 store
 
-`DurableSessionWorkspaceStore`（`durableStore.js`）继承内存 `SessionWorkspaceStore`，产品必须 durable。集合：
+`DurableSessionWorkspaceStore`（`durableStore.js`）继承内存 `SessionWorkspaceStore`，实际运行使用 durable store。集合：
 
-`sessions` · `groups` · `groupMembers` · `items` · `sessionBindings` · `artifacts` · `fsNodes` · `meta`；blobs 在 OPFS。`executions` / `leases` 是回合书，崩溃后作废。可选 durable task 存在 `meta` 键 `task:{taskId}`（进 IDB 快照）；`ensureTaskForMessage` 只给测试，产品 `sendMessage` 不调用它。
+`sessions` · `groups` · `groupMembers` · `items` · `sessionBindings` · `artifacts` · `fsNodes` · `meta`；blobs 在 OPFS。`executions` / `leases` 是回合书，崩溃后作废。可选 durable task 存在 `meta` 键 `task:{taskId}`（进 IDB 快照）；`ensureTaskForMessage` 只给测试，实际 `sendMessage` 不调用它。
 
-硬边界（`tools.js` 文件头）：**SelectionGroup / WebItem / sessionBindings 不能经工具改**。只有 UI RPC（`createGroup`、`bindGroups`、`syncTabSelection`、clipboard pin…）可以。Guest `run(code)` 没有 store、没有 `chrome.*`。浏览器机器经 **`sys`**（`browserSys.js` → SW `workspace_sys`）：
+工具访问合同（`tools.js` 文件头）：**SelectionGroup / WebItem / sessionBindings 不能经工具改**。只有 UI RPC（`createGroup`、`bindGroups`、`syncTabSelection`、clipboard pin…）可以。Guest `run(code)` 没有 store、没有 `chrome.*`。浏览器机器经 **`sys`**（`browserSys.js` → SW `workspace_sys`）：
 
 | 调用 | 作用 |
 |------|------|
@@ -52,7 +52,7 @@ sidepanel workspaceRpc('sendMessage')
 | `sys.download` / `sys.screenshot` | `chrome.downloads.download`：本 profile cookie jar + 本机 IP，无标签 Referer（不是 extension fetch）。登录态/Referer/验证码优先 `as:'page'`。截图为视口合成 |
 | `sys.upload` | 把 guest FS（`/scratch` 最常用，也接受 `/artifacts` `/context`）或 `itemId`/`artifactId` 挂到页面 file input / dropzone。默认 MAIN-world `DataTransfer` + `input.files` + 手派 `input`/`change`；找不到 input 再脚本 drop。`auto` 绝不走 CDP。回执 `siteAccepted:'unknown'`，`trusted:false`（脚本事件）。不是「站点已接受」 |
 
-`eval` / page `fetch` 走 `chrome.userScripts.execute`。`sys.upload` 走 `chrome.scripting.executeScript({ world:'MAIN', func, args })` 分块注入字节，不走 `sys.eval` 的 100k 源码顶。`sys.cdp` 走 `chrome.debugger`（一条管道，不是网络/PDF 产品）。DevTools 已挂上时会 `CDP_BUSY`。guest `sys.cdp` 的脚本类命令有宿主门（`host/cdpScriptGate.js`，在 `browserSysHost.sysCdp` 里、占租约/消费 ticket/attach 之前判定）：**白名单**——只有观察与可信输入类 domain（`Input` `Page` `DOM` `Network` `Accessibility` `CSS` `Emulation` `Target` 等）且不在其中的脚本例外名单（`Page.addScriptToEvaluateOnNewDocument` / `createIsolatedWorld` / `setDocumentContent` / `setBypassCSP`、`DOM.setOuterHTML`、事件处理器或 `javascript:` 的 `DOM.setAttribute*`、非 http(s)/`about:blank` 的 `Page.navigate` / `Target.createTarget`、`Target.attachToTarget` 等子会话）不需要开关；`Runtime`（除 enable/getProperties 等只读）、`Debugger`、`Fetch` 和未知 domain 一律当脚本。这些命令要求 `userScripts` 已授予且 `chrome.userScripts` 可用（复用 `userScriptsDenied`），否则 `PERMISSION_REQUIRED` + `permission:'userScripts'`，不 attach、不出横幅。宿主自己的 CDP（坐标点击、`Page.getLayoutMetrics`、上传 `method:'cdp'`、attach 回收探针 `Runtime.evaluate 'void 0'`）不经过这道门。返回值必须能 JSON 序列化。`eval` / page `fetch` / `cdp` / `upload` 只允许 http(s) 可注入页；扩展预览页返回 `NEED_PAGE`（MAIN world 不能碰到 `chrome.*`）。包括 `tabs.current` 在内，需要目标标签的操作未带 `tabId`/`defaultTabId` 都是 `NEED_PAGE`，不回退焦点标签。`eval` / `waitFor` / page `fetch` / `tabs.navigate|reload|focus|close` / `cdp` / `upload` 会先占 storage.session 中的 tab 租约，他 session 占用同一 tab → `TAB_LEASED`。可变 `sys` 还要过 Access Policy + journal ticket：已知付款 `PAYMENT_DENIED`，已知删除等审批，其余（含 raw eval、可变 CDP、`upload method:'cdp'`）best-effort 放行，**不能**当成绝不付款/删除。`SYS_ABORTED` / `SYS_TIMEOUT` 表示等待结束，不表示副作用已撤销。可见标签截图失败为 `TAB_NOT_VISIBLE` / `TARGET_CHANGED`。`targetId` 经 `getTargets` 校验 URL 并归一到 page tabId，按 execution 归属与释放 CDP。`eval/waitFor/page-fetch/upload` 用 documentIds 定向，可传 documentId/expectedUrl 校验先前观察。宿主在 `sys.waitFor` 进行时把本次 `run` deadline 顶到覆盖 waitFor（默认 30s / 最大 120s），不把所有 run 默认改成 120s。
+`eval` / page `fetch` 走 `chrome.userScripts.execute`。`sys.upload` 走 `chrome.scripting.executeScript({ world:'MAIN', func, args })` 分块注入字节，不走 `sys.eval` 的 100k 源码顶。`sys.cdp` 走 `chrome.debugger`（浏览器调试协议管道）。DevTools 已挂上时会 `CDP_BUSY`。guest `sys.cdp` 的脚本类命令有宿主门（`host/cdpScriptGate.js`，在 `browserSysHost.sysCdp` 里、占租约/消费 ticket/attach 之前判定）：**白名单**——只有观察与可信输入类 domain（`Input` `Page` `DOM` `Network` `Accessibility` `CSS` `Emulation` `Target` 等）且不在其中的脚本例外名单（`Page.addScriptToEvaluateOnNewDocument` / `createIsolatedWorld` / `setDocumentContent` / `setBypassCSP`、`DOM.setOuterHTML`、事件处理器或 `javascript:` 的 `DOM.setAttribute*`、非 http(s)/`about:blank` 的 `Page.navigate` / `Target.createTarget`、`Target.attachToTarget` 等子会话）不需要开关；`Runtime`（除 enable/getProperties 等只读）、`Debugger`、`Fetch` 和未知 domain 一律当脚本。这些命令要求 `userScripts` 已授予且 `chrome.userScripts` 可用（复用 `userScriptsDenied`），否则 `PERMISSION_REQUIRED` + `permission:'userScripts'`，不 attach、不出横幅。宿主自己的 CDP（坐标点击、`Page.getLayoutMetrics`、上传 `method:'cdp'`、attach 回收探针 `Runtime.evaluate 'void 0'`）不经过这道门。返回值必须能 JSON 序列化。`eval` / page `fetch` / `cdp` / `upload` 只允许 http(s) 可注入页；扩展预览页返回 `NEED_PAGE`（MAIN world 不能碰到 `chrome.*`）。包括 `tabs.current` 在内，需要目标标签的操作未带 `tabId`/`defaultTabId` 都是 `NEED_PAGE`，不回退焦点标签。`eval` / `waitFor` / page `fetch` / `tabs.navigate|reload|focus|close` / `cdp` / `upload` 会先占 storage.session 中的 tab 租约，他 session 占用同一 tab → `TAB_LEASED`。可变 `sys` 还要过 Access Policy + journal ticket：已知付款 `PAYMENT_DENIED`，已知删除等审批，其余（含 raw eval、可变 CDP、`upload method:'cdp'`）best-effort 放行，**不能**当成绝不付款/删除。`SYS_ABORTED` / `SYS_TIMEOUT` 表示等待结束，不表示副作用已撤销。可见标签截图失败为 `TAB_NOT_VISIBLE` / `TARGET_CHANGED`。`targetId` 经 `getTargets` 校验 URL 并归一到 page tabId，按 execution 归属与释放 CDP。`eval/waitFor/page-fetch/upload` 用 documentIds 定向，可传 documentId/expectedUrl 校验先前观察。宿主在 `sys.waitFor` 进行时把本次 `run` deadline 顶到覆盖 waitFor（默认 30s / 最大 120s），不把所有 run 默认改成 120s。
 
 宿主政策与 journal（不是 task，不是 audit）：
 
@@ -80,7 +80,7 @@ Guest FS（`fs.js`）：
 
 `sendMessage.js`：写入 user message → `beginExecution` → 组世界索引（bound groups/items、artifact 概览、focusPage）→ `buildSessionAgentInstructions` + 本轮 world block → `createSessionTools` → `inventoryFromSession`（**瞄准目标，不隐藏工具**）→ `runSessionToolLoopAgent`。
 
-普通 `sendMessage` **不创建** durable task。`task start` 弹出确认卡，**只有 UI 回执**才创建任务并写入 `session.activeTaskId`、绑定当前 execution。模型传入 `approved:true` 无效。普通 `/plan` 卡默认勾选「同时开启长任务」：批准且勾选才用同一 UI 回执建 Task 并绑当前 execution；不勾选、拒绝、改计划、或已有非终态 `activeTaskId` 则只钉本回合 `frozenPlan`。`task schedule` 仍只建未来/周期任务。绑定后的新消息作为该任务的补充上下文；`updateTask(detach)` 退出后继续普通聊天。续跑由 SW alarms 或 UI `updateTask(resume)` 再 `sendMessage({ taskRun, taskId, taskContinuation: true })`，不写假用户消息。
+普通 `sendMessage` **不创建** durable task。`task start` 弹出确认卡，**只有 UI 回执**才创建任务并写入 `session.activeTaskId`、绑定当前 execution。模型传入 `approved:true` 无效。普通 `/plan` 卡默认勾选「同时开启长任务」：批准且勾选才用同一 UI 回执建 Task 并绑当前 execution；不勾选、拒绝、改计划、或已有非终态 `activeTaskId` 则只钉本回合 `frozenPlan`。`task schedule` 在已绑定任务时更新其调度并 yield，未绑定才创建未来/周期任务。绑定后的新消息作为该任务的补充上下文；`updateTask(detach)` 退出后继续普通聊天。续跑由 SW alarms 或 UI `updateTask(resume)` 再 `sendMessage({ taskRun, taskId, taskContinuation: true })`，不写假用户消息。
 
 `prepareStep`（`makeOfficePrepareStep`）每 hop **读** store（`getTaskContext` → `readTask`）把**用户确认的任务合同**和进度重新注入 instructions。有绑定 Task 时不再注入 `sessionGoal` / `intentState` / 平行的 `frozenPlan`。task 写入只走 `hostTask` → `hostTaskMutation`。`completed` **只**来自成功的 `task complete`；空 plan settle 是 `ready`，未 complete 的回合 settle 是 `ready`/`paused`，abort/deadline 是 `paused`（结果未知），不会写成 `completed`。完成、取消或退出后停止注入该合同。压缩后每 hop 仍从 `session.messages` 注入有界用户原文。
 
@@ -102,11 +102,11 @@ Guest FS（`fs.js`）：
 
 进度说明（`progressNotes.js`）：只取**以工具调用结束的那一步**里模型写的正文（不带工具调用的一步会结束 ToolLoopAgent，成为最终回答，按 finishReason 区分）。不加工具、不加步。`sessionAgent.consumeAgentStream` 在该步第一个 tool-call 之前发 `progress-note { text, stepIndex, toolIndex, at }`（`sendMessage` 补 `sessionId`/`executionId`）；运行中写 `session.turnProgress = { executionId, startedAt, notes }`，结束（completed / failed / aborted）写进本回合唯一的 assistant 记录 `progress: [{ at, text, stepIndex, toolIndex }]` 并删掉 `turnProgress`，不额外追加 assistant 消息。`getSession().liveProgress` 只返回当前活动 execution 的槽位。task yield 时 SDK 把最后一步说明当最终文本，这条从 `progress` 去掉（回答拥有它）。说明是模型原话，不是宿主事实，不进 audit。催促：距上条说明（或回合开始）≥ 6 步或 ≥ 60 s，`prepareStep` 在 instructions 末尾加一次 `PROGRESS_NUDGE_TEXT`，同一段空白只催一次；System1 / 标题 / 压缩等轻量调用不经过 prepareStep。
 
-普通回合与 durable-task 回合都无 hop 上限。task 停点：`task wait` / `task complete` / host yield / abort（`createTaskStopState`）。成功 `wait`/`complete` 之后 gate 抑制后续（含同步兄弟）工具。非法 tool call 会 `repairSessionToolCall` 一次。
+普通回合与 durable-task 回合都无 hop 上限。task 停点：`task wait` / `task pause` / `task complete` / 更新当前任务的 `task schedule` / host yield / abort（`createTaskStopState`）。成功 yield 之后 gate 抑制后续（含同步兄弟）工具。定时任务另有单轮时间预算，默认 5 分钟（`maxRoundMinutes` 1–30）。非法 tool call 会 `repairSessionToolCall` 一次。
 
 清单：`canvasInventory.js` 的 `SESSION_TOOL_NAMES`（含 `task`）。`toolSchedule.js` 原样返回该列表。
 
-System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v26-system1-clicks'`：通用执行 Agent 身份与工作方式；点填失败时区分控件缺失与页面策略；按任务信息缺口自主选择输入；声音走 `action op=listen`，时序画面走 `action op=record`，文件走 `acquire fetch`；media routes 在 prepareStep 读取当前连接证据后附加到 instructions；多步骤任务在节点（新阶段、重要发现、受阻、改计划）于同一步工具调用前写一两句进展；语气：说话清楚、先把事情做对、不确定就问、受阻直说、尽最大努力且不凑合——不越过宿主门。`createSession` 即写入 `/artifacts/AGENTS.md`、`Memory.md`、`STATUS.md`。AGENTS 是短合同，每 hop 有界注入，Pointers 在 `settleExecution` 重写，不是用户授权。Memory 是跨回合事实，宿主不覆盖已改正文。STATUS 是日常进度；绑定 Task 时 checkpoint 优先。Durable Task 仍只来自确认过的 `task start`/`amend`、勾选长任务的 `/plan`、或 `task schedule`。普通 send 不建 task。回合结束清空 `/artifacts/.trash/`）。具体配方在 skills，按需 `inspect view=skill` 载入，不靠宿主关键词路由。侧栏 current/next **不**写进 prompt。
+The fixed English Agent personality lives in `prompt.js` (`SYSTEM_PROMPT_VERSION = 'v27-agent-personality'`): autonomous execution, resource discovery, evidence, continuity, follow-up and truthful communication. `runtimeInstructions.js` separately preserves the delegate, media, progress-note and workspace-file contracts; `sendMessage.js` composes both with the existing skill catalog, library instructions and Task contract. Media routes remain appended by prepareStep from current connection evidence. The personality asks for a browser-level Agent tab group and exclusive browser control; those are behavioral instructions, not implemented global ownership guarantees (the host currently enforces per-tab leases and per-session execution slots). `createSession` scaffolds `/artifacts/AGENTS.md`, `Memory.md` and `STATUS.md`. Bounded AGENTS text is injected each hop; settle rewrites its pointers, and these files never grant user authorization. Memory holds cross-turn facts; STATUS holds everyday progress, with Task checkpoints taking precedence when bound. Ordinary sends do not create Tasks; the Agent may arrange follow-ups through task tools within the authorized goal. Recipes remain in skills, loaded on demand through `inspect view=skill`. Side-panel current/next text is not injected into the prompt.
 
 交付物打开：`openClassify.js` 负责 kind；`artifactCapability.js` 是家族 × 打开面 × 徽标的单一映射。主 chip 是 `docs` / `data` / `web` / `media` / `files`；`design`/`slides` 只兼容旧数据。未知 HTML/JS 不得在 extension origin 执行。仅文件名的 `.html` 保持中性，不假装 proven site/doc；首次打开分类后可持久化 `capability` hint。site 本波 = 可编辑/可渲染的静态 HTML+CSS + 宿主 postMessage bridge（`src/sandbox/siteFrame.*`），**不是**任意 guest JS。
 
@@ -119,7 +119,7 @@ System prompt 在 `prompt.js`（`SYSTEM_PROMPT_VERSION = 'v26-system1-clicks'`�
 | `run` | 同上 | 访客机：sandbox JS/TS + fs + `sys`。`op` 登记文档、站点、文件。日常改文档走 `doc`，改站点走 `web` |
 | `clarify` | 同上 | 模型主动提问或 plan 卡。删除/模糊提交的门是宿主 `answerApproval`，不依赖模型调用 clarify |
 | `action` | 同上 | 本轮 `activeTab` 的显式 `tabId` live-page（snapshot 后同代 mutate）。`op=listen` 听当前标签声音（需侧栏授权），画面仍用 snapshot。无 tabId → `NEED_EXPLICIT_TAB`。运输见 [../AGENTS.md](../AGENTS.md) |
-| `task` | `sessionWorkspace/taskTool.js` | 合同与进度：`start` / `amend` / `inspect` / `plan` / `checkpoint` / `wait` / `complete` / `schedule`。`start`/`amend` 走确认卡。`wait`/`complete` 成功即 yield。`schedule` 只建未来/周期任务 |
+| `task` | `sessionWorkspace/taskTool.js` | 合同、进度与观察：`start` / `amend` / `inspect` / `plan` / `checkpoint` / `observe` / `wait` / `pause` / `complete` / `schedule` / `unschedule`。`start`/`amend` 走确认卡。`wait`/`pause`/`complete` 成功即 yield。`schedule` 更新当前任务并 yield，未绑定才新建；`unschedule` 去掉后续唤醒，继续本轮 |
 | `doc` | 同上 | 标记 HTML 文档：`act` = read / write。无文件 → `NO_DOCUMENT` |
 | `web` | 同上 | `data-browserbot-kind=site`：`act` = read / write / undo / clone / capture。画布是静态 HTML+CSS；宿主 bridge 在 sandbox frame，用户脚本仍被剥 |
 
@@ -188,7 +188,7 @@ BYOK：`llm.js` → `browserbot_providers`。推理 / 生图 / 转写各有独�
 
 ### BOT 执行边界补充
 
-普通 send 不建 task；`task start` 才经确认卡创建。同 session 在第一次 await 之前预占执行槽。旧 execution 的 abort 不得命中新执行。
+普通 send 不建 task；`task start` 才经确认卡创建。同 session 在异步任务准备和模型解析前预占执行槽。旧 execution 的 abort 不得命中新执行。
 `RPC_OUTCOME_UNKNOWN` / `SYS_OUTCOME_UNKNOWN` / `ACTION_OUTCOME_UNKNOWN` 不是失败证明；先读取页面或交付物后置状态，再决定下一步。传输层不替模型重放写入。
 `action` 确认回执不等于目标已实现；`observationError` 表示动作已有回执，但后续 snapshot 未成功。task complete 的 evidence 仍由模型填写，尚无宿主后置条件引擎。
 所有新增 RPC 均需修改显式清单及对应 bot-rpc 回归；禁止恢复反射分发。
@@ -201,9 +201,17 @@ BYOK：`llm.js` → `browserbot_providers`。推理 / 生图 / 转写各有独�
 
 一张确认卡、一份版本化合同、一套生命周期。合同（goal / scope / constraints / acceptance / sources / version）只能由 UI 回执写入；进度（plan / checkpoint / evidence / nextAction）模型可自主更新。实质改合同走 `task amend` 变更卡。侧栏显示正在执行的任务，并提供暂停、继续、退出。用户暂停/取消/退出不二次确认。旧 `intentState` / `sessionGoal` 停止消费，不做破坏性清理。
 
+本地定时检查继续复用 Task，不另建 monitor store。新 `schedule` 默认 `target: {mode: 'discover'}`（不保存当前活动标签）与 `reportPolicy: changes`；`target: {mode: 'page', url?, tabId?}` 显式绑定来源，省略 URL 时使用当前页面。持久化字段为 `targetMode` / `targetPage`；旧任务从 `targetPage` 推断模式、报告默认 `always`。关闭侧栏不停止任务，关闭浏览器或休眠期间不执行；到期跳过错过的间隔，不密集补跑。
+
+调度是授权目标范围内的执行决策：Agent 可自行决定何时检查、改间隔或移除不需要的唤醒，不要求用户明确说出定时指令。绑定任务时 `schedule` 继承现有目标（goal 可省略），只改同一任务调度并 yield；实质修改目标/范围仍经 `amend` 确认。`unschedule` 移除 dueAt / intervalMinutes / stopAt，保留目标、进度和观察账本；当前运行轮继续执行，未运行任务变为暂停。可指定同 session 的 taskId 移除另一等待任务的调度，禁止跨 session。用户也可从任务卡停止自动唤醒。`complete` / cancel 移除调度并终止任务。
+
+`observe` 接受 `observations: [{key, fingerprint, summary?}]`，返回 `changes`（`new` / `changed` / `pending`）。`baseline: true` 只允许首次初始化，把当时内容标为基线。观察账本 `observationState` 存在任务 meta 中：最多 512 个 key；key 最多 256 字符、fingerprint 最多 1024 字符，超限拒绝而不截断/遗忘。已核实处理后用 `checkpoint` / `wait handledKeys` 标记；相同 fingerprint 的已处理条目不再返回候选，未处理条目跨轮仍返回 pending。模型处理声明不等于宿主 verified。
+
+`checkpoint` / `wait` 的 `report` 可设 `quiet` / `changed` / `action` / `needs_attention`；仍有未处理条目时拒绝 quiet。changes 策略的定时轮在 quiet wait 后不持久化 assistant 消息，也不广播最终正文；任务状态与 lastCheckedAt 仍更新。`wait` 结束本轮，`pause` 暂停并报告需介入，`complete` 永久停止循环。`stopWhen` 注入给模型判断，`stopAt` 到期由宿主取消并清掉后续唤醒；预算超时暂停，不能盲重试未知副作用。
+
 ## Session 意图状态（已停用注入）
 
-`intentState.js` 与 `/context/intent.md` 仍保留在磁盘上，产品路径不再提取、不再注入。不要恢复每条消息的独立意图请求。
+`intentState.js` 与 `/context/intent.md` 仍保留在磁盘上，当前运行路径不再提取、不再注入。不要恢复每条消息的独立意图请求。
 
 
 ## 自定义工具与 Workflow

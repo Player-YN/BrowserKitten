@@ -43,17 +43,17 @@ function successfulTerminalTaskCall(steps) {
     for (const call of step?.toolCalls || []) {
       if (call?.toolName !== 'task') continue;
       const input = call.input ?? call.args ?? {};
-      if (input?.op !== 'wait' && input?.op !== 'complete') continue;
+      if (!['wait', 'pause', 'complete', 'schedule'].includes(input?.op)) continue;
       const result = findStepToolResult(results, call);
       const output = result?.output ?? result?.result;
-      if (output?.ok === true && output?.yield !== false) return true;
+      if (output?.ok === true && (input.op === 'schedule' ? output.yield === true : output.yield !== false)) return true;
     }
   }
   return false;
 }
 
 /**
- * Task turns stop on wait / complete / host yield only. Hop count is not a
+ * Task turns stop on wait / pause / complete / host yield only. Hop count is not a
  * stop condition — ordinary chat and running tasks stay unlimited.
  */
 export function createTaskStopState(args = {}) {
@@ -191,7 +191,7 @@ export async function runSessionToolLoopAgent(args) {
     instructions: args.system || '',
     tools: sdkTools,
     // Chat and durable-task turns are both hop-unlimited. Task turns yield
-    // on wait / complete / host yield; abort/deadline stop via abortSignal.
+    // on wait / pause / complete / host yield; abort/deadline stop via abortSignal.
     stopWhen: taskStop.stopWhen,
     repairToolCall: (opts) => repairSessionToolCall(model, { ...opts, abortSignal: args.signal }),
     onError: ({ error }) => {

@@ -4,6 +4,7 @@ import {
   runDelegateLoop,
   parseExecutorStep,
   fetchExecutorStep,
+  probeExecutor,
   executorVision,
   executorChatUrl,
   readExecutorV2Flag,
@@ -12,7 +13,8 @@ import {
   bindClickAssignmentNames,
   assignmentRequestsDelete
 } from '../src/agent/vnext/sessionWorkspace/delegateExecutor.js';
-import { SYSTEM_PROMPT_VERSION, buildSessionAgentInstructions } from '../src/agent/vnext/sessionWorkspace/prompt.js';
+import { SYSTEM_PROMPT_VERSION } from '../src/agent/vnext/sessionWorkspace/prompt.js';
+import { buildSessionRuntimeInstructions } from '../src/agent/vnext/sessionWorkspace/runtimeInstructions.js';
 import { createSessionTools } from '../src/agent/vnext/sessionWorkspace/tools.js';
 import { SessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspace/store.js';
 import { createSessionGuestFs } from '../src/agent/vnext/sessionWorkspace/fs.js';
@@ -226,11 +228,11 @@ test('action schema always assigns clicks to System1, with or without the legacy
   assert.ok(schema.d.length <= 700, `action description ${schema.d.length}`);
 });
 
-test('the system prompt tells the planner to assign clicks, not to pick refs', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v26-system1-clicks');
-  const text = buildSessionAgentInstructions();
+test('runtime instructions tell the planner to assign clicks, not to pick refs', () => {
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v27-agent-personality');
+  const text = buildSessionRuntimeInstructions();
   assert.match(text, /op=delegate/);
-  assert.match(text, /不要传 ref/);
+  assert.match(text, /Do not pass a ref/);
   assert.doesNotMatch(text, /自己带 ref/);
   assert.doesNotMatch(text, /op=pointer/);
 });
@@ -501,4 +503,25 @@ test('a delete assignment raises one gated click; a vague subgoal and payment do
   const pay = await paying.t.action.execute({ op: 'click', name: 'Pay now' });
   assert.equal(pay.code, 'PAYMENT_DENIED');
   assert.equal(paying.calls.some((row) => row.op === 'click'), false);
+});
+
+
+test('System1 settings probe uses the actual executor chat route and rejects non-decision responses', async () => {
+  const config = { apiKey: 'test-key', apiBase: 'https://gw.test/v1', model: 'executor' };
+  const requests = [];
+  const probe = content => probeExecutor(config, { fetchImpl: async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
+  } });
+  assert.deepEqual(await probe('{"action":"done"}'), { ok: true });
+  assert.equal(requests[0].url, executorChatUrl(config.apiBase));
+  const body = JSON.parse(requests[0].init.body);
+  assert.equal(body.model, config.model);
+  assert.deepEqual(JSON.parse(body.messages[1].content).controls, []);
+  assert.equal((await probe('I am connected.')).code, 'NOT_JEV');
+  assert.equal((await probe('{"action":"click","ref":"unknown"}')).ok, false);
+  const denied = await probeExecutor(config, { fetchImpl: async () => ({ ok: false, status: 401 }) });
+  assert.equal(denied.code, 'JEV_UNAVAILABLE');
+  assert.match(denied.error, /401/);
+  assert.equal((await probeExecutor(null, { fetchImpl: () => { throw new Error('unexpected network'); } })).code, 'NEED_JEV');
 });

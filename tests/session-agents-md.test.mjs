@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspace/store.js';
 import { createSessionGuestFs } from '../src/agent/vnext/sessionWorkspace/fs.js';
 import { buildSessionAgentInstructions, buildWorldStateBlock } from '../src/agent/vnext/sessionWorkspace/prompt.js';
+import { buildSessionRuntimeInstructions } from '../src/agent/vnext/sessionWorkspace/runtimeInstructions.js';
 import { makeOfficePrepareStep } from '../src/agent/vnext/sessionWorkspace/toolSchedule.js';
 import {
   AGENTS_MD_INJECT_CAP,
@@ -88,11 +89,12 @@ test('prepareStep leaves the system prefix untouched so AGENTS.md cannot bust it
   assert.doesNotMatch('base host prefix', /Workspace AGENTS\.md/);
 });
 
-test('system prefix names the AGENTS.md contract', () => {
-  const text = buildSessionAgentInstructions();
+test('runtime instructions preserve the AGENTS.md contract outside the personality', () => {
+  assert.doesNotMatch(buildSessionAgentInstructions(), /\/artifacts\/AGENTS\.md/);
+  const text = buildSessionRuntimeInstructions();
   assert.match(text, /\/artifacts\/AGENTS\.md/);
   assert.match(text, /Memory\.md/);
   assert.match(text, /STATUS\.md/);
-  assert.match(text, /不是用户授权/);
-  assert.match(text, /普通 send 不建 Durable Task/);
+  assert.match(text, /do not grant user authorization/);
+  assert.match(text, /ordinary send does not create a Durable Task/);
 });

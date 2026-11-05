@@ -1,6 +1,6 @@
 /**
  * Unified production path: sendMessage → AI SDK 7 ToolLoopAgent (toolChoice=auto).
- * No Task object, no chat/run mode split, no handwritten tool loop.
+ * Ordinary turns do not create tasks; scheduled continuations use the same loop.
  */
 
 import { createMessageId } from './ids.js';
@@ -11,6 +11,7 @@ import { listBoundItemIndex } from './itemLabel.js';
 import { getArtifactIndexCompact, listArtifacts } from './artifacts.js';
 import { compactShelfSnapshot } from './artifactShelf.js';
 import { buildSessionAgentInstructions, buildWorldStateBlock, compactOpenTabOverview } from './prompt.js';
+import { buildSessionRuntimeInstructions } from './runtimeInstructions.js';
 import { formatTaskInstructions } from './taskInstructions.js';
 import { userRequestedPlan } from './planContract.js';
 import {
@@ -69,6 +70,25 @@ import {
   dropEchoedFinalNote
 } from './progressNotes.js';
 
+const DEFERRED_TASK_EVENTS = new Set([
+  'thought', 'thought-open', 'reasoning', 'text', 'progress-note',
+  'model-start', 'model-end', 'model-meta', 'tool-call', 'tool-result', 'tool-execution-end',
+  'action-outcome', 'stale-ref', 'lease'
+]);
+const TASK_ATTENTION_EVENTS = new Set([
+  'clarify', 'approval-required', 'policy-blocked', 'listen-grant-required',
+  'record-grant-required', 'error', 'deadline'
+]);
+
+/** Suppression is explicit and belongs to this execution, never a previous check. */
+export function shouldPublishTaskRound({ task, executionId, taskContinuation, needsAttention = false }) {
+  return !(taskContinuation === true && task?.scheduled === true &&
+    task.reportPolicy === 'changes' && task.status === 'waiting' &&
+    task.roundReport?.executionId === executionId && task.roundReport.kind === 'quiet' &&
+    !(task.observationState?.entries || []).some(entry => !entry.handled) &&
+    !needsAttention);
+}
+
 /**
  * @param {import('./store.js').SessionWorkspaceStore} store
  * @param {{
@@ -87,6 +107,7 @@ import {
  *   getTaskContext?: () => object|null|Promise<object|null>,
  *   hostTask?: (input: object) => Promise<{ok:boolean,task?:object,yield?:boolean}>,
  *   taskShouldYield?: () => boolean,
+ *   taskNeedsAttention?: () => boolean,
  *   onEvent?: (ev: object) => void
  * }} input
  */
@@ -235,6 +256,7 @@ export async function sendMessage(store, input) {
     buildSessionAgentInstructions({
       skillInstructions: skillText
     }),
+    buildSessionRuntimeInstructions(),
     libraryInstructionText,
     taskInstructionText
   ]
@@ -279,8 +301,13 @@ export async function sendMessage(store, input) {
   // session.turnProgress (so a reopened panel can repaint them); the settled
   // assistant record carries them as `progress`. Never extra assistant messages.
   let progressNotes = [];
+  let deferTaskEvents = taskContinuation && taskContext?.scheduled === true &&
+    taskContext.reportPolicy === 'changes';
+  let needsAttention = false;
+  const deferredEvents = [];
   const progressTracker = createProgressTracker({ startedAt: message.createdAt });
   const persistTurnProgress = () => {
+    if (deferTaskEvents) return;
     const s = store.get('sessions', sessionId);
     if (!s) return;
     store.put('sessions', sessionId, {
@@ -293,6 +320,18 @@ export async function sendMessage(store, input) {
     });
   };
   const upstreamEvent = typeof input.onEvent === 'function' ? input.onEvent : null;
+  const publishEvent = (ev) => {
+    if (!upstreamEvent) return;
+    try {
+      upstreamEvent(ev);
+    } catch {
+      /* UI listener must not fail the turn */
+    }
+  };
+  const publishDeferredEvents = () => {
+    deferTaskEvents = false;
+    for (const ev of deferredEvents.splice(0)) publishEvent(ev);
+  };
   const onEvent = (raw) => {
     let ev = raw;
     if (ev && typeof ev === 'object' && ev.type === 'progress-note') {
@@ -314,13 +353,26 @@ export async function sendMessage(store, input) {
     } catch {
       /* path recorder must not fail the turn */
     }
-    if (upstreamEvent) {
-      try {
-        upstreamEvent(ev);
-      } catch {
-        /* UI listener must not fail the turn */
-      }
+    if (TASK_ATTENTION_EVENTS.has(ev?.type) ||
+      (ev?.type === 'action-outcome' && ev.ok === false) ||
+      (ev?.type === 'lease' && ev.op === 'conflict') ||
+      (ev?.type === 'tool-result' && (ev.ok === false ||
+        ['unknown', 'needs_human', 'needs_attention'].includes(ev.result?.status) ||
+        ev.result?.outcome === 'unknown' || /OUTCOME_UNKNOWN/.test(String(ev.result?.code || '')) ||
+        ev.result?.postcondition?.status === 'needs_human'))) {
+      needsAttention = true;
+      publishDeferredEvents();
     }
+    if (deferTaskEvents && DEFERRED_TASK_EVENTS.has(ev?.type)) {
+      // Stream chunks are available on the settled record; replaying them would
+      // paint a delayed token animation. Keep bounded activity and prose only.
+      if (!['thought', 'thought-open', 'reasoning', 'text'].includes(ev.type)) {
+        deferredEvents.push(projectJsonForWire(ev));
+        if (deferredEvents.length > 64) deferredEvents.shift();
+      }
+      return;
+    }
+    publishEvent(ev);
   };
 
   if (learnRequested) {
@@ -653,6 +705,31 @@ export async function sendMessage(store, input) {
       throw err;
     }
 
+    let settledTask = taskContext;
+    if (typeof input.getTaskContext === 'function') {
+      try {
+        settledTask = await input.getTaskContext();
+      } catch {
+        settledTask = null; // Host uncertainty must remain visible.
+      }
+    }
+    execution.abortSignal?.throwIfAborted();
+    if (typeof input.taskNeedsAttention === 'function') {
+      try {
+        needsAttention = needsAttention || input.taskNeedsAttention() === true;
+      } catch {
+        needsAttention = true;
+      }
+    }
+    const quiet = !shouldPublishTaskRound({
+      task: settledTask,
+      executionId: execution.executionId,
+      taskContinuation,
+      needsAttention
+    });
+    if (!quiet) publishDeferredEvents();
+    else deferredEvents.length = 0;
+
     const thought = String(resultReasoning || thoughtBuf || '').trim();
     const wire =
       Array.isArray(resultWire) && resultWire.length
@@ -732,13 +809,14 @@ export async function sendMessage(store, input) {
       source: fromApi ? 'api' : 'estimate',
       updatedAt: Date.now()
     };
+    execution.abortSignal?.throwIfAborted();
     if (sess2 && store.has('sessions', sessionId)) {
       store.put('sessions', sessionId, {
         ...withoutTurnProgress(sess2),
         title: sessionTitle,
         name: sessionTitle,
         titleLocked: !!sess2?.titleLocked,
-        messages: [...(sess2.messages || []), assistant],
+        messages: quiet ? [...(sess2.messages || [])] : [...(sess2.messages || []), assistant],
         contextUsage,
         updatedAt: Date.now()
       });
@@ -751,17 +829,20 @@ export async function sendMessage(store, input) {
 
     settleExecution(store, execution, 'settled');
     try {
-      onEvent({
-        type: 'assistant-final',
-        sessionId,
-        executionId: execution.executionId,
-        content: finalText
-      });
+      if (!quiet) {
+        onEvent({
+          type: 'assistant-final',
+          sessionId,
+          executionId: execution.executionId,
+          content: finalText
+        });
+      }
       onEvent({
         type: 'execution-end',
         sessionId,
         executionId: execution.executionId,
-        status: 'completed'
+        status: 'completed',
+        quiet
       });
     } catch {
       /* UI listener must not fail the turn */
@@ -769,7 +850,8 @@ export async function sendMessage(store, input) {
 
     return {
       message,
-      assistant,
+      assistant: quiet ? null : assistant,
+      quiet,
       executionId: execution.executionId,
       finalText,
       thought: assistant.thought,
@@ -790,14 +872,20 @@ export async function sendMessage(store, input) {
   } catch (err) {
     if (titlePromise) void titlePromise.catch(() => {});
     const aborted = isAbortLike(err, execution.abortSignal);
+    publishDeferredEvents();
+    const hostAbort = execution.abortSignal?.reason;
+    const hostAbortCode = aborted && ['TASK_ROUND_TIMEOUT', 'TASK_EXPIRED'].includes(hostAbort?.code)
+      ? hostAbort.code : null;
+    const errorCode = hostAbortCode || (aborted ? USER_STOP : String(err?.code || 'ERROR'));
+    const errorMessage = hostAbortCode ? formatRpcError(hostAbort) : formatRpcError(err);
     const endedAt = Date.now();
     const startedAt = Number(message.createdAt) || endedAt;
     try {
       recordBehaviorEvent(pathLog, {
         type: 'error',
         name: aborted ? 'AbortError' : err?.name ? String(err.name) : 'Error',
-        message: formatRpcError(err).slice(0, 400),
-        code: aborted ? USER_STOP : String(err?.code || 'ERROR')
+        message: errorMessage.slice(0, 400),
+        code: errorCode
       });
       recordBehaviorEvent(pathLog, {
         type: 'execution-end',
@@ -805,12 +893,13 @@ export async function sendMessage(store, input) {
         executionId: execution.executionId,
         status: aborted ? 'aborted' : 'failed'
       });
-      if (String(err?.code || '') === 'SYS_TIMEOUT') {
+      if (String(err?.code || '') === 'SYS_TIMEOUT' || hostAbortCode) {
         onEvent({
           type: 'deadline',
           sessionId,
           executionId: execution.executionId,
-          code: 'SYS_TIMEOUT'
+          code: hostAbortCode || 'SYS_TIMEOUT',
+          message: errorMessage
         });
       }
       const sessFail = store.get('sessions', sessionId);
@@ -825,8 +914,8 @@ export async function sendMessage(store, input) {
         executionId: execution.executionId,
         progress: progressNotes,
         error: {
-          code: aborted ? USER_STOP : String(err?.code || 'ERROR'),
-          message: formatRpcError(err).slice(0, 500)
+          code: errorCode,
+          message: errorMessage.slice(0, 500)
         },
         toolCalls: [],
         path,
@@ -853,7 +942,9 @@ export async function sendMessage(store, input) {
         type: 'execution-end',
         sessionId,
         executionId: execution.executionId,
-        status: aborted ? 'aborted' : 'failed'
+        status: aborted ? 'aborted' : 'failed',
+        code: errorCode,
+        error: { code: errorCode, message: errorMessage }
       });
     } catch {
       /* UI listener must not fail the turn */
@@ -861,6 +952,10 @@ export async function sendMessage(store, input) {
     if (aborted) {
       const e = toAbortError(err);
       e.executionId = execution.executionId;
+      if (hostAbortCode) {
+        e.code = hostAbortCode;
+        e.message = errorMessage;
+      }
       throw e;
     }
     const wrapped = err instanceof Error && err.message && err.message !== '[object Object]'

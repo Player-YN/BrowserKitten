@@ -61,11 +61,7 @@ import {
   presetsForTemplateCombobox
 } from './agent/providerPresets.js';
 import { mountPresetCombobox } from './sidepanel/presetCombobox.js';
-import {
-  probeJevSystemOne,
-  jevSystemOneUrl,
-  buildJevProbeBody
-} from './agent/vnext/host/jevSelect.js';
+import { probeExecutor } from './agent/vnext/sessionWorkspace/delegateExecutor.js';
 import { putListenGrant } from './agent/vnext/host/tabListen.js';
 import {
   loadWebAcquireSettings,
@@ -682,17 +678,7 @@ const taskStatusUi = createTaskStatusUi({
   t,
   getLang: () => currentLang,
   getSessionId: () => activeSessionId,
-  getTaskStream: () => $('taskStream'),
-  getThreadBody: (sessionId) => {
-    const sid = String(sessionId || '');
-    const threads = document.querySelectorAll(
-      '#taskStream .session-thread:not(.is-history-view):not([hidden])'
-    );
-    for (const thread of threads) {
-      if (String(thread.dataset.sessionId || '') === sid) return thread.querySelector('.task-body');
-    }
-    return null;
-  },
+  getTaskDock: () => $('durableTaskDock'),
   showToast: (message, opts) => showSidepanelToast(message, opts)
 });
 
@@ -2073,6 +2059,10 @@ function applyWorkspaceExecutionSnapshot(sessionId, payload, { rpcFailed = false
     if (foreground) {
       setAgentRunningUi(true);
       withSessionLive(sid, () => {
+        if (payload?.activeExecution?.scheduledRun === true && liveTurnWrap?.dataset.executionId !== live.executionId) {
+          beginLiveTurnUi();
+          if (liveTurnWrap) liveTurnWrap.dataset.executionId = live.executionId;
+        }
         liveTurnSealed = false;
       });
       seedLiveProgressNotes(sid, payload?.liveProgress);
@@ -7437,6 +7427,17 @@ function handleSessionWorkspaceEvent(request) {
     return true;
   }
 
+  if (ev.type === 'execution-start' && ev.scheduledRun === true && sid) {
+    // Scheduled rounds have no local composer submit to start their own turn.
+    // Keep their transient activity separate from the previous final answer.
+    withSessionLive(sid, () => {
+      if (liveTurnWrap?.dataset.executionId !== ev.executionId) {
+        beginLiveTurnUi();
+      }
+      if (liveTurnWrap && ev.executionId) liveTurnWrap.dataset.executionId = ev.executionId;
+    });
+  }
+
   if (!sid || sid === foreground) {
     botStatusUi.apply(ev, botStatusContext({ task: ev.task }));
     uiState(foreground).executionStatus = projectStatusForSessionStash(botStatusUi.snapshot());
@@ -7680,6 +7681,24 @@ function finishLiveThinkBlocks(root) {
  * for this task, even if a tool-result (正在获取文件) never arrived.
  */
 function settleLiveTurnFromTerminalEvent(ev = {}) {
+  if (ev.quiet === true) {
+    clearLiveTurnRenderTimer(getLiveSessionId());
+    hideLiveTurnProgress();
+    liveProgressState = createLiveProgressState();
+    const wrap = liveTurnWrap;
+    const executionId = wrap?.dataset.executionId || wrap?.querySelector('.turn-disclosure')?.dataset.executionId;
+    if (executionId === String(ev.executionId || '')) {
+      try { liveTurnThink?.destroy?.(); } catch (_) {}
+      wrap?.remove();
+      liveTurnThink = null;
+      liveTurnWrap = null;
+      liveTurnAnswerEl = null;
+    }
+    liveTurnThinkFromStream = false;
+    liveTurnAnswerText = '';
+    liveTurnSealed = true;
+    return { thought: '', content: '' };
+  }
   ingestLiveProgressEvent({
     type: ev.type === 'assistant-final' ? 'assistant-final' : 'execution-end',
     content: ev.content
@@ -15356,10 +15375,9 @@ async function onProbeJevClick() {
     btn.textContent = settingsLangEn() ? 'Probing…' : '探测中…';
   }
   try {
-    const url = jevSystemOneUrl(baseURL);
-    const probe = await probeJevSystemOne(
+    const probe = await probeExecutor(
       { apiKey, apiBase: baseURL, model },
-      async (_url, init) => {
+      { fetchImpl: async (url, init) => {
         const res = await proxyJsonRequest({
           url,
           method: 'POST',
@@ -15367,7 +15385,7 @@ async function onProbeJevClick() {
             authorization: `Bearer ${apiKey}`,
             'content-type': 'application/json'
           },
-          body: init?.body || buildJevProbeBody({ model })
+          body: init.body
         });
         return {
           ok: !!res.ok,
@@ -15384,9 +15402,11 @@ async function onProbeJevClick() {
             throw new Error('empty body');
           }
         };
-      }
+      } }
     );
     paintJevProbeResult(probe);
+  } catch (error) {
+    paintJevProbeResult({ ok: false, error: error?.message || String(error) });
   } finally {
     if (btn) {
       btn.disabled = false;

@@ -36,8 +36,9 @@ jobs:
           test -f extension/manifest.json
           test -d extension/src
           test -f extension/src/preview/vendor/fflate.js
-          if find extension -name '*.md' ! -name 'README.md' | grep -q .; then
-            echo "pack leaked non-README .md files"; exit 1
+          test -f extension/THIRD_PARTY_NOTICES.md
+          if find extension -name '*.md' ! -name 'README.md' ! -name 'THIRD_PARTY_NOTICES.md' | grep -q .; then
+            echo "pack leaked development .md files"; exit 1
           fi
 
       # Regression guard for the drift that once shipped a fixed bug: the pack

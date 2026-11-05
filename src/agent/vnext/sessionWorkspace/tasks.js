@@ -17,6 +17,8 @@ const MAX_PLAN_STEPS = 24;
 const MAX_EVIDENCE = 32;
 const MAX_AMENDMENTS = 64;
 const MAX_CONTRACT_HISTORY = 16;
+const MAX_OBSERVATIONS = 512;
+const REPORT_KINDS = new Set(['quiet', 'changed', 'action', 'needs_attention']);
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const STATUSES = new Set([
@@ -93,9 +95,80 @@ function normalizeTargetPage(page) {
   if (!page || typeof page !== 'object') return null;
   const url = text(page.url, 4000);
   const rawId = page.tabId ?? page.id;
-  const tabId = Number.isInteger(Number(rawId)) ? Number(rawId) : null;
+  const tabId = rawId != null && Number.isInteger(Number(rawId)) ? Number(rawId) : null;
   if (!url && tabId == null) return null;
   return { tabId, url, title: text(page.title, 500) };
+}
+
+function observationToken(value, name, max) {
+  if (typeof value !== 'string' || !value.trim() || value.length > max) {
+    throw taskError('TASK_INVALID_OBSERVATION', `${name} must be a nonempty string of at most ${max} characters.`);
+  }
+  return value;
+}
+
+function normalizeObservations(rows) {
+  if (!Array.isArray(rows) || rows.length > MAX_OBSERVATIONS) {
+    throw taskError('TASK_OBSERVATION_LIMIT', `At most ${MAX_OBSERVATIONS} observations can be retained; narrow the task or start a new task.`);
+  }
+  const keys = new Set();
+  return rows.map((row) => {
+    const key = observationToken(row?.key, 'key', 256);
+    const fingerprint = observationToken(row?.fingerprint, 'fingerprint', 1024);
+    if (keys.has(key)) throw taskError('TASK_INVALID_OBSERVATION', `Duplicate observation key: ${key}`);
+    keys.add(key);
+    return { key, fingerprint, summary: text(row?.summary, 1000), handled: row?.handled === true };
+  });
+}
+
+function scheduleTarget(input, activePage) {
+  if (input.target != null && (typeof input.target !== 'object' || Array.isArray(input.target))) {
+    throw taskError('TASK_INVALID_TARGET', 'target must be an object with mode discover or page.');
+  }
+  const mode = input.target?.mode || 'discover';
+  if (!['discover', 'page'].includes(mode)) throw taskError('TASK_INVALID_TARGET', 'target.mode must be discover or page.');
+  if (mode === 'discover') return { targetMode: mode, targetPage: null };
+  const page = normalizeTargetPage({
+    ...activePage,
+    ...input.target,
+    url: input.target?.url || activePage?.url,
+    tabId: input.target?.tabId ?? activePage?.tabId ?? activePage?.id
+  });
+  if (!page?.url || !/^https?:\/\//i.test(page.url)) {
+    throw taskError('TASK_INVALID_TARGET', 'A page target requires an HTTP(S) URL, explicitly supplied or from the current page.');
+  }
+  try { new URL(page.url); } catch { throw taskError('TASK_INVALID_TARGET', 'Invalid target URL.'); }
+  return { targetMode: mode, targetPage: page };
+}
+
+function scheduleConfig(input, activePage, previous, now) {
+  const rawInterval = input.intervalMinutes === undefined ? previous?.intervalMinutes : input.intervalMinutes;
+  const intervalMinutes = Number(rawInterval) > 0 ? Math.max(1, Math.round(Number(rawInterval))) : null;
+  const dueAt = input.wakeAt ? iso(input.wakeAt)
+    : intervalMinutes ? new Date(nowMs(now) + intervalMinutes * 60_000).toISOString() : null;
+  if (!dueAt || Date.parse(dueAt) <= nowMs(now)) {
+    throw taskError('TASK_SCHEDULE_INVALID', 'schedule needs a future wakeAt or positive intervalMinutes.');
+  }
+  const reportPolicy = input.reportPolicy ?? (previous?.scheduled ? previous.reportPolicy : 'changes');
+  if (!['changes', 'always'].includes(reportPolicy)) throw taskError('TASK_INVALID_REPORT', 'reportPolicy must be changes or always.');
+  const stopAt = input.stopAt === undefined ? previous?.stopAt || null : input.stopAt ? iso(input.stopAt) : null;
+  if (stopAt && Date.parse(stopAt) <= nowMs(now)) throw taskError('TASK_EXPIRED', 'stopAt must be in the future.');
+  const target = previous && input.target === undefined
+    ? { targetMode: previous.targetMode, targetPage: previous.targetPage }
+    : scheduleTarget(input, activePage);
+  return {
+    ...target, dueAt, intervalMinutes, reportPolicy, stopAt,
+    stopWhen: input.stopWhen ?? previous?.stopWhen ?? '',
+    maxRoundMinutes: input.maxRoundMinutes ?? previous?.maxRoundMinutes ?? 5,
+    scheduled: true, status: 'waiting', ownership: { executionId: null }
+  };
+}
+
+function removeTaskSchedule(store, task, now) {
+  return putTask(store, bump(task, {
+    scheduled: false, dueAt: null, intervalMinutes: null, stopAt: null,
+    status: task.status === 'running' ? 'running' : 'paused'
+  }, now));
 }
 
 function normalizeStoredContract(raw) {
@@ -141,7 +214,20 @@ function normalizeTask(raw) {
     },
     continuationCount: Math.max(0, Math.floor(Number(raw.continuationCount) || 0)),
     scheduled: raw.scheduled === true,
-    targetPage: normalizeTargetPage(raw.targetPage),
+    targetMode: raw.targetMode === 'discover' ? 'discover' : raw.targetMode === 'page' || raw.targetPage ? 'page' : 'discover',
+    targetPage: raw.targetMode === 'discover' ? null : normalizeTargetPage(raw.targetPage),
+    reportPolicy: raw.reportPolicy === 'changes' ? 'changes' : 'always',
+    stopAt: raw.stopAt ? iso(raw.stopAt) : null,
+    stopWhen: text(raw.stopWhen, 4000),
+    maxRoundMinutes: Math.min(30, Math.max(1, Number(raw.maxRoundMinutes) || 5)),
+    observationState: {
+      initialized: raw.observationState?.initialized === true,
+      entries: normalizeObservations(raw.observationState?.entries || [])
+    },
+    roundReport: raw.roundReport && REPORT_KINDS.has(raw.roundReport.kind)
+      ? { executionId: text(raw.roundReport.executionId, 500), kind: raw.roundReport.kind } : null,
+    roundCount: Math.max(0, Math.floor(Number(raw.roundCount) || 0)),
+    lastCheckedAt: raw.lastCheckedAt ? iso(raw.lastCheckedAt) : null,
     createdAt: Number(raw.createdAt) || Date.now(),
     updatedAt: Number(raw.updatedAt) || Date.now()
   };
@@ -190,6 +276,8 @@ export function createTask(store, input = {}) {
   if (!sessionId) throw taskError('TASK_SESSION_REQUIRED', 'Task sessionId is required.');
   const now = nowMs(input.now);
   const dueAt = input.dueAt || input.wakeAt ? iso(input.dueAt || input.wakeAt) : null;
+  const stopAt = input.stopAt ? iso(input.stopAt) : null;
+  if (stopAt && Date.parse(stopAt) <= now) throw taskError('TASK_EXPIRED', 'Task stopAt must be in the future.');
   const sealed = input.contract
     ? sealContract(input.contract, {
         version: 1,
@@ -217,6 +305,11 @@ export function createTask(store, input = {}) {
     continuationCount: 0,
     scheduled: input.scheduled === true,
     targetPage: normalizeTargetPage(input.targetPage),
+    targetMode: input.targetMode,
+    reportPolicy: input.reportPolicy || (input.scheduled ? 'changes' : 'always'),
+    stopAt,
+    stopWhen: input.stopWhen,
+    maxRoundMinutes: input.maxRoundMinutes,
     createdAt: now,
     updatedAt: now
   });
@@ -254,7 +347,7 @@ export function ensureTaskForMessage(store, input = {}) {
 }
 
 export function claimTask(store, taskId, executionId, now = Date.now()) {
-  const task = requireTask(store, taskId);
+  const task = requireUnexpiredTask(store, taskId, now);
   if (TERMINAL.has(task.status)) throw taskError('TASK_TERMINAL', `Task is ${task.status}.`);
   if (task.status === 'running' && task.ownership.executionId !== String(executionId || '')) {
     throw taskError('TASK_BUSY', 'Task is owned by another execution.');
@@ -262,6 +355,7 @@ export function claimTask(store, taskId, executionId, now = Date.now()) {
   return putTask(store, bump(task, {
     status: 'running',
     dueAt: null,
+    roundReport: null,
     ownership: { executionId: String(executionId || '') }
   }, now));
 }
@@ -283,9 +377,13 @@ export function recoverInterruptedTasks(store, now = Date.now()) {
 }
 
 export function updateTaskControl(store, taskId, op, now = Date.now()) {
-  const task = requireTask(store, taskId);
-  if (!['pause', 'resume', 'cancel', 'detach'].includes(op)) {
+  const task = requireUnexpiredTask(store, taskId, now);
+  if (!['pause', 'resume', 'cancel', 'detach', 'unschedule'].includes(op)) {
     throw taskError('TASK_INVALID_OP', `Unknown task update: ${op}`);
+  }
+  if (op === 'unschedule') {
+    if (TERMINAL.has(task.status)) throw taskError('TASK_TERMINAL', `Task is ${task.status}.`);
+    return removeTaskSchedule(store, task, now);
   }
   if (op === 'detach') {
     clearActiveTaskId(store, task.sessionId, task.taskId);
@@ -470,27 +568,37 @@ export function hostTaskMutation(store, args = {}) {
   const input = args.input || {};
   const op = String(input.op || 'inspect');
   if (op === 'schedule') {
+    if (args.taskId) {
+      requireUnexpiredTask(store, args.taskId, args.now);
+      const current = requireOwnedTask(store, args.taskId, args.executionId);
+      if (current.sessionId !== args.sessionId) throw taskError('TASK_SESSION_MISMATCH', 'Task does not belong to this session.');
+      if (input.goal != null && text(input.goal, 100000) !== current.originalGoal) {
+        throw taskError('TASK_SCOPE_CHANGE_REQUIRED', 'schedule only changes timing; use task amend to change the authorized goal.');
+      }
+      const task = putTask(store, bump(current, scheduleConfig(input, args.targetPage, current, args.now), args.now));
+      return { ok: true, task, yield: true, scheduled: true, created: false };
+    }
     const goal = text(input.goal, 100000);
-    const intervalMinutes = Number(input.intervalMinutes) > 0
-      ? Math.max(1, Math.round(Number(input.intervalMinutes)))
-      : null;
-    const wakeAt = input.wakeAt
-      ? iso(input.wakeAt)
-      : intervalMinutes
-        ? new Date(nowMs(args.now) + intervalMinutes * 60_000).toISOString()
-        : null;
-    if (!goal || !wakeAt) throw taskError('TASK_SCHEDULE_INVALID', 'schedule needs goal and wakeAt or intervalMinutes.');
+    if (!goal) throw taskError('TASK_SCHEDULE_INVALID', 'An unbound schedule requires a goal.');
     const scheduled = createTask(store, {
       sessionId: args.sessionId,
       goal,
-      dueAt: wakeAt,
-      intervalMinutes,
-      targetPage: args.targetPage,
-      status: 'waiting',
-      scheduled: true,
+      ...scheduleConfig(input, args.targetPage, null, args.now),
       now: args.now
     });
-    return { ok: true, task: scheduled, yield: false, scheduled: true };
+    return { ok: true, task: scheduled, yield: false, scheduled: true, created: true };
+  }
+  if (op === 'unschedule' || op === 'inspect') {
+    const id = input.taskId || args.taskId;
+    if (!id && op === 'inspect') return { ok: true, tasks: listTasks(store, { sessionId: args.sessionId }), yield: false };
+    const task = requireTask(store, id);
+    if (task.sessionId !== args.sessionId) throw taskError('TASK_SESSION_MISMATCH', 'Task does not belong to this session.');
+    if (op === 'inspect') return { ok: true, task, yield: false };
+    if (TERMINAL.has(task.status)) throw taskError('TASK_TERMINAL', `Task is ${task.status}.`);
+    if (task.status === 'running' && task.ownership.executionId !== String(args.executionId || '')) {
+      throw taskError('TASK_NOT_OWNER', 'Another execution owns this task.');
+    }
+    return { ok: true, task: removeTaskSchedule(store, task, args.now), yield: false, unscheduled: true };
   }
   if (op === 'start') return consumeStartCard(store, args);
   if (op === 'amend') return consumeAmendCard(store, args);
@@ -506,9 +614,11 @@ export function hostTaskMutation(store, args = {}) {
       targetPage: args.targetPage
     });
   }
+  requireUnexpiredTask(store, args.taskId, args.now);
   const task = requireOwnedTask(store, args.taskId, args.executionId);
   if (op === 'inspect') return { ok: true, task, yield: false };
-  if (!['plan', 'checkpoint', 'wait', 'complete'].includes(op)) {
+  if (op === 'observe') return observeTask(store, task, input, args.now);
+  if (!['plan', 'checkpoint', 'wait', 'pause', 'complete'].includes(op)) {
     throw taskError('TASK_INVALID_OP', `Unknown hostTask op: ${op}`);
   }
   const patch = {};
@@ -516,15 +626,43 @@ export function hostTaskMutation(store, args = {}) {
   if (input.summary != null) patch.summary = text(input.summary, 12000);
   if (input.evidence != null) patch.evidence = normalizeEvidence(input.evidence, task.evidence);
   if (input.nextAction != null) patch.nextAction = text(input.nextAction, 4000);
+  if (input.report != null) {
+    if (!REPORT_KINDS.has(input.report)) throw taskError('TASK_INVALID_REPORT', 'Unknown round report kind.');
+    patch.roundReport = { executionId: String(args.executionId || ''), kind: input.report };
+  }
+  if (input.handledKeys != null) {
+    if (!['checkpoint', 'wait'].includes(op) || !Array.isArray(input.handledKeys)) {
+      throw taskError('TASK_INVALID_OBSERVATION', 'handledKeys is an array allowed only on checkpoint/wait.');
+    }
+    const keys = new Set(input.handledKeys.map((key) => observationToken(key, 'handled key', 256)));
+    const known = new Set(task.observationState.entries.map((row) => row.key));
+    if ([...keys].some((key) => !known.has(key))) throw taskError('TASK_INVALID_OBSERVATION', 'handledKeys contains an unobserved key.');
+    patch.observationState = {
+      ...task.observationState,
+      entries: task.observationState.entries.map((row) => ({ ...row, handled: keys.has(row.key) || row.handled }))
+    };
+  }
+  if (input.report === 'quiet' && (patch.observationState || task.observationState).entries.some((entry) => !entry.handled)) {
+    throw taskError('TASK_PENDING_OBSERVATIONS', 'Cannot report quiet while observations still need handling.');
+  }
   if (op === 'checkpoint') {
     patch._lastCheckpointExecutionId = String(args.executionId || '');
     patch._lastCheckpointAt = nowMs(args.now);
   }
   let shouldYield = false;
   if (op === 'wait') {
+    if (input.wakeAt && Date.parse(iso(input.wakeAt)) <= nowMs(args.now)) {
+      throw taskError('TASK_INVALID_TIME', 'wait wakeAt must be in the future.');
+    }
     patch.status = input.wakeAt ? 'waiting' : 'paused';
     patch.dueAt = input.wakeAt ? iso(input.wakeAt) : null;
     patch.ownership = { executionId: null };
+    shouldYield = true;
+  } else if (op === 'pause') {
+    patch.status = 'paused';
+    patch.dueAt = null;
+    patch.ownership = { executionId: null };
+    patch.roundReport = { executionId: String(args.executionId || ''), kind: 'needs_attention' };
     shouldYield = true;
   } else if (op === 'complete') {
     patch.status = 'completed';
@@ -539,18 +677,59 @@ export function hostTaskMutation(store, args = {}) {
   return { ok: true, task: updated, yield: shouldYield };
 }
 
+function observeTask(store, task, input, now) {
+  const observations = normalizeObservations(input.observations);
+  const state = task.observationState;
+  if (input.baseline === true && state.initialized) {
+    throw taskError('TASK_BASELINE_INITIALIZED', 'Baseline is only allowed before the first observation.');
+  }
+  const entries = new Map(state.entries.map((row) => [row.key, { ...row }]));
+  const newCount = observations.filter((row) => !entries.has(row.key)).length;
+  if (entries.size + newCount > MAX_OBSERVATIONS) {
+    throw taskError('TASK_OBSERVATION_LIMIT', `Task observation ledger is full (${MAX_OBSERVATIONS}); narrow the task or start a new task.`);
+  }
+  const changes = [];
+  for (const observation of observations) {
+    const previous = entries.get(observation.key);
+    const changed = previous && previous.fingerprint !== observation.fingerprint;
+    const handled = input.baseline === true && !previous ? true : previous && !changed ? previous.handled : false;
+    const entry = { ...observation, handled: handled === true };
+    entries.set(entry.key, entry);
+    if (!entry.handled) {
+      changes.push({ key: entry.key, fingerprint: entry.fingerprint, summary: entry.summary, kind: !previous ? 'new' : changed ? 'changed' : 'pending' });
+    }
+  }
+  const supplied = new Set(observations.map((row) => row.key));
+  for (const entry of entries.values()) {
+    if (!entry.handled && !supplied.has(entry.key)) {
+      changes.push({ key: entry.key, fingerprint: entry.fingerprint, summary: entry.summary, kind: 'pending' });
+    }
+  }
+  const updated = putTask(store, bump(task, {
+    observationState: { initialized: true, entries: [...entries.values()] },
+    // A later observation must invalidate an earlier "quiet" checkpoint.
+    roundReport: changes.length ? null : task.roundReport
+  }, now));
+  return { ok: true, task: updated, yield: false, changes, initialized: true, total: entries.size };
+}
+
 export function settleTaskAfterTurn(store, args = {}) {
   const task = requireTask(store, args.taskId);
   const executionId = String(args.executionId || '');
   if (task.ownership.executionId && task.ownership.executionId !== executionId) return task;
   const now = nowMs(args.now);
-  if (task.status === 'cancelled' || task.status === 'paused') return task;
-  if (task.status === 'completed' && !(task.intervalMinutes && args.scheduledRun)) return task;
-  if (task.status === 'waiting' && !args.scheduledRun) return task;
+  const checked = args.scheduledRun && !args.error && task._lastSettledExecutionId !== executionId
+    ? { roundCount: task.roundCount + 1, lastCheckedAt: iso(now), _lastSettledExecutionId: executionId } : {};
+  if (task.status === 'cancelled' || task.status === 'failed') return task;
+  if (task.status === 'completed' || task.status === 'paused') {
+    return Object.keys(checked).length ? putTask(store, bump(task, checked, now)) : task;
+  }
+  if (task.stopAt && Date.parse(task.stopAt) <= now) return expireTask(store, task, now);
   if (args.error) {
     const unknown = args.aborted === true || args.deadline === true;
     return putTask(store, bump(task, {
       status: unknown ? 'paused' : 'failed',
+      dueAt: null,
       summary: text(
         args.summary ||
           task.summary ||
@@ -566,10 +745,11 @@ export function settleTaskAfterTurn(store, args = {}) {
       ownership: { executionId: null }
     }, now));
   }
-  if (task.status === 'failed') return task;
+  if (task.status === 'waiting') return putTask(store, bump(task, checked, now));
   const recurring = task.intervalMinutes && args.scheduledRun;
   if (recurring) {
     return putTask(store, bump(task, {
+      ...checked,
       status: 'waiting',
       dueAt: nextIntervalAt(args.previousDueAt || task.dueAt || now, task.intervalMinutes, now),
       summary: text(args.summary || task.summary, 12000),
@@ -581,6 +761,7 @@ export function settleTaskAfterTurn(store, args = {}) {
   // completed is only written by a successful `task complete`. An empty
   // plan or a turn that never completed must stay ready/paused.
   return putTask(store, bump(task, {
+    ...checked,
     status: steps.length ? 'paused' : 'ready',
     dueAt: null,
     summary: text(args.summary || task.summary, 12000),
@@ -592,16 +773,41 @@ export function settleTaskAfterTurn(store, args = {}) {
 export function dueTasks(store, now = Date.now()) {
   const at = nowMs(now);
   return listTasks(store).filter(
-    (task) => task.status === 'waiting' && task.dueAt && Date.parse(task.dueAt) <= at
+    (task) => task.status === 'waiting' && task.dueAt && Date.parse(task.dueAt) <= at && (!task.stopAt || Date.parse(task.stopAt) > at)
   );
 }
 
 export function nextTaskWakeAt(store) {
   const times = listTasks(store)
-    .filter((task) => task.status === 'waiting' && task.dueAt)
-    .map((task) => Date.parse(task.dueAt))
+    .filter((task) => !TERMINAL.has(task.status))
+    .flatMap((task) => [task.status === 'waiting' ? task.dueAt : null, task.stopAt])
+    .filter(Boolean)
+    .map((at) => Date.parse(at))
     .filter(Number.isFinite);
   return times.length ? new Date(Math.min(...times)).toISOString() : null;
+}
+
+function expireTask(store, task, now) {
+  clearActiveTaskId(store, task.sessionId, task.taskId);
+  return putTask(store, bump(task, {
+    status: 'cancelled', dueAt: null, ownership: { executionId: null },
+    summary: 'Task expired at its configured end time; goal completion was not asserted.',
+    nextAction: '',
+    roundReport: { executionId: task.ownership.executionId || '', kind: 'needs_attention' }
+  }, now));
+}
+
+export function expireTasks(store, now = Date.now()) {
+  return listTasks(store).filter((task) => !TERMINAL.has(task.status) && task.stopAt && Date.parse(task.stopAt) <= nowMs(now))
+    .map((task) => expireTask(store, task, now));
+}
+
+function requireUnexpiredTask(store, taskId, now = Date.now()) {
+  const task = requireTask(store, taskId);
+  if (!TERMINAL.has(task.status) && task.stopAt && Date.parse(task.stopAt) <= nowMs(now)) {
+    throw taskError('TASK_EXPIRED', 'Task reached its stopAt deadline and cannot resume.');
+  }
+  return task;
 }
 
 export function deleteTasksForSession(store, sessionId) {

@@ -38,6 +38,7 @@ test('terminal durable tasks are partitioned away from the live stack', () => {
   ]);
   assert.deepEqual(active.map((task) => task.taskId), ['a', 'd']);
   assert.deepEqual(terminal.map((task) => task.taskId), ['b', 'c', 'e']);
-  assert.equal(shouldShowTaskRegion([{ taskId: 'b', status: 'completed' }]), false);
+  assert.equal(shouldShowTaskRegion([]), false);
+  assert.equal(shouldShowTaskRegion([{ taskId: 'b', status: 'completed' }]), true);
   assert.equal(shouldShowTaskRegion([{ taskId: 'a', status: 'waiting' }]), true);
 });

@@ -66,6 +66,8 @@ export function slimAuditEvent(ev = {}) {
   if (ev.op) row.op = String(ev.op).slice(0, 40);
   if (ev.status) row.status = String(ev.status).slice(0, 40);
   if (ev.ok != null) row.ok = ev.ok === true;
+  if (ev.quiet != null) row.quiet = ev.quiet === true;
+  if (ev.scheduledRun != null) row.scheduledRun = ev.scheduledRun === true;
   if (ev.code) row.code = String(ev.code).slice(0, 64);
   if (ev.taskId) row.taskId = String(ev.taskId).slice(0, 160);
   if (ev.executionId) row.executionId = String(ev.executionId).slice(0, 80);

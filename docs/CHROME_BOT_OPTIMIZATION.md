@@ -1,7 +1,7 @@
 # Browser Kitten · Chrome BOT 架构优化与交付说明
 
 日期：2026-09-17  
-版本：`1.2.0-bot-candidate`（manifest.version 为 `1.2.0`）  
+当前 manifest.version：`1.2.0`（无 version_name）
 基线：用户上传的 `BrowserBot.zip` 工作区，包含尚未提交的 Durable Task / tab lease 改动；不是只基于 origin/main 的 v1.1.0。  
 状态：已修改源码、补充回归、修复打包；真实 Chrome / 真模型全链路验收未完成。未提交 commit、未推送仓库、未创建官方 release。
 
@@ -19,7 +19,7 @@
 | Execution：本次执行 | 单 session 执行槽、取消、工具循环、资源归属 | 不跨崩溃续接原始调用栈，不等于永久后台进程 |
 | 浏览器宿主 | 校验调用者、占用 tab、核验文档、派发 action/sys、返回事实或未知 | 不替模型认定业务目标已完成，不盲目重试写操作 |
 
-用户审查文档 §1 明确保留的边界，本次均未改：普通 send 不自动建 task；同 session 不并发 turn；不做 call journal、exactly-once 和盲目副作用重放；不增加 hop 上限；不隐藏工具；不加 native companion；不上 CWS；不改 `browserbot_*` 存储键；不要求用户换 Chrome profile。
+当前代码的会话槽、call journal、Task 绑定与权限行为见根 AGENTS.md 及嵌套技术说明。本文以下验收记录属于历史记录，不代表当前源码已通过真实 Chrome 验收。
 
 ## 2. 优化后的主要执行路径
 
@@ -176,7 +176,7 @@ python3 scripts/verify_extension.py extension --source .
 
 原扩展的加载根仍是仓库根。要保留原扩展身份和已有数据，优先在原路径更新文件后重新加载，不要先卸载原扩展。运行 ZIP 解压后的根目录有 manifest.json，可作为单独候选测试目录；新路径加载不要默认视为迁移了旧扩展数据。
 
-最低 Chrome 版本仍为 135，未新增权限。User Scripts 的开关按现有产品要求配置；Chrome 138+ 为扩展卡上的 Allow User Scripts。[4] CDP 仍显示浏览器原有调试提示，不隐藏横幅。
+最低 Chrome 版本仍为 135，未新增权限。User Scripts 的开关按现有权限接线配置；Chrome 138+ 为扩展卡上的 Allow User Scripts。[4] CDP 仍显示浏览器原有调试提示，不隐藏横幅。
 
 已有 Playwright 环境可运行（不引入 npm 构建依赖）：
 
@@ -187,11 +187,11 @@ BROWSERBOT_CHROMIUM_EXECUTABLE=/path/to/chromium BROWSERBOT_HEADLESS=false \
   BROWSERBOT_LOAD_ROOT=extension node tests/browser-smoke.cjs /path/to/playwright
 ```
 
-脚本使用临时独立 profile、不读取日常浏览数据；该 profile 仅用于隔离测试，不是产品要求的多任务运行方案。脚本覆盖存储、沙箱、artifact 冲突及部分 RPC 原生边界；下列生命周期情境仍须另外人工验收：
+脚本使用临时独立 profile、不读取日常浏览数据；该 profile 仅用于隔离测试，不代表正常运行需要切换 profile。脚本覆盖存储、沙箱、artifact 冲突及部分 RPC 原生边界；下列生命周期情境仍须另外人工验收：
 
 | 情境 | 预期 |
 |---|---|
-| 普通 send / 主动 schedule | 普通 send 不建任务；明确 schedule 才出现 task |
+| 普通 send / 主动 schedule | 普通 send 不自动新建任务；确认后的 start / 勾选长任务的 plan 或显式 schedule 创建 task，已有 activeTaskId 会延续上下文 |
 | A 占有 tab，B 点击/关闭同 tab | B 收到 TAB_LEASED，不应产生该页面副作用 |
 | action snapshot 后刷新同 URL / SPA 切页 | 旧 rev 被拒绝，重新 snapshot 后才允许动作 |
 | 运行中 SW 被浏览器终止后再触发调用 | 活动执行的锁保留；旧快照必须重取；不自动重放旧写入 |

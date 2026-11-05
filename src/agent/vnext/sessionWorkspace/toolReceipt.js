@@ -38,7 +38,7 @@ export const TOOL_FAILURE_HINTS = Object.freeze({
   TAB_LEASED: 'wait for the other session to finish, or target a different tabId',
   TAB_NOT_VISIBLE: 'bring the tab into a visible window, then snapshot, listen or record again',
   TARGET_CHANGED: 'action op=snapshot on the current document, then retry with the new rev',
-  TASK_UNAVAILABLE: 'continue without task, or schedule only when the user asked for a future/recurring job',
+  TASK_UNAVAILABLE: 'continue within the authorized goal; use a task-capable host when waiting or future follow-up is needed',
   TASK_YIELDED: 'stop calling tools this turn; wait or complete already yielded',
   TICKET_REQUIRED: 'retry the same call after the host approval ticket is issued',
   TOO_LARGE: 'use a file under the size cap, or sys.fetch as:"page" with saveTo',

@@ -1,6 +1,6 @@
 # Side panel modules (vanilla)
 
-产品分层见根 [AGENTS.md](../../AGENTS.md)；宿主 RPC 见 [../AGENTS.md](../AGENTS.md)。
+进程分层见根 [AGENTS.md](../../AGENTS.md)；宿主 RPC 见 [../AGENTS.md](../AGENTS.md)。
 
 Production UI entry remains **`src/sidepanel.html`** → **`src/sidepanel.js`** (orchestrator).
 
@@ -64,7 +64,7 @@ src/sidepanel/
   trajectoryUi.js    # mountTaskTrajectoryButton + downloadTaskTrajectory
   sessionIsolation.js # session-scoped broadcast / plan-card / preview-tab match
   executionSync.js   # parse offscreen activeExecution (live run vs leftover store rows)
-  taskStatus.js      # durable task cards; listTasks scoped to active session
+  taskStatus.js      # composer durable-task drawer; listTasks scoped to active session
   thinkUi.js         # one think bar per turn; Enter/Space + aria-expanded; seal keeps body
   executionStatus.js # host-fact current / next=task.nextAction only; approval/journal phases; disclosureMode
   botStatusUi.js     # hidden announcer; nextStatusCopy meta only when no nextAction
@@ -75,11 +75,11 @@ src/sidepanel/
   README.md
 ```
 
-`sidepanel.js` still owns `currentLang`, session state, and agent event loop; domain modules take deps/getters.
+`sidepanel.js` still owns `currentLang`, session state, and agent event rendering; domain modules take deps/getters.
 
 ## Layout contract (whole-panel scroll)
 
-**Product rule:** one scroll for the entire side panel — not nested scrolls per section.
+**Scroll layout:** one main conversation scrollport; bounded drawers and previews may scroll independently, without per-card scrollports.
 History and the live task share `.thread-workspace` (same block). Sticky: topbar + composer.
 
 Source of truth: **`css/layout.css`**.
@@ -93,7 +93,7 @@ Source of truth: **`css/layout.css`**.
 | Same-level blocks in scroll | context, selection, drafts, **`.thread-workspace`** (history + task-stream) — all `overflow: visible`, no nested max-height traps |
 | `#taskStream` | document flow only (not a scrollport) |
 | History | lives **inside** `.thread-workspace` with the live task |
-| Durable task cards | `taskStatus.js`：仅 `ready` / `running` / `waiting` / `paused` 显著；终态（completed/failed/cancelled）折进 `<details>`。无 live task 时不画空「进行中」区 |
+| Durable task drawer | `footer.composer > #durableTaskDock`，在模型/参考浮层上方，随 composer portal 移动，不进 `.task-body` 或聊天顶部。外层与单张任务均默认 `<details>` 折叠、按会话保留展开选择；面板内容限高 `min(38vh, 320px)` 独立滚动，无单卡滚动。终态（completed/failed/cancelled）折进已结束区；只有终态仍可查看，完全无任务时隐藏 dock |
 | Tab lease copy | `TAB_LEASED` / `NEED_EXPLICIT_TAB` 走 `tabLeaseUi.js` + `i18n.tabLeased` / `needExplicitTab`；文案是停对方或换标签，不引导新 Chrome profile |
 
 `scroll.js` relays wheel onto the active scrollport and applies edge fades. Starlight `.is-scrolling` is per scrollport: `.think-body-wrap` wins over `.task-body` (think-block chrome does not promote to the chat bar). Only the thumb lights (6px chat / 4px think); particles clip to that pill, not a full-height column.
@@ -115,6 +115,8 @@ Trajectory controls live in **`trajectoryUi.js`** (`createTrajectoryUi({ t, getL
 5. i18n: edit strings in `i18n.js`; orchestrator keeps `currentLang` + `applyI18n()`.
 
 Durable task cards（`taskStatus.js`）≠ 对话流里的 live `.task-card`（仍在 `sidepanel.js` 的 `createTaskCard`）。
+
+本地定时任务在输入区上方的独立折叠抽屉里管理，展开单张卡片后显示固定页面 URL / 自主寻找来源、最近检查、下次唤醒、截止时间、语义结束条件与报告策略。绑定任务自主调整调度时更新同一卡片；继续使用原有暂停 / 继续 / 取消，存在自动唤醒时另显示「停止自动唤醒」（`updateTask op=unschedule`），保留目标、进度与观察基线。`execution-start scheduledRun` 为后台轮次建立独立的临时活动区域；`execution-end quiet` 清掉该轮区域，不写本地助手消息，也不移除之前已完成的对话。`setupSidepanelWheelRelay` 排除 dock，展开抽屉到底后也不移动聊天正文。
 
 `/plan` 与 task-start/amend 确认卡在线程里是 `.clarify-live.is-plan`。普通计划卡多一项默认勾选的「同时开启长任务」；task-start/amend 不加这项。批准 / 拒绝 / 提交修改后立刻收成一行 `.plan-receipt`（默认折叠，只留「已批准|未批准|需修改 · 标题」），不把完整步骤留在画面上。展开才能再看摘要和步骤。
 

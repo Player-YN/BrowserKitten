@@ -95,6 +95,7 @@ import {
   cloneTaskValue,
   deleteTasksForSession,
   dueTasks,
+  expireTasks,
   getTask as readTask,
   hostTaskMutation,
   listTasks as readTasks,
@@ -552,6 +553,10 @@ export class SessionWorkspaceService {
     if (!task?.taskId) return null;
     // BUSY/TERMINAL: this turn must not run the task. Do not mark failed,
     // and do not steal a live owner or rewrite a finished record.
+    if (code === 'TASK_EXPIRED') {
+      await this._expireTaskSchedules();
+      return readTask(this.runtime.store, task.taskId);
+    }
     if (code === 'TASK_BUSY' || code === 'TASK_TERMINAL') {
       const current = readTask(this.runtime.store, task.taskId);
       if (current) this._broadcastTaskChanged(current);
@@ -577,6 +582,8 @@ export class SessionWorkspaceService {
     return {
       sessionId: sid,
       executionId: slot.executionId || null,
+      taskId: slot.taskId || null,
+      scheduledRun: slot.scheduledRun === true,
       status: 'running'
     };
   }
@@ -602,6 +609,13 @@ export class SessionWorkspaceService {
   _broadcastUiEvent(event) {
     try {
       const sid = event?.sessionId;
+      const slot = this._activeBySession.get(sid);
+      if (slot?.scheduledRun && (!event.executionId || event.executionId === slot.executionId) &&
+        (['approval-required', 'policy', 'policy-blocked', 'clarify', 'error', 'deadline',
+          'listen-grant-required', 'record-grant-required'].includes(event.type) ||
+          ['unknown', 'needs_human', 'awaiting_approval'].includes(event.state))) {
+        slot.needsAttention = true;
+      }
       if (
         sid &&
         !this.runtime.store.has('sessions', sid) &&
@@ -1181,9 +1195,18 @@ export class SessionWorkspaceService {
   }
 
   async updateTask({ taskId, op } = {}) {
+    await this._ready();
+    await this._expireTaskSchedules();
     const before = readTask(this.runtime.store, taskId);
     if (!before) throw Object.assign(new Error(`Unknown task ${taskId || ''}.`), { code: 'TASK_NOT_FOUND' });
+    if (op === 'resume') {
+      await this._awaitSessionIdle(before.sessionId);
+      if (this._activeBySession.has(before.sessionId)) {
+        throw Object.assign(new Error('The previous execution is still stopping; resume after it ends.'), { code: 'SESSION_BUSY' });
+      }
+    }
     const task = await this._commitTaskMutation(() => updateTaskControl(this.runtime.store, taskId, op));
+    if (op === 'unschedule') this._clearTaskRoundDeadline(task.sessionId, task.taskId);
     if ((op === 'pause' || op === 'cancel' || op === 'detach') && before.ownership?.executionId) {
       await this.abortExecution({ sessionId: before.sessionId, executionId: before.ownership.executionId });
     }
@@ -1207,6 +1230,7 @@ export class SessionWorkspaceService {
 
   async runDueTasks({ now = Date.now() } = {}) {
     await this._ready();
+    const expired = await this._expireTaskSchedules(now);
     const launched = [];
     const skipped = [];
     for (const task of dueTasks(this.runtime.store, now)) {
@@ -1214,7 +1238,7 @@ export class SessionWorkspaceService {
         skipped.push({ taskId: task.taskId, reason: 'busy' });
         continue;
       }
-      const tabId = Number(task.targetPage?.tabId ?? task.targetPage?.id);
+      const tabId = task.targetMode === 'discover' ? null : Number(task.targetPage?.tabId ?? task.targetPage?.id);
       if (Number.isFinite(tabId) && tabId > 0) {
         const lease = await this._peekTabLease(tabId);
         if (this._foreignTabLease(lease, task.sessionId)) {
@@ -1230,7 +1254,58 @@ export class SessionWorkspaceService {
       this._launchTask(task);
       launched.push(task.taskId);
     }
-    return { ok: true, launched, skipped };
+    return { ok: true, launched, skipped, expired: expired.map(task => task.taskId) };
+  }
+
+  async _expireTaskSchedules(now = Date.now()) {
+    const hasExpired = readTasks(this.runtime.store).some(task =>
+      !['completed', 'failed', 'cancelled'].includes(task.status) && task.stopAt && Date.parse(task.stopAt) <= now);
+    if (!hasExpired) return [];
+    const expired = await this._commitTaskMutation(() => expireTasks(this.runtime.store, now));
+    for (const task of expired) {
+      const slot = this._activeBySession.get(task.sessionId);
+      if (slot?.taskId === task.taskId) {
+        await this._stopTaskRound(task.sessionId, slot.controller, 'TASK_EXPIRED',
+          'The scheduled task reached its end time. Inspect any operation already dispatched before restarting.');
+      }
+    }
+    return expired;
+  }
+
+  async _stopTaskRound(sessionId, controller, code, message) {
+    const slot = this._activeBySession.get(sessionId);
+    if (!slot || slot.controller !== controller || controller.signal.aborted) return;
+    const reason = Object.assign(new Error(message), { name: 'AbortError', code });
+    controller.abort(reason);
+    abortSessionClarifies(sessionId);
+    this._broadcastUiEvent({ type: 'deadline', sessionId, executionId: slot.executionId, code, message });
+    await Promise.allSettled([
+      this._listenRuntime?.abort({ sessionId, executionId: slot.executionId }),
+      this._cleanupExecutionPolicy(sessionId, slot.executionId)
+    ]);
+    await this._releaseTabLeases(sessionId, slot.executionId);
+  }
+
+  _armTaskRoundDeadline(task, sessionId, controller) {
+    const now = Date.now();
+    const minutes = Math.max(1, Math.min(30, Number(task.maxRoundMinutes) || 5));
+    const budgetAt = now + minutes * 60_000;
+    const stopAt = task.stopAt ? Date.parse(task.stopAt) : Infinity;
+    const expiryFirst = stopAt <= budgetAt;
+    return setTimeout(() => {
+      const stopping = expiryFirst
+        ? this._expireTaskSchedules()
+        : this._stopTaskRound(sessionId, controller, 'TASK_ROUND_TIMEOUT',
+            `This check exceeded its ${minutes}-minute time budget. Inspect the current state before resuming; the previous outcome may be unknown.`);
+      void stopping.catch(error => console.warn('[tasks] deadline cleanup failed', error));
+    }, Math.max(0, Math.min(budgetAt, stopAt) - now));
+  }
+
+  _clearTaskRoundDeadline(sessionId, taskId) {
+    const slot = this._activeBySession.get(sessionId);
+    if (slot?.taskId !== taskId || slot.taskDeadlineTimer == null) return;
+    clearTimeout(slot.taskDeadlineTimer);
+    slot.taskDeadlineTimer = null;
   }
 
   _foreignTabLease(lease, sessionId) {
@@ -1283,8 +1358,12 @@ export class SessionWorkspaceService {
   }
 
   async _runTask(task) {
+    await this._ready();
+    await this._expireTaskSchedules();
+    task = readTask(this.runtime.store, task.taskId);
+    if (!task || !['ready', 'waiting'].includes(task.status)) return;
     let target = { ok: true, tab: null };
-    if (task.targetPage) {
+    if (task.targetMode !== 'discover' && task.targetPage) {
       try {
         target = this._resolveTaskPage
           ? await this._resolveTaskPage(task.targetPage)
@@ -1297,6 +1376,10 @@ export class SessionWorkspaceService {
         target = { ok: false, code: 'TASK_TARGET_MISSING', error: error?.message || String(error) };
       }
     }
+    // Target lookup can outlive a user pause/cancel or the schedule's deadline.
+    await this._expireTaskSchedules();
+    task = readTask(this.runtime.store, task.taskId);
+    if (!task || !['ready', 'waiting'].includes(task.status)) return;
     if (!target?.ok) {
       await this._commitTaskMutation(() =>
         settleTaskAfterTurn(this.runtime.store, {
@@ -1886,6 +1969,7 @@ export class SessionWorkspaceService {
     }
     let durableTask = null;
     let releasedTask = null;
+    let taskDeadlineTimer = null;
     const controller = new AbortController();
     let settleSlot = () => {};
     const finished = new Promise(resolve => { settleSlot = resolve; });
@@ -1919,6 +2003,15 @@ export class SessionWorkspaceService {
         } else {
           clearActiveTaskId(this.runtime.store, sessionId, activeId);
         }
+      }
+    }
+    const taskSlot = this._activeBySession.get(sessionId);
+    if (durableTask) {
+      taskSlot.taskId = durableTask.taskId;
+      taskSlot.scheduledRun = durableTask.scheduled === true && taskContinuation === true;
+      if (taskSlot.scheduledRun) {
+        taskDeadlineTimer = this._armTaskRoundDeadline(durableTask, sessionId, controller);
+        taskSlot.taskDeadlineTimer = taskDeadlineTimer;
       }
     }
     if (role === 'user' && Array.isArray(attachments) && attachments.length) {
@@ -2055,6 +2148,7 @@ export class SessionWorkspaceService {
         taskContext: durableTask,
         taskRun: !!(taskRun && durableTask),
         taskContinuation: taskContinuation === true,
+        taskNeedsAttention: () => this._activeBySession.get(sessionId)?.needsAttention === true,
         getTaskContext: () => {
           const id = durableTask?.taskId || getActiveTaskId(this.runtime.store, sessionId);
           return id ? readTask(this.runtime.store, id) : null;
@@ -2071,7 +2165,7 @@ export class SessionWorkspaceService {
             });
             if (
               out?.task &&
-              (input?.op === 'start' || input?.op === 'amend' || (input?.op === 'plan-start' && out.created))
+              (out.task.taskId === durableTask?.taskId || input?.op === 'start' || input?.op === 'amend' || (input?.op === 'plan-start' && out.created))
             ) {
               durableTask = out.task;
               if (slot) slot.taskId = out.task.taskId;
@@ -2088,6 +2182,11 @@ export class SessionWorkspaceService {
               dueAt: out?.task?.dueAt,
               ok: out?.ok !== false
             });
+            return out;
+          }).then(out => {
+            if (input?.op === 'unschedule' && out?.ok !== false) {
+              this._clearTaskRoundDeadline(sessionId, out.task?.taskId);
+            }
             return out;
           }),
         taskShouldYield: () => {
@@ -2108,6 +2207,10 @@ export class SessionWorkspaceService {
           if (slot) slot.executionId = executionId;
           if (durableTask?.taskId) {
             try {
+              const current = readTask(this.runtime.store, durableTask.taskId);
+              if (taskRun && taskContinuation && current?.status === 'paused') {
+                throw Object.assign(new Error('Task was paused before this check started.'), { code: 'TASK_PAUSED' });
+              }
               durableTask = await this._commitTaskMutation(() =>
                 claimTask(this.runtime.store, durableTask.taskId, executionId)
               );
@@ -2128,7 +2231,10 @@ export class SessionWorkspaceService {
           this._broadcastUiEvent({
             type: 'execution-start',
             sessionId,
-            executionId
+            executionId,
+            taskId: durableTask?.taskId || null,
+            taskRun: taskRun === true,
+            scheduledRun: durableTask?.scheduled === true && taskContinuation === true
           });
         },
         onEvent: (ev) => {
@@ -2151,6 +2257,7 @@ export class SessionWorkspaceService {
           taskYielded: false
         };
       }
+      controller.signal.throwIfAborted();
       if (durableTask?.taskId) {
         durableTask = await this._commitTaskMutation(() => {
           const current = readTask(this.runtime.store, durableTask.taskId);
@@ -2171,13 +2278,15 @@ export class SessionWorkspaceService {
         try {
           const executionId = this._activeBySession.get(sessionId)?.executionId || '';
           const aborted = controller.signal.aborted || isAbortLike(error);
+          const deadlineReason = controller.signal.reason;
+          const hostDeadline = ['TASK_ROUND_TIMEOUT', 'TASK_EXPIRED'].includes(deadlineReason?.code);
           durableTask = await this._commitTaskMutation(() =>
             settleTaskAfterTurn(this.runtime.store, {
               taskId: durableTask.taskId,
               executionId,
               error: true,
               aborted,
-              summary: aborted
+              summary: hostDeadline ? deadlineReason.message : aborted
                 ? 'Previous execution ended before its outcome was recorded.'
                 : error?.message || 'Execution failed.',
               nextAction: aborted
@@ -2191,6 +2300,7 @@ export class SessionWorkspaceService {
       }
       throw error;
     } finally {
+      if (taskDeadlineTimer !== null) clearTimeout(taskDeadlineTimer);
       try {
         const endingId = this._activeBySession.get(sessionId)?.executionId;
         await this._listenRuntime?.abort({ sessionId, executionId: endingId });

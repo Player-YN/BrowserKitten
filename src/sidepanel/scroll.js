@@ -198,7 +198,7 @@ export function setupSidepanelWheelRelay() {
     if (!(target instanceof Element)) return;
     if (
       target.closest(
-        '.modal-overlay, .more-sheet, .settings-modal, .sheet-backdrop, .pw-dialog, dialog, [role="dialog"], .think-body-wrap, .think-block, .think-body'
+        '.modal-overlay, .more-sheet, .settings-modal, .sheet-backdrop, .pw-dialog, dialog, [role="dialog"], .think-body-wrap, .think-block, .think-body, .durable-task-dock'
       )
     ) {
       return;

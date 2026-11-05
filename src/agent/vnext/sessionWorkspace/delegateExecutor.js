@@ -598,6 +598,19 @@ export async function runDelegateLoop(opts) {
   }
 }
 
+/** Probe the same chat route and decision format used by actual page execution. */
+export async function probeExecutor(config, opts = {}) {
+  const result = await fetchExecutorStep(config, {
+    subgoal: 'Connectivity check only. The goal is already reached; reply with {"action":"done"}. Do not operate a page.',
+    controls: [], data: [], history: []
+  }, opts);
+  if (!result.ok) return result;
+  const step = parseExecutorStep(result.text, { controls: [], data: [], hasImage: false });
+  return step.ok && step.action === 'done'
+    ? { ok: true }
+    : { ok: false, code: 'NOT_JEV', error: 'The model did not return a valid System1 completion decision.' };
+}
+
 /** OpenAI-compatible chat URL for a System1 provider record (strips a /systemone suffix). */
 export function executorChatUrl(apiBase) {
   const base = String(apiBase || '').trim().replace(/\/$/, '').replace(/\/systemone$/i, '');

@@ -10,9 +10,9 @@ import {
   putTaskCard
 } from './taskContract.js';
 
-const OPS = ['inspect', 'plan', 'checkpoint', 'wait', 'complete', 'schedule', 'start', 'amend'];
-const TERMINAL_OPS = new Set(['wait', 'complete']);
-const TERMINAL_STATUSES = new Set(['waiting', 'completed', 'complete']);
+const OPS = ['inspect', 'plan', 'checkpoint', 'observe', 'wait', 'pause', 'complete', 'schedule', 'unschedule', 'start', 'amend'];
+const TERMINAL_OPS = new Set(['wait', 'pause', 'complete', 'schedule']);
+const TERMINAL_STATUSES = new Set(['waiting', 'paused', 'cancelled', 'failed', 'completed', 'complete']);
 
 function terminalTask(task) {
   return !!(task && TERMINAL_STATUSES.has(String(task.status || '').toLowerCase()));
@@ -235,11 +235,12 @@ export function createTaskTool(env = {}) {
   return {
     name: 'task',
     description:
-      'Durable work after the user confirms a contract. start opens a task-start card (goal, scope, constraints, acceptance, first steps) — only a UI receipt creates the task and binds this turn. An ordinary /plan card creates a task only when the user leaves “start durable task” checked on that same card; unchecking pins this turn only. amend opens a change card when goal/scope/acceptance must change; plan/checkpoint update progress only. wait/complete persist and yield. schedule is future/recurring work the user explicitly asked for. Propose start for resume/wait/multi-stage delivery; do not pop a card every turn or after a fixed message count.',
+      'Manage durable work within the user-authorized goal. start/amend use a contract card. Autonomously schedule, adjust and remove wakeups when waiting, revisiting or following up is needed; the user need not explicitly request a timer. Bound schedule updates this same task and yields; goal optional and unchanged. Unbound schedule creates future work with a goal. Default new target discover; page binds a URL. unschedule removes automatic wakeups while preserving progress and continuing the current turn; optional taskId targets another task in this session. inspect reads the current/specified task or lists this session\'s tasks when unbound. observe compares stable keys/fingerprints before acting; acknowledge verified handling with checkpoint/wait handledKeys. wait ends a round, pause yields for attention, complete permanently ends the goal. quiet only for no meaningful change. Stop unneeded wakeups; never expand the user\'s goal through scheduling.',
     parameters: {
       type: 'object',
       properties: {
         op: { type: 'string', enum: OPS },
+        taskId: { type: 'string', description: 'Optional inspect/unschedule target; must belong to this session' },
         steps: {
           type: 'array',
           items: {
@@ -255,12 +256,40 @@ export function createTaskTool(env = {}) {
         evidence: { type: 'array', items: { type: 'string' } },
         nextAction: { type: 'string' },
         wakeAt: { type: 'string', description: 'ISO-8601 timestamp for wait or schedule' },
-        goal: { type: 'string', description: 'Goal for start, amend, or a separately scheduled future task' },
+        goal: { type: 'string', description: 'Goal for start/amend or an unbound schedule; bound schedule inherits the current goal' },
         scope: { type: 'string' },
         constraints: { type: 'array', items: { type: 'string' } },
         acceptance: { type: 'array', items: { type: 'string' } },
         sources: { type: 'array', items: { type: 'string' } },
-        intervalMinutes: { type: 'number', description: 'Positive recurrence interval for schedule' }
+        intervalMinutes: { type: 'number', description: 'Positive recurrence interval for schedule; minutes, minimum 1' },
+        target: {
+          type: 'object',
+          properties: {
+            mode: { type: 'string', enum: ['discover', 'page'] },
+            url: { type: 'string', description: 'HTTP(S) URL for page mode; defaults to the current page' },
+            tabId: { type: 'integer' }
+          },
+          required: ['mode']
+        },
+        reportPolicy: { type: 'string', enum: ['changes', 'always'], description: 'schedule report policy; default changes' },
+        stopAt: { type: 'string', description: 'Optional future ISO deadline; host cancels the responsibility at this time' },
+        stopWhen: { type: 'string', description: 'Optional semantic stop condition; evaluate against observations and complete when verified' },
+        maxRoundMinutes: { type: 'number', description: 'Scheduled round execution budget, default 5, clamped to 1..30 minutes' },
+        observations: {
+          type: 'array', maxItems: 512,
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', maxLength: 256, description: 'Stable source+item ID, never a list position' },
+              fingerprint: { type: 'string', maxLength: 1024, description: 'Stable relevant content/version digest, not a check timestamp' },
+              summary: { type: 'string' }
+            },
+            required: ['key', 'fingerprint']
+          }
+        },
+        baseline: { type: 'boolean', description: 'Only before first observe: acknowledge existing items when user wants future changes only' },
+        handledKeys: { type: 'array', items: { type: 'string' }, description: 'checkpoint/wait only: stable keys whose handling was verified' },
+        report: { type: 'string', enum: ['quiet', 'changed', 'action', 'needs_attention'], description: 'Report kind for this round; quiet rejected while pending entries remain' }
       },
       required: ['op']
     },
@@ -282,24 +311,24 @@ export function createTaskTool(env = {}) {
       }
       if (op === 'schedule') {
         const goal = String(input.goal || '').trim();
-        const intervalMinutes = Number(input.intervalMinutes);
+        const intervalMinutes = Number(input.intervalMinutes ?? currentTask(env)?.intervalMinutes);
         const wakeAt = String(input.wakeAt || '').trim();
-        if (!goal || (!wakeAt && !(intervalMinutes > 0))) {
+        if ((!goal && !currentTask(env)?.taskId) || (!wakeAt && !(intervalMinutes > 0))) {
           return {
             ok: false,
             code: 'BAD_INPUT',
-            error: 'schedule requires goal and wakeAt or a positive intervalMinutes'
+            error: 'schedule requires wakeAt or positive intervalMinutes; an unbound schedule also requires goal'
           };
         }
       }
       if (op === 'wait' && !String(input.wakeAt || '').trim()) {
         return { ok: false, code: 'BAD_INPUT', error: 'wait requires wakeAt' };
       }
-      if (op === 'wait' && (!String(input.summary || '').trim() || !String(input.nextAction || '').trim())) {
+      if (['wait', 'pause'].includes(op) && (!String(input.summary || '').trim() || !String(input.nextAction || '').trim())) {
         return {
           ok: false,
           code: 'BAD_INPUT',
-          error: 'wait requires summary and nextAction so a later execution can resume safely'
+          error: `${op} requires summary and nextAction so a later execution can resume safely`
         };
       }
       if (
@@ -317,12 +346,22 @@ export function createTaskTool(env = {}) {
       const payload = { op };
       for (const key of [
         'steps',
+        'taskId',
         'summary',
         'evidence',
         'nextAction',
         'wakeAt',
         'goal',
-        'intervalMinutes'
+        'intervalMinutes',
+        'target',
+        'reportPolicy',
+        'stopAt',
+        'stopWhen',
+        'maxRoundMinutes',
+        'observations',
+        'baseline',
+        'handledKeys',
+        'report'
       ]) {
         if (input[key] !== undefined) payload[key] = input[key];
       }

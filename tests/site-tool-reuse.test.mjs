@@ -26,11 +26,11 @@ function sessionTools() {
 }
 
 test('prefix prefers ready-made site tools and does not dump the skill body', () => {
-  assert.equal(SYSTEM_PROMPT_VERSION, 'v26-system1-clicks');
+  assert.equal(SYSTEM_PROMPT_VERSION, 'v27-agent-personality');
   const prefix = buildSessionAgentInstructions();
-  assert.match(prefix, /你是"Browser Kitten"/);
-  assert.match(prefix, /不预设某种工具或路径总是更好/);
-  assert.match(prefix, /也可以编写代码或组合多种能力/);
+  assert.match(prefix, /You are Browser Kitten/);
+  assert.match(prefix, /Choose methods according to their suitability, reliability, effort, and cost/);
+  assert.match(prefix, /combine their capabilities with code and other available tools/);
   // v13 site-tool-reuse principle sentences are not required in the prefix
   assert.doesNotMatch(prefix, /先募集现成工具/);
   assert.doesNotMatch(prefix, /run 是胶水/);

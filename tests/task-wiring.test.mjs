@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { SessionWorkspaceService } from '../src/agent/vnext/service/sessionWorkspaceService.js';
 import { SessionWorkspaceStore } from '../src/agent/vnext/sessionWorkspace/store.js';
+import { sendMessage, shouldPublishTaskRound } from '../src/agent/vnext/sessionWorkspace/sendMessage.js';
 import {
   claimTask,
   cloneTaskValue,
@@ -24,6 +25,99 @@ function storeWithSession(sessionId = 's1') {
   service.ensureSession(sessionId);
   return { store, service, sessionId };
 }
+
+test('only an explicit quiet report for this scheduled execution may hide its output', () => {
+  const task = {
+    scheduled: true, reportPolicy: 'changes', status: 'waiting',
+    roundReport: { executionId: 'exec_1', kind: 'quiet' }
+  };
+  const round = { task, executionId: 'exec_1', taskContinuation: true };
+  assert.equal(shouldPublishTaskRound(round), false);
+  for (const patch of [
+    { taskContinuation: false }, { executionId: 'exec_2' }, { needsAttention: true },
+    { task: { ...task, scheduled: false } },
+    { task: { ...task, reportPolicy: 'always' } },
+    { task: { ...task, status: 'paused' } },
+    { task: { ...task, status: 'completed' } },
+    { task: { ...task, roundReport: null } },
+    ...['changed', 'action', 'needs_attention'].map((kind) => ({
+      task: { ...task, roundReport: { executionId: 'exec_1', kind } }
+    }))
+  ]) assert.equal(shouldPublishTaskRound({ ...round, ...patch }), true);
+});
+
+test('a host round deadline remains visible with its reason rather than user stop', async () => {
+  const { store, sessionId } = storeWithSession();
+  const controller = new AbortController();
+  const reason = Object.assign(new Error('Scheduled check exceeded its time budget.'), {
+    name: 'AbortError', code: 'TASK_ROUND_TIMEOUT'
+  });
+  const events = [];
+  await assert.rejects(() => sendMessage(store, {
+    sessionId, content: '', taskContinuation: true,
+    taskContext: { scheduled: true, reportPolicy: 'changes', status: 'running' },
+    signal: controller.signal,
+    callModel: async () => {
+      controller.abort(reason);
+      throw reason;
+    },
+    onEvent: (event) => events.push(event)
+  }), (error) => error.code === 'TASK_ROUND_TIMEOUT');
+  const assistant = store.get('sessions', sessionId).messages.at(-1);
+  assert.equal(assistant.status, 'aborted');
+  assert.equal(assistant.error.code, 'TASK_ROUND_TIMEOUT');
+  assert.match(assistant.error.message, /time budget/);
+  assert.ok(events.some((event) => event.type === 'deadline' && event.code === 'TASK_ROUND_TIMEOUT'));
+  assert.ok(events.some((event) => event.type === 'execution-end' && event.code === 'TASK_ROUND_TIMEOUT'));
+});
+
+test('quiet scheduled checks save task state without conversation traces; changed checks publish', async () => {
+  const { store, service, sessionId } = storeWithSession();
+  const task = createTask(store, {
+    sessionId, goal: 'Watch new entries', scheduled: true, intervalMinutes: 1,
+    reportPolicy: 'changes', status: 'waiting', dueAt: new Date(Date.now() - 1000).toISOString()
+  });
+  for (const [report, taskContinuation] of [['quiet', true], ['changed', true], ['quiet', false]]) {
+    const events = [];
+    let modelCalls = 0;
+    const before = store.get('sessions', sessionId).messages.length;
+    const quiet = report === 'quiet' && taskContinuation;
+    const result = await service.sendMessage({
+      sessionId, taskId: task.taskId, taskRun: true, taskContinuation, scheduledRun: true,
+      content: taskContinuation ? '' : 'Check now and tell me the result.',
+      callModel: async () => {
+        modelCalls++;
+        assert.equal(store.get('sessions', sessionId).turnProgress, undefined);
+        return {
+          text: report === 'quiet' ? 'Checked; no new entries.' : 'One new entry found.',
+          toolCalls: [{ id: `wait_${report}`, name: 'task', args: {
+            op: 'wait', report, summary: `Check result: ${report}`,
+            nextAction: 'Read the source and compare with the saved baseline.',
+            wakeAt: new Date(Date.now() + 60000).toISOString()
+          } }]
+        };
+      },
+      onEvent: (event) => events.push(event)
+    });
+    assert.equal(modelCalls, 1, 'wait yields without an extra model call');
+    assert.equal(result.task.status, 'waiting');
+    assert.equal(result.task.roundReport.kind, report);
+    assert.equal(result.quiet, quiet);
+    const messages = store.get('sessions', sessionId).messages;
+    assert.equal(messages.length, before + (taskContinuation ? 0 : 1) + (quiet ? 0 : 1));
+    assert.equal(store.get('sessions', sessionId).turnProgress, undefined);
+    assert.ok(events.some((event) => event.type === 'execution-end'));
+    if (quiet) {
+      assert.equal(result.assistant, null);
+      assert.ok(!events.some((event) => [
+        'progress-note', 'text', 'thought', 'model-start', 'model-end', 'tool-call', 'tool-result', 'assistant-final'
+      ].includes(event.type)));
+    } else {
+      assert.ok(events.some((event) => event.type === 'progress-note'));
+      assert.ok(events.some((event) => event.type === 'assistant-final'));
+    }
+  }
+});
 
 test('cloneTaskValue and _taskMetaSnapshot do not throw; rollback stays on task:*', async () => {
   const { store, service, sessionId } = storeWithSession();

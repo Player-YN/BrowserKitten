@@ -60,9 +60,10 @@ export function partitionTaskCards(tasks = []) {
   return { active, terminal };
 }
 
-/** No empty "ongoing tasks" chrome when nothing is live. */
+/** Keep finished tasks inspectable without drawing empty ongoing-task chrome. */
 export function shouldShowTaskRegion(tasks = []) {
-  return partitionTaskCards(tasks).active.length > 0;
+  const { active, terminal } = partitionTaskCards(tasks);
+  return active.length + terminal.length > 0;
 }
 
 function statusKey(status) {
@@ -101,8 +102,7 @@ function formatDate(value, lang) {
  *   t: (key:string) => string,
  *   getLang: () => string,
  *   getSessionId: () => string,
- *   getTaskStream: () => HTMLElement|null,
- *   getThreadBody: (sessionId:string) => HTMLElement|null,
+ *   getTaskDock: () => HTMLElement|null,
  *   showToast?: (message:string, opts?:object) => void
  * }} deps
  */
@@ -113,26 +113,25 @@ export function createTaskStatusUi(deps) {
   let cachedActiveTaskId = '';
   let host = null;
   let refreshTimer = 0;
+  const panelOpen = new Map();
+  const cardOpen = new Map();
 
   function ensureHost() {
-    if (host?.isConnected) return host;
-    host = document.createElement('section');
+    if (host) return host;
+    host = document.createElement('details');
     host.className = 'durable-task-region';
     host.hidden = true;
-    host.setAttribute('aria-live', 'polite');
+    host.addEventListener('toggle', () => {
+      if (cachedSessionId && host.isConnected) panelOpen.set(cachedSessionId, host.open);
+    });
     return host;
   }
 
   function mount() {
-    const sid = text(deps.getSessionId());
     const region = ensureHost();
-    const threadBody = deps.getThreadBody(sid);
-    if (threadBody) {
-      if (threadBody.firstChild !== region) threadBody.insertBefore(region, threadBody.firstChild);
-      return region;
-    }
-    const stream = deps.getTaskStream();
-    if (stream && region.parentNode !== stream) stream.insertBefore(region, stream.firstChild);
+    const dock = deps.getTaskDock();
+    if (dock && region.parentNode !== dock) dock.append(region);
+    if (dock) dock.hidden = region.hidden;
     return region;
   }
 
@@ -206,42 +205,66 @@ export function createTaskStatusUi(deps) {
 
   function renderCard(task) {
     const status = text(task.status).toLowerCase() || 'ready';
-    const card = node('article', 'durable-task-card');
+    const card = node('details', 'durable-task-card');
+    const key = `${task.sessionId}:${task.taskId}`;
+    card.open = cardOpen.get(key) === true;
+    card.addEventListener('toggle', () => {
+      if (card.isConnected) cardOpen.set(key, card.open);
+    });
     const isActive = text(task.taskId) && text(task.taskId) === cachedActiveTaskId;
     card.dataset.taskId = text(task.taskId);
     card.dataset.state = status;
     if (isActive) card.classList.add('is-session-active');
 
-    const head = node('div', 'durable-task-head');
+    const head = node('summary', 'durable-task-head');
+    const chevron = node('span', 'durable-task-chevron');
+    chevron.setAttribute('aria-hidden', 'true');
     const goal = node('div', 'durable-task-goal', text(task.contract?.goal || task.originalGoal) || deps.t('durableTaskUntitled'));
-    const state = node('span', 'durable-task-state', deps.t(isActive ? 'durableTaskActive' : statusKey(status)));
-    state.dataset.state = isActive ? 'active' : status;
-    head.append(goal, state);
+    goal.title = goal.textContent;
+    const state = node('span', 'durable-task-state', deps.t(statusKey(status)));
+    state.dataset.state = status;
+    head.append(chevron, goal, state);
     card.append(head);
+    const body = node('div', 'durable-task-card-body');
+    card.append(body);
 
     const amendmentCount = Array.isArray(task.amendments) ? task.amendments.length : 0;
-    if (amendmentCount) card.append(labeledLine('durableTaskAmendments', String(amendmentCount)));
-    renderSteps(task, card);
+    if (amendmentCount) body.append(labeledLine('durableTaskAmendments', String(amendmentCount)));
+    renderSteps(task, body);
 
     const due = formatDate(task.dueAt, deps.getLang());
-    if (due) card.append(labeledLine('durableTaskNextWake', due, 'is-wake'));
+    if (due) body.append(labeledLine('durableTaskNextWake', due, 'is-wake'));
     const interval = Number(task.intervalMinutes);
     if (Number.isFinite(interval) && interval > 0) {
-      card.append(labeledLine('durableTaskRepeats', deps.t('durableTaskEveryMinutes').replace('{n}', String(interval))));
+      body.append(labeledLine('durableTaskRepeats', deps.t('durableTaskEveryMinutes').replace('{n}', String(interval))));
     }
-    if (text(task.nextAction)) card.append(labeledLine('durableTaskNextAction', text(task.nextAction)));
-    if (text(task.summary)) card.append(labeledLine('durableTaskSummary', text(task.summary)));
-    if (text(task.lastError)) card.append(labeledLine('durableTaskError', text(task.lastError), 'is-error'));
-    renderEvidence(task, card);
+    if (task.scheduled || task.targetMode || task.observationState) {
+      const targetMode = text(task.targetMode) || (task.targetPage ? 'page' : 'discover');
+      const target = targetMode === 'page' ? text(task.targetPage?.url) : deps.t('durableTaskTargetDiscover');
+      if (target) body.append(labeledLine('durableTaskTarget', target));
+      const checked = formatDate(task.lastCheckedAt, deps.getLang());
+      if (checked) body.append(labeledLine('durableTaskLastChecked', checked));
+      const stopAt = formatDate(task.stopAt, deps.getLang());
+      if (stopAt) body.append(labeledLine('durableTaskStopAt', stopAt));
+      if (text(task.stopWhen)) body.append(labeledLine('durableTaskStopWhen', text(task.stopWhen)));
+      body.append(labeledLine('durableTaskReportPolicy', deps.t(task.reportPolicy === 'changes' ? 'durableTaskReportChanges' : 'durableTaskReportAlways')));
+    }
+    if (text(task.nextAction)) body.append(labeledLine('durableTaskNextAction', text(task.nextAction)));
+    if (text(task.summary)) body.append(labeledLine('durableTaskSummary', text(task.summary)));
+    if (text(task.lastError)) body.append(labeledLine('durableTaskError', text(task.lastError), 'is-error'));
+    renderEvidence(task, body);
 
     if (!TERMINAL.has(status)) {
       const actions = node('div', 'durable-task-actions');
       // Resume is only for paused durable tasks — not the pink user bubble 「继续」.
       if (status === 'paused') actions.append(actionButton(task, 'resume', 'durableTaskResume'));
       else if (PAUSABLE.has(status)) actions.append(actionButton(task, 'pause', 'durableTaskPause'));
+      if (task.scheduled || task.dueAt || task.stopAt) {
+        actions.append(actionButton(task, 'unschedule', 'durableTaskUnschedule'));
+      }
       if (isActive) actions.append(actionButton(task, 'detach', 'durableTaskDetach'));
       actions.append(actionButton(task, 'cancel', 'durableTaskCancel', 'is-danger'));
-      card.append(actions);
+      body.append(actions);
     }
     return card;
   }
@@ -250,6 +273,12 @@ export function createTaskStatusUi(deps) {
     const sid = text(sessionId);
     const region = mount();
     if (!region || sid !== text(deps.getSessionId())) return;
+    if (cachedSessionId) {
+      panelOpen.set(cachedSessionId, region.open);
+      region.querySelectorAll('.durable-task-card').forEach(card => {
+        cardOpen.set(`${cachedSessionId}:${card.dataset.taskId}`, card.open);
+      });
+    }
     const scoped = (Array.isArray(tasks) ? tasks : []).filter((task) => taskBelongsToSession(task, sid));
     cachedSessionId = sid;
     cachedTasks = scoped;
@@ -257,16 +286,31 @@ export function createTaskStatusUi(deps) {
     const { active, terminal } = partitionTaskCards(scoped);
     const show = shouldShowTaskRegion(scoped);
     region.hidden = !show;
+    const dock = deps.getTaskDock();
+    if (dock) dock.hidden = !show;
+    region.open = panelOpen.get(sid) === true;
     if (!show) return;
 
-    const header = node('div', 'durable-task-region-head');
-    header.append(node('span', 'durable-task-region-title', cachedActiveTaskId ? deps.t('durableTaskActive') : deps.t('durableTasksTitle')));
-    header.append(node('span', 'durable-task-count', String(active.length)));
+    const header = node('summary', 'durable-task-region-head');
+    const chevron = node('span', 'durable-task-chevron');
+    chevron.setAttribute('aria-hidden', 'true');
+    const soleTask = active.length === 1 ? active[0] : null;
+    const label = soleTask ? text(soleTask.contract?.goal || soleTask.originalGoal) : deps.t('durableTaskPanel');
+    const title = node('span', 'durable-task-region-title', label || deps.t('durableTaskPanel'));
+    title.title = title.textContent;
+    header.append(chevron, title, node('span', 'durable-task-count', String(active.length || terminal.length)));
+    if (soleTask) {
+      const state = node('span', 'durable-task-state', deps.t(statusKey(soleTask.status)));
+      state.dataset.state = text(soleTask.status).toLowerCase();
+      header.append(state);
+    }
     region.append(header);
+    const body = node('div', 'durable-task-panel-body');
+    region.append(body);
     if (active.length) {
       const list = node('div', 'durable-task-list');
       active.forEach((task) => list.append(renderCard(task)));
-      region.append(list);
+      body.append(list);
     }
     if (terminal.length) {
       const finished = node('details', 'durable-task-finished');
@@ -274,7 +318,7 @@ export function createTaskStatusUi(deps) {
       const list = node('div', 'durable-task-list is-finished');
       terminal.forEach((task) => list.append(renderCard(task)));
       finished.append(summary, list);
-      region.append(finished);
+      body.append(finished);
     }
   }
 
@@ -291,8 +335,6 @@ export function createTaskStatusUi(deps) {
     } catch (error) {
       if (!shouldCommitTaskResponse(sid, deps.getSessionId(), token, generation)) return;
       console.warn('[durable-tasks] list failed', error);
-      cachedSessionId = sid;
-      cachedTasks = [];
       cachedActiveTaskId = '';
       render([], sid);
     }

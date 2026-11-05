@@ -25,7 +25,7 @@ import {
   visibleSummaryRows
 } from '../src/sidepanel/executionStatus.js';
 import { I18N } from '../src/sidepanel/i18n.js';
-import { buildSessionAgentInstructions } from '../src/agent/vnext/sessionWorkspace/prompt.js';
+import { buildSessionRuntimeInstructions } from '../src/agent/vnext/sessionWorkspace/runtimeInstructions.js';
 
 const zh = (k) => I18N.zh[k] || k;
 const en = (k) => I18N.en[k] || k;
@@ -124,10 +124,10 @@ test('prepareStep appends the nudge to instructions only when due', async () => 
   assert.doesNotMatch(String(again.instructions || ''), /Progress reminder/);
 });
 
-test('system prompt asks for milestone progress in the same step as tool calls', () => {
-  const text = buildSessionAgentInstructions();
-  assert.match(text, /在同一步的工具调用之前写一两句进展/);
-  assert.match(text, /不带工具调用的一步会结束本轮/);
+test('runtime instructions preserve milestone progress in the same step as tool calls', () => {
+  const text = buildSessionRuntimeInstructions();
+  assert.match(text, /write one or two progress sentences before the tool calls in that same step/);
+  assert.match(text, /a step without a tool call ends the turn/);
 });
 
 function serviceWithSession(sessionId = 's1') {
