@@ -1,0 +1,44 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible problem with Browser Kitten.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English and Chinese are welcome. For vulnerabilities, use private reporting under Security.
+        请先搜索已有问题；安全漏洞走私密报告入口。不要公开密钥、令牌或私人页面内容。
+  - type: input
+    id: environment
+    attributes:
+      label: Versions and environment / 版本与环境
+      description: Extension version or commit, Chrome version, and operating system.
+      placeholder: "1.2.0 / commit, Chrome version, macOS or Windows version"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Include a public URL or minimal test page when possible.
+      placeholder: "1. Open a page; 2. Configure the provider; 3. Send the task"
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior / 预期与实际表现
+      description: Include the exact error code and which provider purpose was involved, without credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted screenshots or logs / 脱敏截图或日志
+      description: Optional. Check that private task/page data is removed as well as API keys.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting / 提交前
+      options:
+        - label: I removed secrets and private data / 已移除密钥与隐私数据
+          required: true

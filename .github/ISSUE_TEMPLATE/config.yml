@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Setup and troubleshooting / 安装与故障处理
+    url: https://github.com/Player-YN/BrowserKitten/blob/main/SUPPORT.md
+    about: Check setup, permissions, provider configuration, and existing guidance first.
+  - name: Report a vulnerability privately / 私密漏洞报告
+    url: https://github.com/Player-YN/BrowserKitten/security/advisories/new
+    about: Do not publish exploit details or credentials in a public issue.

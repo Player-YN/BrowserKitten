@@ -1,0 +1,26 @@
+name: Feature request / 功能建议
+description: Describe a problem and the behavior that would help.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: "English and Chinese are welcome / 欢迎中文或英文。Please focus on the problem and intended outcome."
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case / 问题与使用场景
+      description: What are you trying to accomplish, and where does the current behavior fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Desired behavior / 期望表现
+      description: Explain the outcome. A concrete example helps; implementation details are optional.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and context / 替代方案与补充
+      description: Optional. Mention workarounds or related issues. Do not include private data.
