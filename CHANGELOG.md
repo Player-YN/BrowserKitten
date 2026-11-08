@@ -9,6 +9,7 @@ Notable user-facing changes are recorded here. `main` may be ahead of tagged Git
 - Local ongoing-task observations, change-aware reporting, configurable stop conditions, and per-round budgets.
 - Autonomous scheduling and removal of follow-ups within the authorized goal.
 - English and Chinese project homepages, setup guides, documentation navigation, and community contribution/reporting files.
+- Runcrate inference provider preset (OpenAI-compatible, `https://api.runcrate.ai/v1`).
 
 ### Changed
 

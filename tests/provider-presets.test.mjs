@@ -32,6 +32,15 @@ test('openai-compatible custom preset keeps empty base and still has protocol', 
   assert.equal(custom.protocol, 'openai-compatible');
 });
 
+test('runcrate preset targets the OpenAI-compatible endpoint with a tool-calling default model', () => {
+  const runcrate = PROVIDER_PRESETS.find((p) => p.id === 'runcrate');
+  assert.ok(runcrate);
+  assert.equal(runcrate.name, 'Runcrate');
+  assert.equal(runcrate.baseURL, 'https://api.runcrate.ai/v1');
+  assert.equal(runcrate.protocol, 'openai-compatible');
+  assert.equal(runcrate.model, 'Qwen/Qwen3-235B-A22B-Instruct-2507');
+});
+
 test('custom preset stays in catalogs for apply, but not in template combobox options', () => {
   assert.ok(PROVIDER_PRESETS.some((p) => p.id === 'openai-compatible'));
   assert.ok(IMAGE_PROVIDER_PRESETS.some((p) => p.id === 'openai-compatible'));

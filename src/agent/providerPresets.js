@@ -252,6 +252,14 @@ export const PROVIDER_PRESETS = [
     apiKeyPlaceholder: '...'
   },
   {
+    id: 'runcrate',
+    name: 'Runcrate',
+    baseURL: 'https://api.runcrate.ai/v1',
+    model: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+    protocol: 'openai-compatible',
+    apiKeyPlaceholder: '...'
+  },
+  {
     id: 'featherless',
     name: 'Featherless',
     baseURL: 'https://api.featherless.ai/v1',
