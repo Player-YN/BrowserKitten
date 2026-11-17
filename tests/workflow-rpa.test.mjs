@@ -72,6 +72,60 @@ test('CSV import/export keeps identifiers and quoted cells', () => {
   assert.match(serializeWorkflowCsv(parsed), /"Kitten, Jr"/);
 });
 
+test('CSV import/export preserves multiline fields as one record', () => {
+  for (const newline of ['\n', '\r\n']) {
+    const table = {
+      columns: ['name', 'note'],
+      rows: [
+        { name: 'Kitten, Jr', note: `First "quoted" line${newline}second line` },
+        { name: 'Next', note: 'Single line' }
+      ]
+    };
+    assert.deepEqual(parseWorkflowCsv(serializeWorkflowCsv(table)), table);
+  }
+});
+
+test('CSV import retains the full row cap and validates wide tables', () => {
+  const table = {
+    columns: ['name'],
+    rows: Array.from({ length: 501 }, (_, i) => ({ name: `Name ${i}` }))
+  };
+  assert.deepEqual(parseWorkflowCsv(serializeWorkflowCsv(table)).rows, table.rows.slice(0, 500));
+  assert.deepEqual(parseWorkflowCsv('\uFEFF\n\n name ,note\n Alice , hello \n\n'), {
+    columns: ['name', 'note'], rows: [{ name: 'Alice', note: 'hello' }]
+  });
+  assert.deepEqual(parseWorkflowCsv('name,note\nAlice\nBob,hello,unused'), {
+    columns: ['name', 'note'], rows: [{ name: 'Alice', note: '' }, { name: 'Bob', note: 'hello' }]
+  });
+  assert.throws(() => parseWorkflowCsv('name,name\nAlice,Bob'), /unique identifiers/);
+  const wide = parseWorkflowCsv(Array.from({ length: 41 }, (_, i) => `col${i}`).join(','));
+  assert.equal(wide.columns.length, 41);
+  assert.throws(() => validateWorkflow(wf([{ id: 'review', title: 'Review', op: 'manual' }], { table: wide })), /row or column cap/);
+});
+
+test('CSV import feeds multiline values to foreach without extra actions', async () => {
+  const filled = [];
+  const table = { columns: ['note'], rows: [{ note: 'First line\nsecond "quoted" line' }] };
+  const host = hostWith({
+    observe: async () => ({ rev: 'r', controls: [{ role: 'textbox', name: 'Note', ref: 'n', visible: true }] }),
+    action: async payload => { filled.push(payload.value); return { ok: true }; }
+  });
+  const run = makeRun([
+    { id: 'import', title: 'Import', op: 'csvImport', value: serializeWorkflowCsv(table) },
+    {
+      id: 'each', title: 'Each', op: 'foreach', collection: { $ref: 'table.rows' },
+      steps: [{
+        id: 'fill', title: 'Fill', op: 'fill', tab: 'main', target: { role: 'textbox', name: 'Note' },
+        value: { $ref: 'loop.row.note' }, check: { type: 'visible' }
+      }]
+    }
+  ]);
+  const result = await executeWorkflow(run, host, { controller: new AbortController() });
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(filled, [table.rows[0].note]);
+  assert.deepEqual(result.table, table);
+});
+
 test('foreach over table rows exposes $ref to the current row', async () => {
   const filled = [];
   const host = hostWith({

@@ -18,6 +18,7 @@ Notable user-facing changes are recorded here. `main` may be ahead of tagged Git
 
 ### Fixed
 
+- Workflow CSV imports preserve quoted multiline cells instead of splitting them into extra rows.
 - System1's settings probe uses the same chat endpoint and decision format as the page executor.
 
 ## [1.1.0] — 2026-09-16

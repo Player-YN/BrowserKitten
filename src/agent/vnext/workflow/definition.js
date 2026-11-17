@@ -149,29 +149,26 @@ export function evaluateWhen(when, input, outputs, scope = {}) {
   return left !== false && left !== 0 && left != null && left !== '';
 }
 
-function splitCsvLine(line) {
-  const cells = []; let cell = ''; let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+function splitCsvRows(text) {
+  const rows = []; let cells = []; let cell = ''; let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
     if (quoted) {
-      if (ch === '"') { if (line[i + 1] === '"') { cell += '"'; i++; } else quoted = false; }
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else quoted = false; }
       else cell += ch;
     } else if (ch === '"') quoted = true;
     else if (ch === ',') { cells.push(cell); cell = ''; }
-    else cell += ch;
+    else if (ch === '\n') {
+      cells.push(cell); rows.push(cells); cells = []; cell = '';
+    } else cell += ch;
   }
-  cells.push(cell);
-  return cells;
+  cells.push(cell); rows.push(cells);
+  return rows;
 }
 export function parseWorkflowCsv(text) {
   const raw = String(text ?? '').replace(/^\uFEFF/, '');
   if (!raw.trim()) return { columns: [], rows: [] };
-  const lines = raw.split(/\r?\n/).filter((line, i, all) => line.length || i < all.length - 1);
-  const rows = [];
-  for (const line of lines) {
-    if (!line && !rows.length) continue;
-    rows.push(splitCsvLine(line).map(cell => cell.trim()));
-  }
+  const rows = splitCsvRows(raw.replace(/^(?:\r?\n)+/, '')).map(cells => cells.map(cell => cell.trim()));
   while (rows.length && rows.at(-1).every(cell => cell === '')) rows.pop();
   if (!rows.length) return { columns: [], rows: [] };
   const columns = rows[0].map((name, i) => identifier(name) ? name : `col${i + 1}`);
