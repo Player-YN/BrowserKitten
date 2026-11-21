@@ -284,6 +284,14 @@ export const PROVIDER_PRESETS = [
     apiKeyPlaceholder: 'lm-studio'
   },
   {
+    id: 'openllm',
+    name: 'OpenLLM (local)',
+    baseURL: 'http://127.0.0.1:8787/v1',
+    model: '',
+    protocol: 'openai-compatible',
+    apiKeyPlaceholder: 'openllm'
+  },
+  {
     id: 'openai-compatible',
     name: 'OpenAI Compatible',
     baseURL: '',

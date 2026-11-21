@@ -71,6 +71,15 @@ test('legacy presets remain present', () => {
   assert.equal(zen.protocol, 'auto');
 });
 
+test('OpenLLM local preset: loopback base, openai-compatible wire, no preset model', () => {
+  const openllm = PROVIDER_PRESETS.find((p) => p.id === 'openllm');
+  assert.ok(openllm);
+  assert.equal(openllm.baseURL, 'http://127.0.0.1:8787/v1');
+  assert.equal(openllm.protocol, 'openai-compatible');
+  assert.equal(openllm.model, '');
+  assert.ok(presetsForTemplateCombobox(PROVIDER_PRESETS).some((p) => p.id === 'openllm'));
+});
+
 test('sibling preset catalogs stay populated', () => {
   assert.ok(IMAGE_PROVIDER_PRESETS.some((p) => p.id === 'openrouter'));
   assert.ok(STT_PROVIDER_PRESETS.some((p) => p.id === 'openai'));

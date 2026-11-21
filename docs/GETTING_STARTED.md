@@ -18,6 +18,8 @@ Chrome continues to load files from this folder; keep it in place. The source ZI
 
 Open **Settings** in the side-panel menu. Add an **Inference** provider with a Base URL, API key, and a model ID that supports tool calls. Save it and select the model.
 
+The **OpenLLM (local)** template points at the [OpenLLM](https://www.openllm.sh) local daemon (`http://127.0.0.1:8787/v1`), which routes your API keys, subscription accounts, and local models through one endpoint. The daemon needs no key, but this form requires a non-empty one, so enter any value such as `openllm`. Pick a model ID from the list the daemon returns (for example `lite`, if it is enabled). To use OpenLLM's cloud endpoint instead, choose a custom provider with Base URL `https://www.openllm.sh/v1` and your `sk-llm-...` key. See the [OpenLLM docs](https://docs.openllm.sh).
+
 To operate page controls, also add a **System1** provider. This is a separate configuration for the execution model, using an OpenAI-compatible `/chat/completions` endpoint. Inference and execution may use the same provider, but configuring one does not configure the other. Missing execution credentials produce `NEED_JEV`. System1's **Probe** makes a no-action request to the actual executor route and checks its decision format; it does not test every website or visual input.
 
 Image generation, transcription, and additional search/extraction services are optional. Use only the ones your tasks need. API endpoints must be reachable from your computer, and provider usage is billed by that provider.

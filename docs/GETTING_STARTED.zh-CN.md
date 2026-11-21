@@ -39,6 +39,7 @@
 **使用自己的 API Key：**
 
 1. 在 **推理 → 添加推理 API** 中选择模板或自定义服务商，填写 Base URL、API Key 和模型 ID，保存并选中要使用的模型。模型需支持工具调用。
+   模板 **OpenLLM (local)** 指向 [OpenLLM](https://www.openllm.sh) 本地服务（`http://127.0.0.1:8787/v1`），它把你的 API Key、订阅账户和本地模型汇聚到同一个接口。本地服务不需要 Key，但表单要求 Key 非空，可填任意值，例如 `openllm`；模型 ID 从服务返回的列表中选择（例如已启用时的 `lite`）。要使用 OpenLLM 云端接口，请选择自定义服务商，Base URL 填 `https://www.openllm.sh/v1`，Key 填 `sk-llm-...`。详见 [OpenLLM 文档](https://docs.openllm.sh)。
 2. 在 **System1 → 添加 System1** 中填写执行模型的 Base URL、API Key 和模型 ID，保存。当前页面执行使用 OpenAI-compatible 的 `/chat/completions` 接口；它与推理配置分开，不能只填推理 Key。可以使用同一服务商分别配置两个用途。
 3. System1 的 **探测** 会发送一次不操作网页的小型执行模型请求，检查接口及回复格式；探测通过不代表已验证所有网站或视觉输入。
 
