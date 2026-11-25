@@ -67,6 +67,8 @@ Open **Settings** from the side-panel menu. For a bring-your-own-key setup:
 
 Inference and System1 can use the same provider, but must be configured separately. The unpacked build accepts your own keys without a Browser Kitten subscription; the external providers still charge for usage. Account-hosted services are optional and depend on the separate backend.
 
+The **OpenDesign Go** inference template fills the Chat Completions base URL and a default text model. [View the Go plan](https://go.open-design.ai/) and [create a workspace API key](https://open-design.ai/help/cloud-api/), then enter your key and a model ID available to your workspace. This template configures inference only; System1 and media services remain separate.
+
 Try a small first task:
 
 > Summarize the current page and save its key findings as a document.
