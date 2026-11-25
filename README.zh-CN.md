@@ -67,6 +67,8 @@ Browser Kitten 是 MIT 开源的 Chrome MV3 扩展，在侧栏中运行通用 Ag
 
 推理和 System1 可以使用同一服务商，但要分别配置。unpacked 版本默认允许自带 Key，无需 Browser Kitten 订阅；外部 API 调用仍由对应服务商计费。账户积分服务可选，依赖独立后端。
 
+**OpenDesign Go** 推理模板会填入 Chat Completions 地址和默认文本模型。先[查看 Go 套餐](https://go.open-design.ai/)并[创建工作区 API Key](https://open-design.ai/help/cloud-api/)，再填入自己的 Key 和工作区可用的模型 ID。此模板仅配置推理；System1 和媒体服务仍需单独配置。
+
 先试一个小任务：
 
 > 总结当前页面的主要内容，并把关键结论整理成一份文档。

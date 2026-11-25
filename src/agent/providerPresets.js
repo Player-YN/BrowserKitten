@@ -172,6 +172,14 @@ export const PROVIDER_PRESETS = [
     }
   },
   {
+    id: 'opendesign-go',
+    name: 'OpenDesign Go',
+    baseURL: 'https://amr-link.open-design.ai/v1',
+    model: 'deepseek-v4.1-flash',
+    protocol: 'openai-compatible',
+    apiKeyPlaceholder: 'sk-...'
+  },
+  {
     id: 'opencode-zen',
     name: 'OpenCode Zen',
     baseURL: 'https://opencode.ai/zen/v1',
